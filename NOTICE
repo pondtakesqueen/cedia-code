@@ -6,6 +6,8 @@ cedia adapts code from the following sources:
 
 - Ink (MIT, Copyright (c) Vadim Demedes) — patches/ink@8.0.0.patch changes its build: Output keeps its caches across frames and reuses an unchanged row's text, Text memoizes its style transform, squashed text and transformed lines are cached, and on the alternate screen a new frame writer (build/log-screen.js) writes each frame by position, moving shifted rows with a scroll region and writing only the changed cells of a changed row; a box or text with no change since it was drawn draws its last operations again. Each change is marked "cedia:" in the patched files.
 
+- Stageshow (MIT, Copyright (c) 2026 Benji Taylor) — the stageshow skill in .agents/skills/stageshow, copied unchanged from github.com/benjitaylor/skills at commit 802057409787133703c56001080169e347305572. Its LICENSE and NOTICE.md stay in that folder; the app icons, brand artwork and photographs it names there keep their own terms.
+
 Claude Code (no license) — read only for understanding; no code copied.
 
 Earlier versions of this repository (the pi package, removed in stage 0) also adapted code from pstack-claude (MIT), Grok Build (Apache-2.0), Codex (Apache-2.0) and oh-my-pi (MIT). That code is no longer in the tree; see git history.
