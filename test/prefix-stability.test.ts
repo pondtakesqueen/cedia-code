@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildMessages } from '../src/core/context/build.ts';
@@ -10,7 +10,8 @@ import type { EventOf, SessionEvent } from '../src/core/types.ts';
 
 // The cached prefix across runs of one thread (SPEC "Cache rules"): whatever changes between runs (the mode, the
 // project's memory, AGENTS.md, the skills on disk, the branch), the next request in the same session repeats every
-// byte the last one sent and only adds to it.
+// byte the last one sent and only adds to it. Each test's temp dir is resolved: macOS's /var is a link to
+// /private/var, and `cedia memory` files its notes under the real path of the directory it runs in.
 
 const BIN = join(import.meta.dir, '..', 'bin', 'cedia');
 const reply = (text: string) => ({ blocks: [{ type: 'text' as const, text }] });
@@ -50,7 +51,7 @@ describe('prefix stability across runs (offline, faux)', () => {
   const base = ['--output-format', 'json', '--sandbox', 'off'];
 
   test('a mode change, a memory note, an AGENTS.md edit, a new skill and a branch switch keep the session prefix', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cedia-prefix-'));
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cedia-prefix-')));
     writeFileSync(join(dir, 'AGENTS.md'), '# rules\nUse tabs.\n');
     writeFileSync(join(dir, 'f.txt'), 'one\n');
     git(dir, 'init', '-q', '-b', 'main');
@@ -90,7 +91,7 @@ describe('prefix stability across runs (offline, faux)', () => {
   });
 
   test('a run on a later day is told the date in its own turn, and message 0 keeps the day it opened', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'cedia-prefix-'));
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cedia-prefix-')));
     const first = cedia(dir, [reply('hello')], ['-p', 'hi', ...base]);
     // Move the session's opening and its requests back two days (a log is plain JSONL).
     const log = sessionOf(dir, first.sessionId);
