@@ -159,8 +159,9 @@ export function scrubbedEnv(env: Record<string, string | undefined> = process.en
 
 // What the model's commands run with: the scrubbed environment, and Python told not to leave __pycache__ beside
 // the code a test run imports (a panel marked those files down as stray in a diff, 2026-10-28-opus-quality), unless
-// the user's own environment already says.
-export const commandEnv = (env: Record<string, string | undefined> = process.env): Record<string, string> => ({ PYTHONDONTWRITEBYTECODE: '1', ...scrubbedEnv(env) });
+// the user's own environment already says. AI_AGENT names the caller for tools that print less to an agent, and
+// is always cedia: the commands are cedia's, even when cedia itself runs under another agent.
+export const commandEnv = (env: Record<string, string | undefined> = process.env): Record<string, string> => ({ PYTHONDONTWRITEBYTECODE: '1', ...scrubbedEnv(env), AI_AGENT: 'cedia' });
 
 const PIPE_GRACE_MS = 500;
 

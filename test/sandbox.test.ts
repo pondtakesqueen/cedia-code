@@ -106,8 +106,10 @@ describe('bash environment and protected paths', () => {
   test('shell startup files cannot leak in: BASH_ENV, ENV and ZDOTDIR are stripped', () => {
     expect(scrubbedEnv({ PATH: '/bin', BASH_ENV: '/x/env', ENV: '/y/env', ZDOTDIR: '/z', HOME: '/root' })).toEqual({ PATH: '/bin', HOME: '/root' });
     // Commands also run with Python's bytecode files off, unless the user's environment sets it.
-    expect(commandEnv({ PATH: '/bin', OPENAI_API_KEY: 'k' })).toEqual({ PYTHONDONTWRITEBYTECODE: '1', PATH: '/bin' });
+    expect(commandEnv({ PATH: '/bin', OPENAI_API_KEY: 'k' })).toEqual({ PYTHONDONTWRITEBYTECODE: '1', PATH: '/bin', AI_AGENT: 'cedia' });
     expect(commandEnv({ PATH: '/bin', PYTHONDONTWRITEBYTECODE: '' }).PYTHONDONTWRITEBYTECODE).toBe('');
+    // Tools that adapt their output to an agent caller see cedia, even when cedia itself runs under another agent.
+    expect(commandEnv({ PATH: '/bin', AI_AGENT: 'other' }).AI_AGENT).toBe('cedia');
   });
 
   test('bash runs --noprofile --norc and still runs ordinary commands', async () => {
