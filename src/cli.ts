@@ -94,6 +94,7 @@ const USAGE = `usage: cedia [options]                 the TUI, at a terminal: ea
                                it reads the change and answers met, not met (the writer goes on with what is
                                missing, at most 3 more times) or impossible. Exit 1 unless met
       --goal-judge <ref>       the judge's model (default: the writer's, in a fresh read-only session)
+      --satisfaction-judge <ref>  judge whether the previous run's work actually helped, from the follow-up message (default: off)
       --goal-mode <light|full> full: the judge's model first writes acceptance criteria that go with the task and that
                                the judge answers one by one, and a strategist proposes a change of approach when the
                                same criteria stay unmet two rounds in a row (default light)
@@ -332,6 +333,7 @@ export async function main(argv: string[]): Promise<number> {
       goal: { type: 'string' },
       'goal-judge': { type: 'string' },
       'goal-mode': { type: 'string' },
+      'satisfaction-judge': { type: 'string' },
       advisor: { type: 'string' },
       classifier: { type: 'string' },
       plan: { type: 'string' },
@@ -400,6 +402,7 @@ export async function main(argv: string[]): Promise<number> {
     ...(values.goal ? { goal: values.goal } : {}),
     ...(values['goal-judge'] ? { goalJudge: values['goal-judge'] } : {}),
     ...(values['goal-mode'] ? { goalMode: values['goal-mode'] } : {}),
+    ...(values['satisfaction-judge'] ? { satisfactionJudge: values['satisfaction-judge'] } : {}),
     ...(values.advisor ? { advisor: values.advisor } : {}),
     ...(values.classifier ? { classifier: values.classifier } : {}),
     ...(values.plan ? { plan: values.plan } : {}),

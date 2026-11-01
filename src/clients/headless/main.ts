@@ -54,6 +54,7 @@ import { callText, CLASSIFIER_SYSTEM, classifyPrompt, MAX_INPUT, namedFiles, ver
 import { changedLines, fixPrompt, parseVerdict, reviewPrompt, SMALL_CHANGE_LINES, verifyFindings, type ReviewOutcome } from '../../core/trust/review.ts';
 import { existingTests, leavesTestsAlone, PROTECTED_TEST_REASON } from '../../core/trust/tests.ts';
 import { goalContinuePrompt, goalPlanPrompt, goalPrompt, judgeWithPlan, MAX_GOAL_ROUNDS, parseCriteria, parseGoal, strategistPrompt, withCriteria, type GoalRound } from '../../core/trust/goal.ts';
+import { satisfactionPrompt, parseSatisfaction } from '../../core/trust/satisfaction.ts';
 import { addUsage, hitRatio, ZERO_USAGE, type Effort, type JsonObject, type Spawned, type EventOf, type Evidence, type HeadlessResult, type ModelSpec, type ModelUsage, type Provider, type SessionEvent, type Step, type Timing } from '../../core/types.ts';
 import { startClaudeCode, type WarmClaudeCode } from './claude-code.ts';
 import { encode } from '../../protocol/index.ts';
@@ -117,6 +118,8 @@ export type HeadlessArgs = {
   onQuota?: string;
   // Reviews the change once the writer's claim passes the done gate.
   review?: string;
+  // A model that judges whether the previous run's work actually helped, from the user's follow-up message.
+  satisfactionJudge?: string;
   // Reads each of the writer's turns and may leave a note before the next.
   advisor?: string;
   classifier?: string;
@@ -361,16 +364,22 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
   const fauxScript = process.env.CEDIA_FAUX_SCRIPT ? (JSON.parse(readFileSync(process.env.CEDIA_FAUX_SCRIPT, 'utf8')) as FauxStep[]) : undefined;
   let handoffAt: ReturnType<typeof loadHandoffAt>;
   let goalJudge: typeof model | undefined;
+  let satisfactionJudge: typeof model | undefined;
   try {
     handoffAt = loadHandoffAt(model, args.handoffAt);
     goalJudge = args.goal ? (args.goalJudge ? resolveModel(args.goalJudge) : model) : undefined;
     if (args.goalMode !== undefined && args.goalMode !== 'light' && args.goalMode !== 'full') throw new Error(`goal-mode must be light or full: ${args.goalMode}`);
+    satisfactionJudge = args.satisfactionJudge ? resolveModel(args.satisfactionJudge) : undefined;
   } catch (e) {
     await sandbox.close();
     throw e;
   }
   if (goalJudge && goalJudge !== model) {
     const note = missingKeyNote(goalJudge);
+    if (note) say(note + '\n');
+  }
+  if (satisfactionJudge && satisfactionJudge !== model) {
+    const note = missingKeyNote(satisfactionJudge);
     if (note) say(note + '\n');
   }
   const handoffVia = loadHandoff(args.handoff);
@@ -1249,10 +1258,27 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
       const last = rounds.at(-1);
       goal = { condition: args.goal, verdict: last?.verdict ?? 'not_met', rounds, ...(goalPlan ? { plan: goalPlan } : {}), ...(strategy ? { strategy } : {}) };
     }
+    // Satisfaction: did the previous run's work actually help? Judged from the user's follow-up message (this run's
+    // prompt). Only when a judge is set and this run follows an earlier one in the same thread.
+    let satisfaction: HeadlessResult['satisfaction'];
+    if (satisfactionJudge && store && threadId) {
+      const t = store.read(threadId);
+      const prevRuns = t.runs.filter((r) => r.id !== runId);
+      const prev = prevRuns[prevRuns.length - 1];
+      if (prev && t.result) {
+        const log = openLog();
+        if (store) store.append(threadId, { run: runId, kind: 'session', sessionId: log.id, model: satisfactionJudge.ref, role: 'goal', why: 'start', ...(log.path ? { path: log.path } : {}) });
+        const r = await run(satisfactionJudge, log, satisfactionPrompt(prev.prompt, t.result, args.prompt), { role: 'goal' });
+        const judged = r.subtype === 'success' ? parseSatisfaction(r.result) : { verdict: 'not_satisfied' as const, reason: `the judge's session ended with ${r.subtype}` };
+        if (store) store.append(threadId, { run: prev.id, kind: 'satisfaction', verdict: judged.verdict, reason: judged.reason, sessionId: log.id });
+        satisfaction = { verdict: judged.verdict, reason: judged.reason, judge: satisfactionJudge.ref, sessionId: log.id, costUsd: r.costUsd };
+        say(`cedia satisfaction: ${judged.verdict} (${satisfactionJudge.ref})\\n`);
+      }
+    }
     const sessions = [...new Set(writerRuns.map((w) => w.log.id))];
     const classified = cls.calls ? { model: roles.classifier!.ref, via: 'cedia' as const, sessionId: cls.last ?? '', costUsd: cls.costUsd, calls: cls.calls, blocked: cls.blocked } : undefined;
     const advice = adv.log ? { model: roles.advisor!.ref, via: 'cedia' as const, sessionId: adv.log.id, costUsd: adv.costUsd, turns: adv.turns, notes: adv.notes } : undefined;
-    result = { ...combine(parts, result, new Set([...children, ...advised]), advised), ...(plan ? { plan } : {}), ...(review ? { review } : {}), ...(advice ? { advice } : {}), ...(goal ? { goal } : {}), ...(classified ? { classified } : {}), ...(threadId ? { thread: threadId } : {}), sessions, ...(subthreads ? { subthreads, spawned } : {}) };
+    result = { ...combine(parts, result, new Set([...children, ...advised]), advised), ...(plan ? { plan } : {}), ...(review ? { review } : {}), ...(advice ? { advice } : {}), ...(goal ? { goal } : {}), ...(satisfaction ? { satisfaction } : {}), ...(classified ? { classified } : {}), ...(threadId ? { thread: threadId } : {}), sessions, ...(subthreads ? { subthreads, spawned } : {}) };
     recordTurn();
     if (store && threadId && result.question) store.append(threadId, { run: runId, kind: 'question', sessionId: result.sessionId, ...result.question });
     if (store && threadId) store.append(threadId, { run: runId, kind: 'state', state: goal && goal.verdict !== 'met' && result.subtype === 'success' ? 'failed' : stateOf(result), result: result.result.slice(0, MAX_RESULT) });

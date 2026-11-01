@@ -53,6 +53,8 @@ type ThreadBody =
   // The thread went back to just before run `run`: what happened from there to here is dropped from the fold
   // (core/project/rewind.ts), except what is not the conversation's (messages, ratings, archiving).
   | { kind: 'rewind'; run: string }
+  // A satisfaction judgement of an earlier run, from the user's follow-up message (core/trust/satisfaction.ts).
+  | { kind: 'satisfaction'; verdict: 'satisfied' | 'not_satisfied' | 'impossible'; reason: string; sessionId: string }
   // Hidden from lists, still readable. A sub-thread that finishes its task archives itself.
   | { kind: 'archived'; archived: boolean }
   // The person renamed the thread: the latest one is its title.

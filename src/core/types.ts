@@ -269,6 +269,9 @@ export type HeadlessResult = {
   // verdict 'interrupted': the run was stopped (a signal, a timeout's SIGTERM) before the review answered. fixMs: the
   // wall time of the writer's fix round, when the review sent it back.
   review?: Step & { verdict: 'approve' | 'changes' | 'unclear' | 'interrupted'; fixed: boolean; fixMs?: number };
+  // Satisfaction judge (core/trust/satisfaction.ts): whether the previous run's work actually helped, judged from the
+  // user's follow-up message. Only when --satisfaction-judge is set and the run is a follow-up in a thread.
+  satisfaction?: { verdict: 'satisfied' | 'not_satisfied' | 'impossible'; reason: string; judge: string; sessionId: string; costUsd: number };
   // Goal mode (core/trust/goal.ts): the condition, the last judge's verdict, and each judgement. Full mode adds the
   // planner's criteria, which each round left unmet, and the strategist's proposal when one ran.
   goal?: {

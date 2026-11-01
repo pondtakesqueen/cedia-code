@@ -1346,6 +1346,39 @@
             "via"
           ]
         },
+        "satisfaction": {
+          "type": "object",
+          "properties": {
+            "verdict": {
+              "type": "string",
+              "enum": [
+                "satisfied",
+                "not_satisfied",
+                "impossible"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            },
+            "judge": {
+              "type": "string"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "costUsd": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "verdict",
+            "reason",
+            "judge",
+            "sessionId",
+            "costUsd"
+          ],
+          "additionalProperties": false
+        },
         "goal": {
           "type": "object",
           "properties": {
@@ -4231,6 +4264,43 @@
             "at",
             "kind",
             "run"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "satisfaction"
+            },
+            "verdict": {
+              "type": "string",
+              "enum": [
+                "satisfied",
+                "not_satisfied",
+                "impossible"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "at": {
+              "type": "string"
+            },
+            "run": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "at",
+            "kind",
+            "reason",
+            "sessionId",
+            "verdict"
           ]
         },
         {
