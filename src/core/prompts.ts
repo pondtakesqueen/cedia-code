@@ -1,4 +1,5 @@
 import type { Guard, PermissionMode } from './safety/policy.ts';
+import type { SessionEvent } from './types.ts';
 
 // The base prompt's lines that trade checking for fewer turns. Haiku and DeepSeek keep them: without them they
 // spent turns on probes that found nothing (catalog.ts). Opus does not: with them it stopped at a passing check and
@@ -90,6 +91,24 @@ export function modeNote(mode: PermissionMode, unlock: Guard[], plan?: { ask: bo
     return 'read-only: file writes and commands that may write are denied unless an allow rule covers them. If the task needs a write, say what you would change and stop.';
   const denied = Object.entries(GUARD_NOTE).filter(([g]) => !unlock.includes(g as Guard)).map(([, note]) => note);
   return `workspace: you may change files inside the working directory and run commands without asking.${denied.length ? ` Denied: ${denied.join(', ')}.` : ''}`;
+}
+
+// A session's first turn names the date it opened on (preamble), and message 0 is never rewritten. A run that goes
+// on in the session on a later day, or after a long gap, tells the model the date again in its own turn: the last
+// date it was told (message 0, or an earlier note like this one), and how long since the last request went out.
+const TIME_GAP_MS = 6 * 3_600_000;
+export function timeNote(events: SessionEvent[], now = new Date()): string | undefined {
+  const last = events.findLast((e) => e.kind === 'request');
+  if (!last) return undefined;
+  const turns = events.filter((e) => e.kind === 'user' || e.kind === 'reminder');
+  const opened = turns.map((e) => /<environment>\n(?:.*\n)*?date: (\d{4}-\d{2}-\d{2})\n/.exec(e.text)?.[1]).find(Boolean);
+  const told = turns.flatMap((e) => [...e.text.matchAll(/<time>\ntoday: (\d{4}-\d{2}-\d{2}),/g)].map((m) => m[1]!)).at(-1) ?? opened;
+  const today = now.toISOString().slice(0, 10);
+  const gap = now.getTime() - Date.parse(last.at);
+  if (told === today && gap <= TIME_GAP_MS) return undefined;
+  const hours = Math.round(gap / 3_600_000);
+  const ago = hours > 48 ? `${Math.round(hours / 24)} days` : hours >= 1 ? `${hours} hour${hours === 1 ? '' : 's'}` : `${Math.max(1, Math.round(gap / 60_000))} minutes`;
+  return `<time>\ntoday: ${today}, the last message was ${ago} ago\n</time>`;
 }
 
 // Per-session facts go in the first user turn, never in the cached system prompt.

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { historyRejected, runPrompt, type RunOptions } from '../../core/loop/run.ts';
-import { modeNote, preamble, READ_ONLY_SYSTEM, systemFor } from '../../core/prompts.ts';
+import { modeNote, preamble, READ_ONLY_SYSTEM, systemFor, timeNote } from '../../core/prompts.ts';
 import { resolveModel } from '../../core/providers/catalog.ts';
 import type { FauxStep } from '../../core/providers/faux.ts';
 import { missingKeyNote } from '../../core/providers/http.ts';
@@ -1151,7 +1151,9 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
       // Its first message named the mode it was opened under; a run under another one says so.
       const before = resumed?.runs.at(-1)?.permission;
       const header = log.events[0]?.kind === 'session' ? log.events[0] : undefined;
-      const lead = before && before !== permission ? `<permission>\n${modeNote(policy.mode, policy.unlock ?? [], policy.plan ? { ask: !!header?.tools.some((d) => d.name === 'ask_user') } : undefined)}\n</permission>` : undefined;
+      const mode = before && before !== permission ? `<permission>\n${modeNote(policy.mode, policy.unlock ?? [], policy.plan ? { ask: !!header?.tools.some((d) => d.name === 'ask_user') } : undefined)}\n</permission>` : undefined;
+      // And a run on a later day, or after a long gap, is told the date again.
+      const lead = [mode, timeNote(log.events)].filter(Boolean).join('\n\n') || undefined;
       result = await write(model, log, opening ?? task, { ...(inherited.length ? { inherited } : {}), ...(images.length ? { images } : {}), ...planOpt }, lead);
     } else {
       const log = openLog();
