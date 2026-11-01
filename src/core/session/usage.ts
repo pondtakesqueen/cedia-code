@@ -327,7 +327,8 @@ export function formatUsage(r: UsageReport): string {
   lines.push(r.misses.length ? `cache misses: ${r.misses.map((m) => `${m.count} ${m.cause} (${k(m.tokens)} tokens)`).join(', ')}` : 'cache misses: none');
   if (r.blocked.length) lines.push(`blocked calls: ${r.blocked.map((b) => `${b.count} ${b.rule}`).join(', ')}`);
   if (r.toolErrors.length) lines.push(`tool errors: ${r.toolErrors.map((e) => `${e.count} ${e.tool} (${e.category})`).join(', ')}`);
-  if (r.toolErrorBaselines.length) lines.push(`tool error baselines: ${r.toolErrorBaselines.map((b) => `${b.tool}/${b.model}: ${b.errors}/${b.calls} (${Math.round(b.rate * 100)}%)`).join(', ')}`);  for (const w of r.warnings) lines.push(`warning: ${w}`);
+  if (r.toolErrorBaselines.length) lines.push(`tool error baselines: ${r.toolErrorBaselines.map((b) => `${b.tool}/${b.model}: ${b.errors}/${b.calls} (${Math.round(b.rate * 100)}%)`).join(', ')}`);
+  for (const w of r.warnings) lines.push(`warning: ${w}`);
   const warn = [
     r.overPriceLine && `${r.overPriceLine} request${r.overPriceLine === 1 ? '' : 's'} past the model's long-context price line`,
     r.maxEffort && `${r.maxEffort} request${r.maxEffort === 1 ? '' : 's'} at effort max`,

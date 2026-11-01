@@ -4527,6 +4527,59 @@
       ],
       "additionalProperties": false
     },
+    "ToolErrorBaseline": {
+      "type": "object",
+      "properties": {
+        "tool": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "calls": {
+          "type": "number"
+        },
+        "errors": {
+          "type": "number"
+        },
+        "rate": {
+          "type": "number"
+        },
+        "byCategory": {
+          "type": "object",
+          "properties": {
+            "InvalidArguments": {
+              "type": "number"
+            },
+            "UnexpectedEnvironment": {
+              "type": "number"
+            },
+            "ProviderError": {
+              "type": "number"
+            },
+            "Timeout": {
+              "type": "number"
+            },
+            "UserAborted": {
+              "type": "number"
+            },
+            "none": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "tool",
+        "model",
+        "calls",
+        "errors",
+        "rate",
+        "byCategory"
+      ],
+      "additionalProperties": false
+    },
     "ToolOutput": {
       "type": "object",
       "properties": {
@@ -4758,6 +4811,12 @@
             "additionalProperties": false
           }
         },
+        "toolErrorBaselines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ToolErrorBaseline"
+          }
+        },
         "overPriceLine": {
           "type": "number"
         },
@@ -4879,6 +4938,7 @@
         "misses",
         "blocked",
         "toolErrors",
+        "toolErrorBaselines",
         "overPriceLine",
         "maxEffort",
         "slowStart",
