@@ -13,6 +13,7 @@ import { cediaHome, sharedSkillDirs, loadCompleteModel, loadHandoffAt, loadPermi
 import { processKeychain } from './core/providers/keychain.ts';
 import { modelLine, modelList } from './core/providers/models.ts';
 import { threadLine, threadsDir, ThreadStore, type Rating } from './core/project/threads.ts';
+import { changedFilesOfEvents, retentionOf } from './core/project/keep-rate.ts';
 import { memoryPath, MemoryStore } from './core/project/memory.ts';
 import { TeamStore, teamLine } from './core/project/teams.ts';
 import { findLivingDocs } from './core/project/livingdocs.ts';
@@ -560,7 +561,9 @@ function threads(argv: string[]): number {
     allowPositionals: true,
     options: { cwd: { type: 'string' }, all: { type: 'boolean' }, session: { type: 'string' }, note: { type: 'string' }, force: { type: 'boolean' }, side: { type: 'boolean' }, json: { type: 'boolean' }, image: { type: 'string', multiple: true }, since: { type: 'string' }, 'edited-path': { type: 'string' }, limit: { type: 'string' }, base: { type: 'string' } },
   });
-  const store = new ThreadStore(threadsDir(cediaHome(), projectKey(values.cwd ?? process.cwd())));
+  const cwd = resolve(values.cwd ?? process.cwd());
+  const home = cediaHome();
+  const store = new ThreadStore(threadsDir(home, projectKey(cwd)));
   const [cmd = 'list', id, ...rest] = positionals;
   try {
     if (cmd === 'list') {
@@ -608,6 +611,25 @@ function threads(argv: string[]): number {
     if (cmd === 'rename' && id && rest.length) {
       const title = store.rename(id, rest.join(' '));
       console.log(`renamed ${id}: ${title}`);
+      return 0;
+    }
+    if (cmd === 'keep-rate' && id && !rest.length) {
+      const t = store.read(id);
+      const changed = new Set<string>();
+      for (const s of t.sessions) {
+        const p = s.path ?? sessionPath(cwd, s.sessionId, home);
+        if (!existsSync(p)) continue;
+        const events = readEventsLenient(readFileSync(p, 'utf8'));
+        for (const f of changedFilesOfEvents(events)) changed.add(f);
+      }
+      const baseline = [...changed];
+      const r = retentionOf(baseline, (f) => existsSync(join(cwd, f)));
+      if (values.json) {
+        console.log(JSON.stringify({ thread: id, ...r }));
+        return 0;
+      }
+      console.log(`${id}: ${r.kept}/${r.total} files kept (${(r.rate * 100).toFixed(0)}%)`);
+      if (r.missing.length) console.log(`missing: ${r.missing.join(', ')}`);
       return 0;
     }
     if (cmd === 'delete' && id && !rest.length) {
@@ -697,7 +719,7 @@ function threads(argv: string[]): number {
     console.error(`cedia: ${(e as Error).message}`);
     return 1;
   }
-  console.error('usage: cedia threads [list [--all] | show <id> | search <term>... [--edited-path <glob>] [--limit <n>] [--all] [--json] | recap <id> [--since <time|span>] [--json] | send <id> <text> [--image <file>]... | unsend <id> [<msg>...] | diff <id> [--base turn|head|upstream] | undo <id> [--force] [--json] | redo <id> [--force] [--json] | rewind <id> [<n>] [--force] [--json] | fork <id> <n|run|end> [--side] [--json] | rate <id> <up|down> [--session <sid>] [--note <text>] | archive <id> | unarchive <id> | rename <id> <title> | delete <id> [--force] [--json]] [--cwd <dir>]');
+  console.error('usage: cedia threads [list [--all] | show <id> | search <term>... [--edited-path <glob>] [--limit <n>] [--all] [--json] | recap <id> [--since <time|span>] [--json] | send <id> <text> [--image <file>]... | unsend <id> [<msg>...] | diff <id> [--base turn|head|upstream] | undo <id> [--force] [--json] | redo <id> [--force] [--json] | rewind <id> [<n>] [--force] [--json] | fork <id> <n|run|end> [--side] [--json] | rate <id> <up|down> [--session <sid>] [--note <text>] | keep-rate <id> [--json] | archive <id> | unarchive <id> | rename <id> <title> | delete <id> [--force] [--json]] [--cwd <dir>]');
   return 2;
 }
 

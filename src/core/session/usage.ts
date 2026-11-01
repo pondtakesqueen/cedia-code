@@ -1,5 +1,6 @@
 import { attributeMisses } from '../context/cache.ts';
 import { costUsd, resolveModel } from '../providers/catalog.ts';
+import { classifyToolError } from '../trust/tool-errors.ts';
 import type { EventOf, ModelSpec, SessionEvent } from '../types.ts';
 
 // Where a project's spend went, read from its session logs alone. Input is counted as characters times the
@@ -24,6 +25,9 @@ export type UsageReport = {
   // answer to a safety overview (cedia keeps no telemetry; denied permission events and hook blocks
   // are the record). Allows are not counted.
   blocked: { rule: string; count: number }[];
+  // Failed tool calls classified by category (Cursor-style taxonomy), grouped by tool and category,
+  // so harness regressions surface per tool and model. See src/core/trust/tool-errors.ts.
+  toolErrors: { tool: string; category: string; count: number }[];
   // Requests whose input passed the model's long-context price line, and requests at effort max.
   overPriceLine: number;
   maxEffort: number;
@@ -94,6 +98,7 @@ export function usageReport(sessions: SessionInput[], opts: UsageOptions = {}): 
   const largest: UsageReport['largest'] = [];
   const misses = new Map<string, { count: number; tokens: number }>();
   const blocked = new Map<string, number>();
+  const toolErrors = new Map<string, number>();
   const tokens = { input: 0, cacheRead: 0, output: 0 };
   let requests = 0;
   let cost = 0;
@@ -217,6 +222,8 @@ export function usageReport(sessions: SessionInput[], opts: UsageOptions = {}): 
           const tool = toolOf.get(e.callId) ?? 'unknown';
           hold(`tool: ${tool}`, e.output.text.length);
           results.push({ callId: e.callId, tool, chars: e.output.text.length, at: sessionRequests });
+          const category = classifyToolError(e.output, e.status);
+          if (category !== 'none') add(toolErrors, `${tool}\u0000${category}`, 1);
           break;
         }
         case 'turn_end':
@@ -264,6 +271,12 @@ export function usageReport(sessions: SessionInput[], opts: UsageOptions = {}): 
     largest: ranked,
     misses: [...misses].map(([cause, m]) => ({ cause, ...m })).sort((a, b) => b.tokens - a.tokens),
     blocked: [...blocked].map(([rule, count]) => ({ rule, count })).sort((a, b) => b.count - a.count),
+    toolErrors: [...toolErrors]
+      .map(([key, count]) => {
+        const [tool, category] = key.split('\u0000');
+        return { tool: tool ?? 'unknown', category: category ?? 'UnexpectedEnvironment', count };
+      })
+      .sort((a, b) => b.count - a.count),
     overPriceLine,
     maxEffort,
     slowStart,
@@ -309,6 +322,7 @@ export function formatUsage(r: UsageReport): string {
   }
   lines.push(r.misses.length ? `cache misses: ${r.misses.map((m) => `${m.count} ${m.cause} (${k(m.tokens)} tokens)`).join(', ')}` : 'cache misses: none');
   if (r.blocked.length) lines.push(`blocked calls: ${r.blocked.map((b) => `${b.count} ${b.rule}`).join(', ')}`);
+  if (r.toolErrors.length) lines.push(`tool errors: ${r.toolErrors.map((e) => `${e.count} ${e.tool} (${e.category})`).join(', ')}`);
   for (const w of r.warnings) lines.push(`warning: ${w}`);
   const warn = [
     r.overPriceLine && `${r.overPriceLine} request${r.overPriceLine === 1 ? '' : 's'} past the model's long-context price line`,

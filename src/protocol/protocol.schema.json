@@ -4665,6 +4665,29 @@
             "additionalProperties": false
           }
         },
+        "toolErrors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tool": {
+                "type": "string"
+              },
+              "category": {
+                "type": "string"
+              },
+              "count": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "tool",
+              "category",
+              "count"
+            ],
+            "additionalProperties": false
+          }
+        },
         "overPriceLine": {
           "type": "number"
         },
@@ -4785,6 +4808,7 @@
         "largest",
         "misses",
         "blocked",
+        "toolErrors",
         "overPriceLine",
         "maxEffort",
         "slowStart",
