@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildMessages } from '../src/core/context/build.ts';
@@ -29,6 +29,7 @@ const sessionOf = (dir: string, id: string) => {
   const root = join(dir, 'home', 'sessions', projectSlug(dir));
   return readdirSync(root).map((f) => SessionLog.load(join(root, f))).find((l) => l.id === id)!;
 };
+const users = (events: SessionEvent[]) => events.filter((e): e is EventOf<'user' | 'reminder'> => e.kind === 'user' || e.kind === 'reminder').map((e) => e.text);
 
 // Every request of the session: one system prompt, one tool list, and messages that extend the last request's.
 function expectStablePrefix(events: SessionEvent[]) {
@@ -81,8 +82,36 @@ describe('prefix stability across runs (offline, faux)', () => {
     const events = sessionOf(dir, first.sessionId).events;
     expect(expectStablePrefix(events)).toBeGreaterThanOrEqual(8);
     // What changed reached the model only as later turns, never in message 0.
-    const opening = (events.find((e) => e.kind === 'user') as EventOf<'user'>).text;
+    const opening = users(events).slice(0, 2).join('\n');
     expect(opening).not.toContain('the build uses make');
     expect(opening).not.toContain('Use spaces.');
+    // All on one day: no run was told the date again.
+    expect(users(events).some((t) => t.includes('<time>'))).toBe(false);
+  });
+
+  test('a run on a later day is told the date in its own turn, and message 0 keeps the day it opened', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cedia-prefix-'));
+    const first = cedia(dir, [reply('hello')], ['-p', 'hi', ...base]);
+    // Move the session's opening and its requests back two days (a log is plain JSONL).
+    const log = sessionOf(dir, first.sessionId);
+    const back = (iso: string) => new Date(Date.parse(iso) - 2 * 86_400_000).toISOString();
+    const today = new Date().toISOString().slice(0, 10);
+    const then = back(new Date().toISOString()).slice(0, 10);
+    const lines = readFileSync(log.path!, 'utf8').trim().split('\n').map((l) => {
+      const e = JSON.parse(l);
+      e.at = back(e.at);
+      if (e.kind === 'reminder') e.text = e.text.replace(`date: ${today}`, `date: ${then}`);
+      return JSON.stringify(e);
+    });
+    writeFileSync(log.path!, lines.join('\n') + '\n');
+
+    const next = cedia(dir, [reply('still here')], ['-p', 'again', ...base, '--thread', first.thread]);
+    expect(next.sessionId).toBe(first.sessionId);
+    const texts = users(sessionOf(dir, first.sessionId).events);
+    expect(texts[0]).toContain(`date: ${then}`);
+    expect(texts.at(-1)).toMatch(new RegExp(`^<time>\\ntoday: ${today}, the last message was (47|48) hours ago\\n</time>\\n\\nagain`));
+    // The next run the same day is not told again.
+    cedia(dir, [reply('ok')], ['-p', 'once more', ...base, '--thread', first.thread]);
+    expect(users(sessionOf(dir, first.sessionId).events).at(-1)).toBe('once more');
   });
 });

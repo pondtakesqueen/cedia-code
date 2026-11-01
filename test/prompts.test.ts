@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { BASE_SYSTEM, preamble, READ_ONLY_SYSTEM, systemFor } from '../src/core/prompts.ts';
+import { BASE_SYSTEM, preamble, READ_ONLY_SYSTEM, systemFor, timeNote } from '../src/core/prompts.ts';
+import type { SessionEvent } from '../src/core/types.ts';
 import { CATALOG, FAUX_MODEL, resolveModel } from '../src/core/providers/catalog.ts';
 
 describe('system prompt per model', () => {
@@ -62,5 +63,44 @@ describe('system prompt per model', () => {
   test('the sandbox line names $TMPDIR as the place for scratch files', () => {
     const p = preamble('/w', { sandbox: { on: true, allowedDomains: [] } }, new Date('2026-10-22'));
     expect(p).toContain('the temp dir ($TMPDIR, which is not always /tmp: put scratch files there or in the working directory)');
+  });
+});
+
+describe('time note on a resumed session', () => {
+  const ev = (at: string, body: Record<string, unknown>) => ({ id: crypto.randomUUID(), parentId: null, at, ...body }) as unknown as SessionEvent;
+  const session = (opened: string, lastRequest: string, later: string[] = []): SessionEvent[] => [
+    ev(opened, { kind: 'session', cwd: '/', role: 'code', model: 'faux/scripted', system: '', tools: [] }),
+    ev(opened, { kind: 'user', text: `<environment>\nworking directory: /\ndate: ${opened.slice(0, 10)}\nplatform: linux\n</environment>\n\ngo` }),
+    ...later.map((text) => ev(lastRequest, { kind: 'user', text })),
+    ev(lastRequest, { kind: 'request', model: 'faux/scripted', toolsHash: '', systemHash: '', bodyHash: '', headers: {} }),
+  ];
+
+  test('the same day and a short gap say nothing', () => {
+    expect(timeNote(session('2026-11-01T09:00:00Z', '2026-11-01T10:00:00Z'), new Date('2026-11-01T12:00:00Z'))).toBeUndefined();
+  });
+
+  test('a new day says the date and how long since the last message', () => {
+    expect(timeNote(session('2026-11-01T22:00:00Z', '2026-11-01T23:00:00Z'), new Date('2026-11-02T01:00:00Z'))).toBe('<time>\ntoday: 2026-11-02, the last message was 2 hours ago\n</time>');
+  });
+
+  test('more than six hours on the same day says so too', () => {
+    expect(timeNote(session('2026-11-01T01:00:00Z', '2026-11-01T02:00:00Z'), new Date('2026-11-01T09:00:00Z'))).toBe('<time>\ntoday: 2026-11-01, the last message was 7 hours ago\n</time>');
+  });
+
+  test('a date the session was already told is not said again', () => {
+    const told = ['<time>\ntoday: 2026-11-02, the last message was 14 hours ago\n</time>\n\nnext'];
+    expect(timeNote(session('2026-11-01T09:00:00Z', '2026-11-02T08:00:00Z', told), new Date('2026-11-02T09:00:00Z'))).toBeUndefined();
+  });
+
+  test('reads the date from the preamble cedia writes', () => {
+    const opened = new Date('2026-11-01T09:00:00Z');
+    const events = session('2026-11-01T09:00:00Z', '2026-11-01T10:00:00Z');
+    (events[1] as { text: string }).text = `${preamble('/x', {}, opened)}\n\ngo`;
+    expect(timeNote(events, new Date('2026-11-01T11:00:00Z'))).toBeUndefined();
+    expect(timeNote(events, new Date('2026-11-02T11:00:00Z'))).toBe('<time>\ntoday: 2026-11-02, the last message was 25 hours ago\n</time>');
+  });
+
+  test('days are counted past 48 hours', () => {
+    expect(timeNote(session('2026-11-01T09:00:00Z', '2026-11-01T10:00:00Z'), new Date('2026-11-04T11:00:00Z'))).toBe('<time>\ntoday: 2026-11-04, the last message was 3 days ago\n</time>');
   });
 });
