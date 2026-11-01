@@ -264,3 +264,16 @@ The API credit ran out during the follow-up, so two arms ran on the tasks it los
 | Claude Code, Opus | | | | | | $1.34 | 50 s |
 
 With the Opus lines the defects above were gone on hard-memo-async and hard-sse, and hard-shell-split and tb-dedup turned into wins; what still lost was test breadth (every split of a chunked input, sparse and -0 cases) and simpler structure. One run a task is thin: rerun with `--runs 3` on all 19 tasks, and on the frontier suite, once there is credit.
+
+## Prompt simplification audit (2026-11-01)
+
+Source: Cursor self-improvement article (StackDhruv) section 2 - "improvement sometimes came from removing instructions."
+
+Audited `src/core/prompts.ts` (BASE_SYSTEM, READ_ONLY_SYSTEM, thorough variant). Every line there is eval-backed (2026-10-29-* result dirs) or safety-critical, so no removal was made without a gate run. Candidate trims, each to be tested with `bun evals/gate.ts` before merging:
+
+- `Make each call do more: ...` overlaps with `When several reads are independent, request them in one turn.` Merge into one bullet; risk low (both say batch reads).
+- `Say plainly what you did not do or could not verify.` overlaps with the final report line; keep one.
+- `Do not re-read a file ...` is already implied by the batching line for some models; keep until a gate run shows no regression (Haiku regressed on re-reads before).
+- READ_ONLY_SYSTEM's `File writes and commands that may write are denied...` duplicates the permission policy line in modeNote; could move to modeNote only.
+
+No edit committed; changes to prompts require the regression gate (`evals/gate/README.md`) and a person's review.

@@ -14,6 +14,7 @@ import { processKeychain } from './core/providers/keychain.ts';
 import { modelLine, modelList } from './core/providers/models.ts';
 import { threadLine, threadsDir, ThreadStore, type Rating } from './core/project/threads.ts';
 import { changedFilesOfEvents, retentionOf } from './core/project/keep-rate.ts';
+import { mineToolFailures, summarizeFailures } from './core/trust/failures.ts';
 import { memoryPath, MemoryStore } from './core/project/memory.ts';
 import { TeamStore, teamLine } from './core/project/teams.ts';
 import { findLivingDocs } from './core/project/livingdocs.ts';
@@ -285,6 +286,7 @@ export async function main(argv: string[]): Promise<number> {
   if (argv[0] === 'complete') return completeCmd(argv.slice(1));
   if (argv[0] === 'pr') return pr(argv.slice(1));
   if (argv[0] === 'usage') return usage(argv.slice(1));
+  if (argv[0] === 'failures') return failuresCmd(argv.slice(1));
   if (argv[0] === 'context') return context(argv.slice(1));
   const { values, positionals } = parseArgs({
     args: argv,
@@ -520,7 +522,77 @@ function usage(argv: string[]): number {
       return 1;
     }
     const report = usageReport(sessions, { since });
-    console.log(values.json ? JSON.stringify(report) : formatUsage(report));
+    // Keep Rate per thread in the report: how much of the code each thread changed is still in the tree.
+    const keepRates = report.threads.map((tr) => {
+      try {
+        const slug = tr.project ?? projectKey(cwd);
+        const store = new ThreadStore(threadsDir(home, slug));
+        const t = store.read(tr.thread);
+        const changed = new Set<string>();
+        for (const s of t.sessions) {
+          const p = s.path ?? sessionPath(cwd, s.sessionId, home);
+          if (!existsSync(p)) continue;
+          const events = readEventsLenient(readFileSync(p, 'utf8'));
+          for (const f of changedFilesOfEvents(events)) changed.add(f);
+        }
+        const r = retentionOf([...changed], (f) => existsSync(join(cwd, f)));
+        return { thread: tr.thread, title: tr.title, ...r };
+      } catch {
+        return null;
+      }
+    }).filter((x): x is NonNullable<typeof x> => x !== null);
+    if (values.json) console.log(JSON.stringify({ ...report, keepRates }));
+    else {
+      console.log(formatUsage(report));
+      if (keepRates.length) {
+        console.log('keep rate by thread:');
+        for (const k of keepRates) console.log(`  ${k.thread} ${k.kept}/${k.total} files kept (${(k.rate * 100).toFixed(0)}%)${k.missing.length ? ` (missing: ${k.missing.join(', ')})` : ''}`);
+      }
+    }
+    return 0;
+  } catch (e) {
+    console.error(`cedia: ${(e as Error).message}`);
+    return 1;
+  }
+}
+
+function failuresCmd(argv: string[]): number {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: { cwd: { type: 'string' }, thread: { type: 'string' }, last: { type: 'string' }, since: { type: 'string' }, all: { type: 'boolean' }, json: { type: 'boolean' } },
+  });
+  const cwd = values.cwd ?? process.cwd();
+  const home = cediaHome();
+  try {
+    const since = values.since === undefined ? undefined : sinceOf(values.since);
+    let inputs: { path: string; project?: string }[] = positionals.map((path) => ({ path }));
+    if (!inputs.length && values.thread) {
+      const store = new ThreadStore(threadsDir(home, projectKey(cwd)));
+      const all = store.list();
+      const ids = [values.thread];
+      for (let i = 0; i < ids.length; i++) ids.push(...all.filter((t) => t.parent === ids[i]).map((t) => t.id));
+      inputs = ids.flatMap((id) => store.read(id).sessions.map((s) => ({ path: s.path ?? sessionPath(cwd, s.sessionId, home), project: projectKey(cwd) })));
+    } else if (!inputs.length) {
+      const root = join(home, 'sessions');
+      const keys = values.all ? (existsSync(root) ? readdirSync(root) : []) : [projectKey(cwd)];
+      const found = keys.flatMap((project) => {
+        const dir = join(root, project);
+        if (!existsSync(dir) || !statSync(dir).isDirectory()) return [];
+        return readdirSync(dir)
+          .filter((f) => f.endsWith('.jsonl'))
+          .map((f) => ({ path: join(dir, f), project, mtime: statSync(join(dir, f)).mtimeMs }));
+      });
+      found.sort((a, b) => b.mtime - a.mtime);
+      inputs = since ? found.filter((f) => f.mtime >= since.getTime()) : found.slice(0, Number(values.last ?? 20));
+    }
+    const records = inputs
+      .filter((i) => existsSync(i.path))
+      .flatMap((i) => mineToolFailures(readEventsLenient(readFileSync(i.path, 'utf8'))));
+    const summary = summarizeFailures(records);
+    if (values.json) console.log(JSON.stringify({ records: records.length, summary }));
+    else if (!summary.length) console.log('no tool failures');
+    else for (const s of summary) console.log(`${s.count} ${s.tool} (${s.category})`);
     return 0;
   } catch (e) {
     console.error(`cedia: ${(e as Error).message}`);

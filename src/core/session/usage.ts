@@ -1,6 +1,6 @@
 import { attributeMisses } from '../context/cache.ts';
 import { costUsd, resolveModel } from '../providers/catalog.ts';
-import { classifyToolError } from '../trust/tool-errors.ts';
+import { classifyToolError, toolErrorBaselines, type ToolErrorBaseline } from '../trust/tool-errors.ts';
 import type { EventOf, ModelSpec, SessionEvent } from '../types.ts';
 
 // Where a project's spend went, read from its session logs alone. Input is counted as characters times the
@@ -28,6 +28,9 @@ export type UsageReport = {
   // Failed tool calls classified by category (Cursor-style taxonomy), grouped by tool and category,
   // so harness regressions surface per tool and model. See src/core/trust/tool-errors.ts.
   toolErrors: { tool: string; category: string; count: number }[];
+  // Error rates per tool and model over the sessions in this report (Cursor-style baselines), so a
+  // harness regression shows up as a spike against them. See src/core/trust/tool-errors.ts.
+  toolErrorBaselines: ToolErrorBaseline[];
   // Requests whose input passed the model's long-context price line, and requests at effort max.
   overPriceLine: number;
   maxEffort: number;
@@ -277,6 +280,7 @@ export function usageReport(sessions: SessionInput[], opts: UsageOptions = {}): 
         return { tool: tool ?? 'unknown', category: category ?? 'UnexpectedEnvironment', count };
       })
       .sort((a, b) => b.count - a.count),
+    toolErrorBaselines: toolErrorBaselines(sessions.map((s) => ({ events: s.events }))),
     overPriceLine,
     maxEffort,
     slowStart,
@@ -323,7 +327,7 @@ export function formatUsage(r: UsageReport): string {
   lines.push(r.misses.length ? `cache misses: ${r.misses.map((m) => `${m.count} ${m.cause} (${k(m.tokens)} tokens)`).join(', ')}` : 'cache misses: none');
   if (r.blocked.length) lines.push(`blocked calls: ${r.blocked.map((b) => `${b.count} ${b.rule}`).join(', ')}`);
   if (r.toolErrors.length) lines.push(`tool errors: ${r.toolErrors.map((e) => `${e.count} ${e.tool} (${e.category})`).join(', ')}`);
-  for (const w of r.warnings) lines.push(`warning: ${w}`);
+  if (r.toolErrorBaselines.length) lines.push(`tool error baselines: ${r.toolErrorBaselines.map((b) => `${b.tool}/${b.model}: ${b.errors}/${b.calls} (${Math.round(b.rate * 100)}%)`).join(', ')}`);  for (const w of r.warnings) lines.push(`warning: ${w}`);
   const warn = [
     r.overPriceLine && `${r.overPriceLine} request${r.overPriceLine === 1 ? '' : 's'} past the model's long-context price line`,
     r.maxEffort && `${r.maxEffort} request${r.maxEffort === 1 ? '' : 's'} at effort max`,
