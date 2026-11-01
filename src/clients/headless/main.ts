@@ -1272,7 +1272,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
         const judged = r.subtype === 'success' ? parseSatisfaction(r.result) : { verdict: 'not_satisfied' as const, reason: `the judge's session ended with ${r.subtype}` };
         if (store) store.append(threadId, { run: prev.id, kind: 'satisfaction', verdict: judged.verdict, reason: judged.reason, sessionId: log.id });
         satisfaction = { verdict: judged.verdict, reason: judged.reason, judge: satisfactionJudge.ref, sessionId: log.id, costUsd: r.costUsd };
-        say(`cedia satisfaction: ${judged.verdict} (${satisfactionJudge.ref})\\n`);
+        say(`cedia satisfaction: ${judged.verdict} (${satisfactionJudge.ref})\n`);
       }
     }
     const sessions = [...new Set(writerRuns.map((w) => w.log.id))];

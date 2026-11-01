@@ -26,6 +26,15 @@ export function classifyToolError(
   if (status === 'denied' || status === 'not_started') return 'none';
   if (!output.isError && status !== 'failed' && status !== 'interrupted_unknown') return 'none';
 
+  // A shell command carries its exit code (tools/bash.ts ends its text with `[exit N]` or `[exit N, <why stopped>]`).
+  // One that ran and exited nonzero reported its own result: a failing test, grep with no match, a type error.
+  if (output.exitCode !== undefined && status !== 'failed' && status !== 'interrupted_unknown') {
+    if (/\[exit -?\d+, timed out after/.test(output.text)) return 'Timeout';
+    if (/\[exit -?\d+, aborted\]/.test(output.text) || status === 'interrupted_safe') return 'UserAborted';
+    if (output.exitCode === 126 || output.exitCode === 127) return 'UnexpectedEnvironment';
+    return 'none';
+  }
+
   const t = output.text.toLowerCase();
 
   if (status === 'interrupted_safe' || /user aborted|cancelled by (the )?user|aborted by user/.test(t)) {
@@ -47,7 +56,7 @@ export function classifyToolError(
     return 'UnexpectedEnvironment';
   }
   if (
-    /provider|rate limit|service unavailable|connection (refused|reset|timed out)|econn(refused|reset)|5\d\d|bad gateway|gateway timeout/.test(t)
+    /provider|rate limit|service unavailable|connection (refused|reset|timed out)|econn(refused|reset)|\b(http|status)[ /]?(\d\.\d )?5\d\d\b|\b5\d\d (internal|bad gateway|service unavailable|gateway timeout)|bad gateway|gateway timeout/.test(t)
   ) {
     return 'ProviderError';
   }
