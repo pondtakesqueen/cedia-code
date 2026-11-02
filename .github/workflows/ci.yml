@@ -4,11 +4,32 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The repo eval tasks are built from this repository's history.
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+          cache: true
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+
   test:
+    timeout-minutes: 20
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && fromJSON('["ubuntu-latest", "macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -18,6 +39,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
+          cache: true
       - name: Sandbox dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -29,9 +51,22 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install ripgrep
       - run: bun install --frozen-lockfile
-      - run: bun run typecheck
       - run: bun test
         env:
           CEDIA_REQUIRE_SANDBOX: '1'
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The repo eval tasks are built from this repository's history.
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+          cache: true
+      - run: bun install --frozen-lockfile
       - run: bun run build:release
       - run: ./dist/cedia --version --json
