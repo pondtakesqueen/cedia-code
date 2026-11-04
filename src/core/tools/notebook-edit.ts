@@ -14,13 +14,14 @@ function loadNotebook(path: string): { nb: any; cells: Cell[] } {
 
 export const notebookEditTool: ToolSpec = {
   name: 'NotebookEdit',
-  description: 'Edit a Jupyter notebook (.ipynb) cell: replace, insert, or delete.',
+  description:
+    'Change one cell of a Jupyter notebook (.ipynb). edit_mode replace (the default) sets the source of the cell cell_id names; insert adds a new cell after cell_id, or at the end without one; delete removes the cell cell_id names. Outputs of a new code cell start empty.',
   schema: {
     type: 'object',
     properties: {
-      notebook_path: { type: 'string' },
-      cell_id: { type: 'string' },
-      new_source: { type: 'string' },
+      notebook_path: { type: 'string', description: 'Notebook path, absolute or relative to the working directory' },
+      cell_id: { type: 'string', description: 'The cell to replace or delete, or to insert after' },
+      new_source: { type: 'string', description: 'The cell source for replace and insert' },
       cell_type: { type: 'string', enum: ['code', 'markdown'] },
       edit_mode: { type: 'string', enum: ['replace', 'insert', 'delete'] },
     },

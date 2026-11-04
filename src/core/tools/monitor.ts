@@ -9,13 +9,14 @@ const MAX_HELD_CHARS = 4_000_000;
 // holds it to bash's deny list and rules (core/safety/policy.ts).
 export const monitorTool: ToolSpec = {
   name: 'Monitor',
-  description: 'Run a command in the background and collect output lines (optionally filtered) until timeout or exit.',
+  description:
+    'Run a shell command and collect its output lines until it exits or timeout_ms passes, then stop it and return what it printed. Use it for a command that may not end on its own (a dev server, a watcher, a log tail) when you need its first lines; use bash for a command that finishes. Runs under the same permission rules and sandbox as bash. A timeout is not an error; a non-zero exit is, and the result ends with [exit N].',
   schema: {
     type: 'object',
     properties: {
-      command: { type: 'string' },
-      timeout_ms: { type: 'number' },
-      filter: { type: 'string' },
+      command: { type: 'string', description: 'The command, run with bash in the working directory' },
+      timeout_ms: { type: 'number', description: 'How long to collect before stopping it, 100 to 600000 (default 5000)' },
+      filter: { type: 'string', description: 'A regular expression: keep only the lines it matches' },
     },
     required: ['command'],
     additionalProperties: false,

@@ -4,7 +4,8 @@ import type { ToolSpec } from './registry.ts';
 export function teamTool(store: TeamStore, threadId: string): ToolSpec {
   return {
     name: 'team',
-    description: 'Manage a shared task list for a team of sub-threads: create/join teams, add/update/list tasks.',
+    description:
+      'A task list shared by the sub-threads of this project, kept outside the session. action create makes a team (name) and returns its id; list shows every team with done/total counts; get returns one team with its tasks as JSON; add puts a task (title, optional assignee) on a team; set-status sets a task\'s status and optionally its assignee. There is no join: a sub-thread uses a team by its id. A read-only session may list and get only.',
     // The task list is shared state outside this session: a read-only session may list and get, not change it.
     effect: 'write_workspace',
     effectOf: (input) => (input.action === 'list' || input.action === 'get' ? 'read' : 'write_workspace'),
@@ -13,10 +14,10 @@ export function teamTool(store: TeamStore, threadId: string): ToolSpec {
       type: 'object',
       properties: {
         action: { type: 'string', enum: ['create', 'list', 'add', 'set-status', 'get'] },
-        team: { type: 'string' },
-        name: { type: 'string' },
-        title: { type: 'string' },
-        taskId: { type: 'string' },
+        team: { type: 'string', description: 'Team id (from create or list); needed by get, add and set-status' },
+        name: { type: 'string', description: 'Name for a new team (create)' },
+        title: { type: 'string', description: 'The task, in a line (add)' },
+        taskId: { type: 'string', description: 'Task id (from add or get); needed by set-status' },
         status: { type: 'string', enum: ['pending', 'in_progress', 'done', 'blocked'] },
         assignee: { type: 'string' },
       },
