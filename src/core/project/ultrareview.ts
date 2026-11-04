@@ -1,11 +1,4 @@
-import { readFileSync } from 'node:fs';
-import { loadPolicy, loadPrivacy, loadRoles } from '../config.ts';
-import { runPrompt } from '../loop/run.ts';
-import { resolveModel } from '../providers/catalog.ts';
-import { providerFor } from '../providers/index.ts';
-import { READ_ONLY_SYSTEM } from '../prompts.ts';
-import { SessionLog, sessionPath } from '../session/log.ts';
-import { CORE_TOOLS } from '../tools/index.ts';
+import { runSide } from '../loop/side.ts';
 import { askedReviewPrompt, parseVerdict, type ReviewSubject } from '../trust/review.ts';
 import type { ModelSpec, SessionEvent } from '../types.ts';
 import { parseFindings, type CodeFinding } from './code-review.ts';
@@ -45,12 +38,6 @@ export async function reviewSubject(cwd: string, pr?: string, signal?: AbortSign
   return { subject: { kind: 'changes', untracked: w.untracked }, patch: w.patch };
 }
 
-// The model an asked review runs on: the review role when cedia runs it, else the writer (`code`, or the configured one).
-export function askedReviewModel(code?: string): ModelSpec {
-  const roles = loadRoles(code ? { code } : {});
-  return roles.review?.via === 'cedia' ? roles.review.model : resolveModel(roles.code.ref);
-}
-
 export const subjectTitle = (s: ReviewSubject) => (s.kind === 'pr' ? `pull request #${s.number}` : 'the uncommitted changes');
 
 export async function ultraReview(opts: {
@@ -65,32 +52,23 @@ export async function ultraReview(opts: {
   // Each pass's events as its log takes them, for a client that shows the passes at work.
   onEvent?: (focus: string, e: SessionEvent) => void;
 }): Promise<UltraReview> {
-  const fauxScript = process.env.CEDIA_FAUX_SCRIPT ? JSON.parse(readFileSync(process.env.CEDIA_FAUX_SCRIPT, 'utf8')) : undefined;
   const signal = opts.signal ?? new AbortController().signal;
   const focuses = opts.focuses ?? FOCUSES;
   // A log per pass: runPrompt builds each request from its log, so passes sharing one would read each other's turns.
   const runs = await Promise.allSettled(
-    focuses.map((f) => {
-      const id = crypto.randomUUID();
-      const log = SessionLog.create({ id, path: sessionPath(opts.cwd, id) });
-      if (opts.onEvent) log.listeners.push((e) => opts.onEvent!(f.name, e));
-      return runPrompt(
-        {
-          log,
-          provider: providerFor(opts.model, { fauxScript }),
-          model: opts.model,
-          tools: CORE_TOOLS.filter((t) => t.effect !== 'write_workspace'),
-          system: READ_ONLY_SYSTEM,
-          cwd: opts.cwd,
-          role: 'review',
-          permission: { ...loadPolicy(opts.cwd, { allow: opts.policy?.allow ?? [], deny: opts.policy?.deny ?? [], unlock: opts.policy?.unlock ?? [] }), mode: 'read-only' },
-          privacy: loadPrivacy(opts.cwd, opts.privacy),
-          maxTurns: 30,
-          signal,
-        },
-        `${askedReviewPrompt(opts.subject, opts.patch)}\n\nSPECIAL FOCUS: ${f.prompt}\nReturn findings relevant to this focus only. Use FINDING: ... and end with VERDICT: ...`,
-      );
-    }),
+    focuses.map((f) =>
+      runSide({
+        cwd: opts.cwd,
+        model: opts.model,
+        role: 'review',
+        access: { kind: 'read-only', ...(opts.policy ? { policy: opts.policy } : {}) },
+        ...(opts.privacy ? { privacy: opts.privacy } : {}),
+        maxTurns: 30,
+        signal,
+        ...(opts.onEvent ? { onEvent: (e: SessionEvent) => opts.onEvent!(f.name, e) } : {}),
+        prompt: `${askedReviewPrompt(opts.subject, opts.patch)}\n\nSPECIAL FOCUS: ${f.prompt}\nReturn findings relevant to this focus only. Use FINDING: ... and end with VERDICT: ...`,
+      }),
+    ),
   );
   const findings: UltraFinding[] = [];
   const failed: { focus: string; reason: string }[] = [];

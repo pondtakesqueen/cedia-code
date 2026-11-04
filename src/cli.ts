@@ -37,7 +37,8 @@ import { codeReview, type CodeReview } from './core/project/code-review.ts';
 import { changeGuide, DIFF_BASES, guideText, threadDiff, type ChangeGuide, type DiffBase } from './core/project/change-guide.ts';
 import { commitFiles, commitPatch, currentBranch, headCommit, prPlan, pushAndOpenPr, threadChanges, type CommitDraft, type Committed, type PrOpened } from './core/project/commit.ts';
 import { draftCommitMessage } from './core/project/draft.ts';
-import { askedReviewModel, reviewSubject, ultraReview } from './core/project/ultrareview.ts';
+import { reviewSubject, ultraReview } from './core/project/ultrareview.ts';
+import { sideModel, threadWriter } from './core/side-model.ts';
 import { deleteThread } from './core/project/delete.ts';
 import { type ForkResult, forkThread } from './core/project/fork.ts';
 import { workspaceSnapshots } from './core/safety/snapshot.ts';
@@ -968,8 +969,8 @@ async function commit(argv: string[]): Promise<number> {
   if (!files.length) return fail('nothing this thread changed differs from HEAD');
   try {
     if (values.message === undefined) {
-      const writer = store.read(values.thread).sessions.filter((s) => !s.rewound).at(-1)?.model;
-      const { message } = await draftCommitMessage({ cwd, model: values.model ?? writer ?? loadRoles({}).code.ref, files });
+      const model = sideModel('write', { explicit: values.model, threadWriter: threadWriter(store, values.thread) });
+      const { message } = await draftCommitMessage({ cwd, model: model.ref, files });
       if (!message) return fail('the message came back empty: write one with --message');
       const branch = currentBranch(cwd);
       const draft: CommitDraft = { files, message, ...(branch ? { branch } : {}) };
@@ -1020,9 +1021,7 @@ async function explainChangeCmd(argv: string[]): Promise<number> {
   if (!store.has(values.thread)) return fail(`no thread ${values.thread} in this project`);
   const diff = threadDiff(store, values.thread, base, base === 'turn' ? (threadTurn(store, values.thread)?.cwd ?? cwd) : cwd, workspaceSnapshots(cwd, cediaHome()));
   if ('error' in diff) return fail(diff.error);
-  const roles = loadRoles({});
-  const writer = store.read(values.thread).sessions.filter((s) => !s.rewound).at(-1)?.model;
-  const model = values.model ?? (roles.review?.via === 'cedia' ? roles.review.model.ref : undefined) ?? writer ?? roles.code.ref;
+  const model = sideModel('review', { explicit: values.model, threadWriter: threadWriter(store, values.thread) }).ref;
   const r = await changeGuide({ cwd, patch: diff.patch, files: diff.files, base, model }).catch((e: Error): ChangeGuide => ({ error: e.message }));
   if ('error' in r) return fail(r.error);
   console.log(values.json ? JSON.stringify(r) : guideText(r));
@@ -1053,9 +1052,7 @@ async function reviewCmd(argv: string[]): Promise<number> {
   const snaps = workspaceSnapshots(cwd, cediaHome());
   if (!snaps) return fail('no snapshots for this directory, so cedia cannot tell which files the thread changed');
   const files = threadChanges(store, values.thread, cwd, snaps);
-  const roles = loadRoles({});
-  const writer = store.read(values.thread).sessions.filter((s) => !s.rewound).at(-1)?.model;
-  const model = values.model ?? (roles.review?.via === 'cedia' ? roles.review.model.ref : undefined) ?? writer ?? roles.code.ref;
+  const model = sideModel('review', { explicit: values.model, threadWriter: threadWriter(store, values.thread) }).ref;
   const r = await codeReview({ cwd, files, patch: files.length ? commitPatch(cwd, files) : '', model }).catch((e: Error): CodeReview => ({ error: e.message }));
   if ('error' in r) return fail(r.error);
   if (values.json) console.log(JSON.stringify(r));
@@ -1083,7 +1080,7 @@ async function ultrareviewCmd(argv: string[]): Promise<number> {
     console.error(`cedia: ${got.error}`);
     return 1;
   }
-  const r = await ultraReview({ cwd, ...got, model: askedReviewModel(values.model) });
+  const r = await ultraReview({ cwd, ...got, model: sideModel('review', { explicit: values.model }) });
   if ('error' in r) {
     console.error(`cedia: ${r.error}`);
     return 1;
@@ -1115,7 +1112,7 @@ async function inlineEditCmd(argv: string[]): Promise<number> {
     return 2;
   }
   const cwd = resolve(values.cwd ?? process.cwd());
-  const r = await inlineEdit({ cwd, file: values.file, range, instruction: values.instruction, model: values.model ?? loadRoles({}).code.ref, ...(values.stdin ? { text: await Bun.stdin.text() } : {}) }).catch((e: Error): InlineEdit => ({ error: e.message }));
+  const r = await inlineEdit({ cwd, file: values.file, range, instruction: values.instruction, model: sideModel('write', { explicit: values.model }).ref, ...(values.stdin ? { text: await Bun.stdin.text() } : {}) }).catch((e: Error): InlineEdit => ({ error: e.message }));
   if (values.json) console.log(JSON.stringify(r));
   else if ('error' in r) console.error(`cedia: ${r.error}`);
   else process.stdout.write(r.patch || 'no change\n');

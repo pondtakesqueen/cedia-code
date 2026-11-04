@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { profilePermission, profileSystem, profileTools, sessionKind } from '../../core/loop/profile.ts';
 import { join, resolve } from 'node:path';
 import { historyRejected, runPrompt, type RunOptions } from '../../core/loop/run.ts';
 import { modeNote, preamble, READ_ONLY_SYSTEM, systemFor, timeNote } from '../../core/prompts.ts';
@@ -37,7 +38,7 @@ import { openThreadTool } from '../../core/tools/open.ts';
 import { scheduleTool } from '../../core/tools/schedule.ts';
 import { ScheduleStore, schedulesPath } from '../../core/project/schedules.ts';
 import { resolveProfile, withProfile } from '../../core/profiles.ts';
-import { needsPlan, planArrived, planComing, planParts, planPrompt, TRIAGE_SYSTEM, triagePrompt, withParts, withPlan, type Part, type Split } from '../../core/roles.ts';
+import { needsPlan, planArrived, planComing, planParts, planPrompt, triagePrompt, withParts, withPlan, type Part, type Split } from '../../core/roles.ts';
 import { openSandbox } from '../../core/safety/sandbox.ts';
 import { lspServers, openDiagnoser } from '../../core/lsp/diagnose.ts';
 import { bashTool, scrubbedEnv } from '../../core/tools/bash.ts';
@@ -50,8 +51,8 @@ import { sandboxGuarded } from '../../core/safety/sandbox.ts';
 import type { Snapshots } from '../../core/safety/snapshot.ts';
 import { CORE_TOOLS } from '../../core/tools/index.ts';
 import { toolDefs, type ToolSpec } from '../../core/tools/registry.ts';
-import { ADVISOR_SYSTEM, adviceOf, advicePrompt, adviceReminder, turnDigest } from '../../core/trust/advisor.ts';
-import { callText, CLASSIFIER_SYSTEM, classifyPrompt, MAX_INPUT, namedFiles, verdictOf, type Verdict } from '../../core/trust/classifier.ts';
+import { adviceOf, advicePrompt, adviceReminder, turnDigest } from '../../core/trust/advisor.ts';
+import { callText, classifyPrompt, MAX_INPUT, namedFiles, verdictOf, type Verdict } from '../../core/trust/classifier.ts';
 import { changedLines, fixPrompt, parseVerdict, reviewPrompt, SMALL_CHANGE_LINES, verifyFindings, type ReviewOutcome } from '../../core/trust/review.ts';
 import { existingTests, leavesTestsAlone, PROTECTED_TEST_REASON } from '../../core/trust/tests.ts';
 import { goalContinuePrompt, goalPlanPrompt, goalPrompt, judgeWithPlan, MAX_GOAL_ROUNDS, parseCriteria, parseGoal, strategistPrompt, withCriteria, type GoalRound } from '../../core/trust/goal.ts';
@@ -579,9 +580,11 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
     );
   const run = async (m: ModelSpec, log: SessionLog, prompt: string, opts: RunOpts = {}) => {
     const { continues } = opts;
-    const reviewer = opts.role !== undefined; // plan, review and explore read and never write
     const child = opts.child;
-    const writing = !reviewer && !child; // the run's own writer: the one that hands off, gets mail and may spawn
+    // core/loop/profile.ts: what each kind of session gets.
+    const kind = sessionKind(opts.role, !!child);
+    const reviewer = kind === 'reviewer' || kind === 'helper'; // plan, review, explore and the helpers read and never write
+    const writing = kind === 'writer'; // the run's own writer: the one that hands off, gets mail and may spawn
     const usedTurns = turnsSpent();
     if (opts.seed) seedCompacted(opts.seed.from, log, opts.seed.compaction);
     // A resumed session keeps the tools it was opened with (its cached prefix); new ones get recall once the
@@ -604,8 +607,18 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
     const browserTools = browser ? [browser.tool] : header?.tools.some((d) => d.name === BROWSER_TOOL) ? [browserStub] : [];
     const extra = [...(spawnOn ? [spawnHere] : []), ...((askOn || policy.plan) && store && threadId ? [askTool] : []), ...(todoOn && store && threadId ? [todoTool(store, threadId, runId)] : []), ...(store && threadId ? [teamTool(new TeamStore(), threadId)] : []), ...(profile?.openThread && store && threadId ? [openThreadTool(store, threadId, opened, projectRoot(args.cwd), workspaceRoots())] : []), ...(profile?.schedule && store && threadId ? [scheduleTool(new ScheduleStore(schedulesPath(cediaHome(), projectKey(args.cwd))), threadId)] : []), ...(earlier.some((s) => s.id !== log.id) ? [recall] : []), ...(store && threadId && others ? threadTools(store, threadId) : []), ...(remember ? [remember] : []), ...(withSkill ? [skill] : []), ...(pluginT ? [pluginT] : []), webFetch, ...browserTools, ...mcpTools];
     // The advisor and the classifier answer in one reply, with no tools, in a session of their own.
-    const helper = opts.role === 'advisor' || opts.role === 'classifier' || opts.role === 'triage';
-    const tools = helper ? [] : reviewer ? [...REVIEW_TOOLS, ...(withSkill ? [skill] : []), webFetchRead, ...mcpRead] : child ? [...CORE_TOOLS, ...(child.recall ? [child.recall] : []), ...(withSkill ? [skill] : []), webFetch, ...mcpRead] : header ? [...CORE_TOOLS, ...extra].filter((t) => header.tools.some((d) => d.name === t.name)) : [...CORE_TOOLS, ...extra];
+    const helper = kind === 'helper';
+    const tools = profileTools(kind, {
+      core: CORE_TOOLS,
+      review: REVIEW_TOOLS,
+      extra,
+      ...(withSkill ? { skill } : {}),
+      webFetch,
+      webFetchRead,
+      mcpRead,
+      ...(child?.recall ? { childRecall: child.recall } : {}),
+      ...(header ? { resumed: header.tools.map((d) => d.name) } : {}),
+    });
     // A work sub-thread in a worktree works there: its own directory, environment line and snapshots.
     const place = child?.place;
     if (writing) writerRuns.push({ log, from: log.events.length });
@@ -616,14 +629,14 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
         model: m,
         // Plan and review get no write tools, and their policy is read-only whatever the run's mode.
         tools,
-        system: opts.role === 'advisor' ? ADVISOR_SYSTEM : opts.role === 'classifier' ? CLASSIFIER_SYSTEM : opts.role === 'triage' ? TRIAGE_SYSTEM : opts.role === 'explore' || opts.role === 'review' ? READ_ONLY_SYSTEM : systemFor(writing && fromPlan ? { ...m, thorough: true } : m),
+        system: profileSystem(opts.role, m, { writing, fromPlan }),
         ...(helper ? {} : { preamble: reviewer ? reviewPreamble() : opts.note ? `${place?.preamble ?? basePreamble()}\n\n${opts.note}` : (place?.preamble ?? basePreamble()) }),
         cwd: place?.cwd ?? args.cwd,
         ...(opts.images?.length ? { images: opts.images } : {}),
         ...(writing && cacheTtl === '1h' && m.wire === 'anthropic-messages' ? { ttl: '1h' as const } : {}),
         // They may also run the declared checks, to see what fails instead of only reading.
         // The run's own allow rules are the writer's: one such as bash(git *) would let a reviewer write.
-        permission: reviewer ? { ...policy, mode: 'read-only', allow: checks.map((c) => `bash(${c})`) } : policy,
+        permission: profilePermission(kind, policy, checks),
         privacy,
         // Stop hooks judge the writer's claim of done, not a plan, a review or a sub-thread's report.
         ...(hooked ? { hooks: writing ? hooks : { ...hooks, stop: [] }, hookHome: cediaHome() } : {}),

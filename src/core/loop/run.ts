@@ -3,23 +3,24 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildMessages, sessionHeader } from '../context/build.ts';
 import { cacheMissesOf } from '../context/cache.ts';
-import { contextSize, fixedTokens, HANDOFF_NO_TOOLS, HANDOFF_PROMPT } from '../project/handoff.ts';
+import { contextSize, fixedTokens, HANDOFF_NO_TOOLS, HANDOFF_PROMPT, handoffDue, handoffFloor } from '../project/handoff.ts';
 import { COMPACT_INSTRUCTIONS, compactionCut, compactPlan, firstReply } from '../project/compact.ts';
 import { hash, stableJson } from '../hash.ts';
 import { MAX_IMAGES_PER_SESSION, type ImageRef } from '../images.ts';
 import { costUsd } from '../providers/catalog.ts';
-import { isRetryable } from '../providers/http.ts';
 import { capEffort, loadMaxEffort } from '../config.ts';
 import { hookName, runHook, type Hooks } from '../hooks.ts';
+import { retryDecision, type RetryConfig } from './retry.ts';
 import { decide, READ_ONLY_POLICY, ruleMatches, type Policy } from '../safety/policy.ts';
 import { REDACTED, redactSecrets } from '../safety/secrets.ts';
 import type { Snapshots } from '../safety/snapshot.ts';
 import type { SessionLog } from '../session/log.ts';
 import { evidence, ledgerEntries, matchCheck, repeatCheck, verified } from '../trust/ledger.ts';
-import { judgeEnd, pass, type EndGuard } from './guards.ts';
+import { endGuards, judgeEnd, type TurnEnd } from './guards.ts';
+export { CONTINUE_AFTER_LIMIT, EMPTY_REPLY, MAX_STOP_REFUSALS, stopHookReminder, unverifiedReminder } from './guards.ts';
 import { findStuck, stuckEnd, stuckReminder } from '../trust/stuck.ts';
 import type { Verdict } from '../trust/classifier.ts';
-import { changesFromCalls, changesFromPatch, findSlop, formatFinding, slopReminder, type SlopFinding } from '../trust/slop.ts';
+import { changesFromCalls, changesFromPatch, findSlop, formatFinding, type SlopFinding } from '../trust/slop.ts';
 import { effectOf, resolveCall, toolDefs, type ToolSpec } from '../tools/registry.ts';
 import { isSpawnNudge, spawnNudge } from '../tools/spawn.ts';
 import { shownInstructions } from '../project/instructions.ts';
@@ -203,12 +204,6 @@ export function keepWarm(provider: Provider, req: WireRequest, requestId: EventI
   };
 }
 
-export const CONTINUE_AFTER_LIMIT = 'Your previous reply was cut off by the output limit. Continue exactly where it stopped.';
-
-// A reply with no text and no tool call (thinking only, or nothing at all) ends no task: an earlier turn's text
-// would otherwise stand as the result.
-export const EMPTY_REPLY = 'Your last reply had no text and no tool call. Go on with the task, or reply with what you found or did.';
-
 // A call that would change something, made before the plan it waited for arrived.
 export const PLAN_FIRST = 'not run: the plan arrived before this call ran. It follows; make the call again if the plan still calls for it.';
 
@@ -218,9 +213,6 @@ export function escalationTarget(model: ModelSpec, start: Effort | undefined, to
   if (!to || !start || !model.caps.midConversationEffort || !model.caps.effortLevels.includes(to)) return undefined;
   return EFFORTS.indexOf(to) > EFFORTS.indexOf(start) ? to : undefined;
 }
-
-export const unverifiedReminder = (checks: string[]) =>
-  `cedia has no record of a declared check passing since your last change, so the task is not done yet. A check counts only when the whole bash command is ${checks.map((c) => `\`${c}\``).join(' or ')} (a leading \`cd\` to the working directory is fine; pipes, \`;\` or other commands are not). Run it that way now, fix what fails, then report.`;
 
 // The provider refused a request after taking this session's earlier ones: what changed is the history (a
 // thinking signature it no longer accepts, a tool call it cannot read back, a context past its window), and the
@@ -327,6 +319,7 @@ export async function runPrompt(opts: RunOptions, prompt: string): Promise<Headl
   // ends the wait early. Slices do not consume retries: quota waits are bounded by their ceiling, not by count.
   // A wait that says no time (a spent balance) is not a wait at all, so a zero slice cannot spin.
   const recheckMs = opts.quotaRecheckMs !== undefined && opts.quotaRecheckMs > 0 ? opts.quotaRecheckMs : QUOTA_RECHECK_MS;
+  const retryCfg: RetryConfig = { max: retryMax, baseMs: opts.retry?.baseMs ?? 1000, capMs: opts.retry?.capMs ?? 30_000, recheckMs, ...(opts.quotaWaitMs !== undefined ? { quotaWaitMs: opts.quotaWaitMs } : {}) };
   const byName = new Map(tools.map((t) => [t.name, t]));
 
   // Streaming tool execution: a read-only call starts as soon as its tool_use block ends in the stream, so it
@@ -372,8 +365,7 @@ export async function runPrompt(opts: RunOptions, prompt: string): Promise<Headl
   // Inherited writes sit at 0, the user prompt's slot, so any check in this run comes after them.
   const inherited = [...(opts.continues?.changed ?? []), ...(opts.inherited ?? [])].map((path) => ({ kind: 'write' as const, at: 0, tool: 'parent', path }));
   const entries = () => [...inherited, ...ledgerEntries(log.events.slice(runStart), checks, opts.cwd)];
-  let nudged = false;
-  let emptyNudged = false;
+  const end = endGuards();
   // The stuck guard judges the calls since the run began, or since its reminder: one reminder, then the run ends.
   let stuckFrom = -1;
   let stuckNudged = false;
@@ -434,9 +426,6 @@ export async function runPrompt(opts: RunOptions, prompt: string): Promise<Headl
   // The slop guard reads this run's changes: the patch between its first and latest snapshot, or the edit and
   // write calls when snapshots are off.
   const slopOn = !opts.permission?.unlock?.includes('slop-check');
-  let slopNudged = false;
-  // Claims the user's stop hooks refused; past MAX_STOP_REFUSALS the run ends unverified.
-  let stopRefused = 0;
   const slop = (): SlopFinding[] => {
     if (!slopOn) return [];
     const run = log.events.slice(runStart);
@@ -605,44 +594,32 @@ export async function runPrompt(opts: RunOptions, prompt: string): Promise<Headl
       }
       log.append({ kind: 'attempt', requestId: request.id, n, error: got.error, ...t });
       timing.modelMs += t.ms ?? 0;
-      const after = got.error.retryAfterMs;
-      const budget = opts.quotaWaitMs;
-      const quotaWait = got.error.code === 'quota' && budget !== undefined && after !== undefined && after > 0 && quotaWaited < budget ? after : undefined;
-      // A gateway that rejects a beta-gated feature gets the turn once more without it: no effort messages,
-      // no role-system mapping, custom headers kept. Once only, and never for a compaction request (a summary
-      // needs its beta to be read back); the attempts show the rejection that motivated the resend.
-      if (n === 1 && !stripped && got.error.code === 'bad_request' && (got.error.status === undefined || got.error.status === 400) && /beta/i.test(got.error.message)) {
+      const state = { n, stripped, quotaWaited };
+      let next = retryDecision(got.error, state, retryCfg);
+      if (next.kind === 'strip') {
         const alt = provider.stripForGateway?.(req);
         if (alt) {
           stripped = true;
           req = alt;
           continue;
         }
+        next = retryDecision(got.error, { ...state, stripped: true }, retryCfg);
       }
-      if ((!isRetryable(got.error) && quotaWait === undefined) || (quotaWait === undefined && n >= retryMax)) return fail(apiFailure(got.error), got.error.message);
-      const base = opts.retry?.baseMs ?? 1000;
-      const cap = opts.retry?.capMs ?? 30_000;
-      const wait = after ?? Math.min(cap, base * 2 ** (n - 1));
-      if (quotaWait !== undefined) {
-        // One slice, then around again for a fresh request: a lifted quota succeeds early, a fresh 429 carries
-        // a new retry-after, and the ceiling bounds the total (the last slice is cut short at it). Quota cycles
-        // never consume retries.
-        const step = Math.min(quotaWait, recheckMs, (opts.quotaWaitMs ?? 0) - quotaWaited);
-        if (step <= 0) return fail(apiFailure(got.error), got.error.message);
-        log.append({ kind: 'retry', requestId: request.id, n, waitMs: step, code: got.error.code, ...(got.error.status !== undefined ? { status: got.error.status } : {}) });
-        await sleep(step);
-        timing.retryMs += step;
+      if (next.kind === 'fail' || next.kind === 'strip') return fail(apiFailure(got.error), got.error.message);
+      const status = got.error.status !== undefined ? { status: got.error.status } : {};
+      if (next.kind === 'quota') {
+        log.append({ kind: 'retry', requestId: request.id, n, waitMs: next.waitMs, code: got.error.code, ...status });
+        await sleep(next.waitMs);
+        timing.retryMs += next.waitMs;
         if (signal.aborted) return finish('interrupted', 'aborted');
-        quotaWaited += step;
-        opts.onQuotaWait?.(step);
+        quotaWaited += next.waitMs;
+        opts.onQuotaWait?.(next.waitMs);
         continue;
-      } else {
-        if (wait >= WAIT_SAY_MS) opts.onWait?.(wait);
-        log.append({ kind: 'retry', requestId: request.id, n, waitMs: wait, code: got.error.code, ...(got.error.status !== undefined ? { status: got.error.status } : {}), of: retryMax });
-        await sleep(wait);
-        timing.retryMs += wait;
-        if (signal.aborted) return finish('interrupted', 'aborted');
       }
+      if (next.waitMs >= WAIT_SAY_MS) opts.onWait?.(next.waitMs);
+      log.append({ kind: 'retry', requestId: request.id, n, waitMs: next.waitMs, code: got.error.code, ...status, of: retryMax });
+      await sleep(next.waitMs);
+      timing.retryMs += next.waitMs;
       if (signal.aborted) return finish('interrupted', 'aborted');
     }
     if (!got.ok) throw new Error('unreachable');
@@ -661,7 +638,7 @@ export async function runPrompt(opts: RunOptions, prompt: string): Promise<Headl
     // A call that repeats an earlier call's id is not run: the wire pairs results by id, so only one can answer.
     const calls = all.filter((c, i) => all.findIndex((d) => callIdOf(d) === callIdOf(c)) === i);
     const shared = new Set(all.filter((c) => !calls.includes(c)).map(callIdOf));
-    if (calls.length || text.trim()) emptyNudged = false;
+    if (calls.length || text.trim()) end.activity();
     const overBudget = opts.maxBudgetUsd !== undefined && (opts.meter?.usd ?? cost) >= opts.maxBudgetUsd;
 
     if (handoff === 1 || handoff === 2) {
@@ -746,15 +723,13 @@ export async function runPrompt(opts: RunOptions, prompt: string): Promise<Headl
       const size = contextSize(got.usage) + added;
       const first = firstReply(log.events, runStart)!;
       const changedHere = () => ledgerEntries(log.events.slice(runStart), checks, opts.cwd).some((e) => e.kind === 'write' && e.path !== undefined);
-      // A session that starts from a summary starts large by design (the kept turns, and the turns that ran while the
-      // summary was written: 40k to 63k on Haiku at a 90k handoff point), so doubling would carry it past the handoff
-      // point; it must have grown by the share a compaction keeps instead. Otherwise what must double is the part a
-      // handoff can shrink: the system prompt and tool definitions come back whole in the next session, and with a
-      // big MCP server they were most of the first reply (46k of it on Haiku, 41k of that tools), so doubling the
-      // whole of it put the handoff past the 90k point, a turn short of the 100k price line.
-      const base = contextSize(first.usage);
-      const grown = log.events.some((e) => e.kind === 'summary') ? base + (opts.compact?.keepTokens ?? compactPlan(opts.handoffAt ?? 0).keepTokens) : base + Math.max(0, base - fixedTokens(header));
-      const due = (at: number) => size >= at && size >= grown && (!opts.continues || changedHere());
+      const floor = handoffFloor({
+        context: contextSize(first.usage),
+        fixed: fixedTokens(header),
+        fromSummary: log.events.some((e) => e.kind === 'summary'),
+        keepTokens: opts.compact?.keepTokens ?? compactPlan(opts.handoffAt ?? 0).keepTokens,
+      });
+      const due = (at: number) => handoffDue(at, { size, floor, continues: !!opts.continues, changedHere });
       // By compaction: start it in the background, and at the handoff point wait for it to settle (the top of the
       // loop then ends the session, or falls back to the note when no summary came).
       if (cmp.now === undefined && opts.handoffAt !== undefined && handoff === 0 && due(opts.compact!.startAt)) {
@@ -792,68 +767,30 @@ export async function runPrompt(opts: RunOptions, prompt: string): Promise<Headl
     }
     // A claim of done passes each guard in order (core/loop/guards.ts); the first that does not pass sends its
     // reminder for another turn, or ends the run.
-    const guards: EndGuard[] = [
-      { name: 'output-limit', judge: () => (got.stop === 'max_tokens' ? { kind: 'remind', text: CONTINUE_AFTER_LIMIT } : pass) },
-      // A refusal ends the run as a failure, whatever the ledger holds.
+    const turn: TurnEnd = {
+      stop: got.stop,
+      ...(got.refusal ? { refusal: got.refusal } : {}),
+      text,
+      slop,
+      verified: () => verified(entries(), checks),
+      checks,
+      softChecks: !!opts.softChecks,
+      stopHook: () => stopHooks(opts, log, lastText, evidence(entries()).changed),
+    };
+    const ended = await judgeEnd(end.guards(turn));
+    if (ended?.verdict.kind === 'stop') {
+      const stop = ended.verdict.stop;
+      if (stop.as === 'unverified') return finish('error_unverified_claim', 'completed');
+      if (stop.as === 'empty-reply') return fail({ cause: 'empty_reply' }, `${model.ref} ended its turn twice without a reply`);
       // A classifier's refusal (one the provider explains) discards any partial text: its category says whether
       // the prompt or the task drew it.
-      {
-        name: 'refusal',
-        judge: () => {
-          if (got.stop !== 'refusal') return pass;
-          const r = got.refusal;
-          const why = r?.category ? ` (${r.category})${r.explanation ? `: ${r.explanation}` : ''}` : '';
-          return { kind: 'stop', end: () => fail({ cause: 'refusal', ...(r?.category ? { category: r.category } : {}) }, (!r && text) || `${model.ref} declined${why || ' to go on with this task'}`) };
-        },
-      },
-      {
-        name: 'empty-reply',
-        judge: () => {
-          if (text.trim()) return pass;
-          if (emptyNudged) return { kind: 'stop', end: () => fail({ cause: 'empty_reply' }, `${model.ref} ended its turn twice without a reply`) };
-          emptyNudged = true;
-          return { kind: 'remind', text: EMPTY_REPLY };
-        },
-      },
-      // Slop guard: one reminder naming what looks like a shortcut; the model fixes it or explains it.
-      {
-        name: 'slop',
-        judge: () => {
-          if (slopNudged) return pass;
-          const found = slop();
-          if (!found.length) return pass;
-          slopNudged = true;
-          return { kind: 'remind', text: slopReminder(found) };
-        },
-      },
-      // Done gate: one reminder to run a declared check, then the claim is refused.
-      {
-        name: 'done-gate',
-        judge: () => {
-          if (verified(entries(), checks)) return pass;
-          if (!nudged) {
-            nudged = true;
-            return { kind: 'remind', text: unverifiedReminder(checks), after: escalate };
-          }
-          return opts.softChecks ? pass : { kind: 'stop', end: () => finish('error_unverified_claim', 'completed') };
-        },
-      },
-      // The user's stop hooks judge the claim last, like a check the user wrote: a refusal goes back to the model.
-      {
-        name: 'stop-hooks',
-        judge: async () => {
-          const refusal = await stopHooks(opts, log, lastText, evidence(entries()).changed);
-          if (!refusal) return pass;
-          if (++stopRefused > MAX_STOP_REFUSALS) return { kind: 'stop', end: () => finish('error_unverified_claim', 'completed') };
-          return { kind: 'remind', text: stopHookReminder(refusal.hook, refusal.reason) };
-        },
-      },
-    ];
-    const ended = await judgeEnd(guards);
-    if (ended?.verdict.kind === 'stop') return ended.verdict.end();
+      const r = stop.refusal;
+      const why = r?.category ? ` (${r.category})${r.explanation ? `: ${r.explanation}` : ''}` : '';
+      return fail({ cause: 'refusal', ...(r?.category ? { category: r.category } : {}) }, (!r && text) || `${model.ref} declined${why || ' to go on with this task'}`);
+    }
     if (ended?.verdict.kind === 'remind') {
       log.append({ kind: 'reminder', as: 'user', text: ended.verdict.text });
-      ended.verdict.after?.();
+      if (ended.verdict.escalate) escalate();
       continue;
     }
     return finish('success', 'completed');
@@ -1071,11 +1008,6 @@ export function nearCheck(command: string, checks: string[], cwd?: string): stri
 }
 export const nearCheckNote = (check: string) =>
   `[cedia: this command holds the declared check \`${check}\` but is not just it, so it does not count as the check: the done gate needs that command's own exit code. When you verify, run \`${check}\` exactly, on its own.]`;
-
-export const MAX_STOP_REFUSALS = 2;
-
-export const stopHookReminder = (hook: string, reason: string) =>
-  `cedia: your claim that the task is done was refused by the user's stop hook ${hook}: ${reason}\nFix what it names, run the checks again, then reply.`;
 
 async function stopHooks(opts: RunOptions, log: SessionLog, result: string, changed: string[]): Promise<{ hook: string; reason: string } | undefined> {
   for (const [i, h] of (opts.hooks?.stop ?? []).entries()) {

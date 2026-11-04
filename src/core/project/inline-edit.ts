@@ -1,11 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
-import { cediaHome, loadPrivacy } from '../config.ts';
-import { runPrompt } from '../loop/run.ts';
+import { cediaHome } from '../config.ts';
+import { runSide } from '../loop/side.ts';
 import { resolveModel } from '../providers/catalog.ts';
-import { providerFor } from '../providers/index.ts';
 import { REDACTED, redactSecrets, secretPaths } from '../safety/secrets.ts';
-import { SessionLog, sessionPath } from '../session/log.ts';
 import { inert } from '../trust/frame.ts';
 
 // Inline edit, the desktop's Cmd+K (SPEC "Desktop"): a selection in a file and the person's instruction, answered
@@ -130,11 +128,8 @@ export async function inlineEdit(opts: { cwd: string; file: string; range: Inlin
   if (redactSecrets(text).count !== before.count + after.count) return { error: 'the selection holds a secret; cedia keeps it away from the model' };
   const selected = text.slice(at.from, at.to);
   const model = resolveModel(opts.model);
-  const fauxScript = process.env.CEDIA_FAUX_SCRIPT ? JSON.parse(readFileSync(process.env.CEDIA_FAUX_SCRIPT, 'utf8')) : undefined;
-  const id = crypto.randomUUID();
-  const log = SessionLog.create({ id, path: sessionPath(opts.cwd, id) });
   const prompt = inlineEditPrompt(shown, before.text + selected + after.text, before.text.length, before.text.length + selected.length, opts.instruction);
-  const r = await runPrompt({ log, provider: providerFor(model, { fauxScript }), model, tools: [], system: INLINE_EDIT_SYSTEM, cwd: opts.cwd, role: 'edit', privacy: loadPrivacy(opts.cwd, opts.privacy), maxTurns: 2, ...(opts.signal ? { signal: opts.signal } : {}) }, prompt);
+  const r = await runSide({ cwd: opts.cwd, model, role: 'edit', access: { kind: 'none' }, system: INLINE_EDIT_SYSTEM, prompt, maxTurns: 2, ...(opts.privacy ? { privacy: opts.privacy } : {}), ...(opts.signal ? { signal: opts.signal } : {}) });
   if (r.subtype !== 'success') return { error: `the edit could not be written (${r.subtype})` };
   const replacement = replacementText(r.result);
   if (replacement.includes(REDACTED)) return { error: 'the reply wrote a redacted secret back; edit this part by hand' };

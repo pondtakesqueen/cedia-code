@@ -16,17 +16,11 @@ import { askedBannerText } from './asked.ts';
 import { StatusBar } from './status-bar.tsx';
 import { runHeadless } from '../headless/main.ts';
 
-import { runPrompt } from '../../core/loop/run.ts';
-import { SessionLog, sessionPath } from '../../core/session/log.ts';
-import { providerFor } from '../../core/providers/index.ts';
 import { resolveModel } from '../../core/providers/catalog.ts';
-import { systemFor } from '../../core/prompts.ts';
-import { CORE_TOOLS } from '../../core/tools/index.ts';
-import { askedReviewPrompt, fixPrompt, parseVerdict } from '../../core/trust/review.ts';
 import { decode, type CoreMessage } from '../../protocol/index.ts';
 import type { TuiArgs } from './args.ts';
 import type { JsonObject, SessionEvent } from '../../core/types.ts';
-import { cediaHome, loadHandoffAt, loadPromptSuggestions, loadRoles, isMode, modeFlags, loadPolicy, loadPrivacy, readSettings } from '../../core/config.ts';
+import { cediaHome, loadHandoffAt, loadPromptSuggestions, loadRoles, isMode, modeFlags, readSettings } from '../../core/config.ts';
 import { modelLabel, modelList } from '../../core/providers/models.ts';
 import { processKeychain } from '../../core/providers/keychain.ts';
 import { versionInfo } from '../../protocol/version.ts';
@@ -43,11 +37,12 @@ import { SUBTHREAD_HINT, childThreads, recentCalls, subthreadLines } from './sub
 import { runOwnerShell, shellCommand, shellEnd, shellNote, type ShellRun } from './shell.ts';
 import { FOCUS_OFF, FOCUS_ON, NOTIFY_MODES, channelFor, focusFrom, notifyModeFrom, notifySequence, shouldNotify, turnNotice, type Focus } from './notify.ts';
 import { matchesKey } from '@mariozechner/pi-tui';
-import { TeamStore } from '../../core/project/teams.ts';
-import { voiceInput } from '../../core/project/voice.ts';
 import { acceptTrust, completedNames, isComplete, loadOnboarding, markStep, ONBOARDING_STEPS, reconcileOnboarding, saveOnboarding } from './onboarding.ts';
 import { workingDiff } from '../../core/project/git.ts';
-import { askedReviewModel, FOCUSES, reviewSubject, subjectTitle, ultraReview } from '../../core/project/ultrareview.ts';
+import { FOCUSES, reviewSubject, subjectTitle, ultraReview } from '../../core/project/ultrareview.ts';
+import { sideModel, threadWriter } from '../../core/side-model.ts';
+import { helpGroups, INK_COMMANDS } from './commands.ts';
+import { reviewCommand, type CommandCtx } from './command-review.ts';
 import { MemoryStore, memoryPath } from '../../core/project/memory.ts';
 import { loadSkills } from '../../core/skills/skills.ts';
 import { listMcp } from '../../core/mcp/manage.ts';
@@ -61,7 +56,7 @@ import { forkThread } from '../../core/project/fork.ts';
 import { ThreadStore, threadsDir } from '../../core/project/threads.ts';
 import { projectKey } from '../../core/session/log.ts';
 import { join } from 'node:path';
-import { readFileSync as fsRead, writeFileSync as fsWrite, existsSync as fsExists, readdirSync as fsReaddir, statSync as fsStat, unlinkSync as fsUnlink, mkdirSync as fsMkdir } from 'node:fs';
+import { readFileSync as fsRead, writeFileSync as fsWrite, existsSync as fsExists, unlinkSync as fsUnlink, mkdirSync as fsMkdir } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { loadProjectUsage } from './usage-summary.ts';
 import { awayText, presentIn, recapWhen, type PendingRecap } from './away.ts';
@@ -83,64 +78,6 @@ type Msg = {
   thinking?: { text: string; ms?: number };
 };
 
-// `opens`: the command opens a picker or a view with no argument, so accepting it from autocomplete runs it
-// at once instead of waiting for another Enter.
-const INK_COMMANDS: { name: string; description: string; opens?: true }[] = [
-  { name: 'help', description: 'these commands and keys' },
-  { name: 'clear', description: 'clear the chat view' },
-  { name: 'quit', description: 'leave' },
-  { name: 'cost', description: 'spend, context tokens, rate' },
-  { name: 'context', description: 'what fills the context: prompt, tools, MCP, history' },
-  { name: 'status', description: 'the status line' },
-  { name: 'transcript', description: 'show the full transcript' },
-  { name: 'search', description: 'search the chat transcript' },
-  { name: 'actions', description: 'message actions menu', opens: true },
-  { name: 'new', description: 'start a new thread' },
-  { name: 'diff', description: 'working tree changes' },
-  { name: 'undo', description: 'put back the files the last turn changed' },
-  { name: 'redo', description: 'put them forward again' },
-  { name: 'rewind', description: 'go back to before a run' },
-  { name: 'commit', description: 'commit the files this thread changed' },
-  { name: 'pr', description: 'push and open a pull request' },
-  { name: 'review', description: 'review the uncommitted changes' },
-  { name: 'ultrareview', description: 'review the changes or a pull request once per focus, side by side; Esc stops it' },
-  { name: 'plan', description: 'send this prompt to the planner first' },
-  { name: 'quick', description: 'send this prompt straight to the writer' },
-  { name: 'memory', description: 'project memory' },
-  { name: 'skills', description: 'skills this session can load' },
-  { name: 'mcp', description: 'MCP servers configured' },
-  { name: 'fork', description: 'fork a thread' },
-  { name: 'thread', description: 'go on with a thread' },
-  { name: 'model', description: 'the model the next turn runs on', opens: true },
-  { name: 'goal', description: 'keep each turn going until a judge finds this holds' },
-  { name: 'palette', description: 'command palette', opens: true },
-  { name: 'settings', description: 'show the current settings' },
-  { name: 'config', description: 'show settings.json' },
-  { name: 'rename', description: 'rename this thread' },
-  { name: 'resume', description: 'go on with a thread' },
-  { name: 'branch', description: 'git branches', opens: true },
-  { name: 'copy', description: 'copy the last reply' },
-  { name: 'tasks', description: 'alias for /agents', opens: true },
-  { name: 'agents', description: 'watch this thread\'s sub-threads, even mid-turn (← → between them)', opens: true },
-  { name: 'compact', description: 'show handoff/compaction status' },
-  { name: 'fast', description: 'toggle fast mode' },
-  { name: 'export', description: 'export this thread to a file' },
-  { name: 'btw', description: 'ask a side question' },
-  { name: 'theme', description: 'the current theme', opens: true },
-  { name: 'color', description: 'alias for /theme', opens: true },
-  { name: 'doctor', description: 'versions, settings, MCP, sandbox' },
-  { name: 'permission', description: 'permission mode', opens: true },
-  { name: 'vim', description: 'toggle vim mode' },
-  { name: 'hooks', description: 'hooks configured' },
-  { name: 'effort', description: 'show or set starting effort' },
-  { name: 'output-style', description: 'output style', opens: true },
-  { name: 'suggest', description: 'suggest a next prompt' },
-  { name: 'trust', description: 'accept trust' },
-  { name: 'onboarding', description: 'onboarding status' },
-  { name: 'statusline', description: 'run a status line command' },
-  { name: 'notify', description: 'tell you when a turn ends while you look away (auto | bell | off)' },
-];
-
 const INPUT_PLACEHOLDERS = [
   'Try "explain how auth works here"',
   'Try "/review the uncommitted changes"',
@@ -151,7 +88,7 @@ const INPUT_PLACEHOLDERS = [
 
 // The writer a turn runs on: the model picked, or under a mode (`auto`, `oplan`) or none the code role, which a
 // mode keeps (core/config.ts). Helpers that need one model (commit messages) take this.
-const writerRef = (model: string | undefined): string => (model && !isMode(model) ? model : loadRoles({}).code.ref);
+const writerRef = (model: string | undefined): string => sideModel('write', { picked: model }).ref;
 // Prompt suggestions run on the model picked (a mode's writer), else their own default (prompt-suggestion.ts).
 const suggestModel = (model: string | undefined): string | undefined => (isMode(model) ? writerRef(model) : model);
 
@@ -624,20 +561,27 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
     && !focusedDialog && !settingsOpen && !permissionDialog && !picker && !transcriptSearch.open
     && !autoDismissed;
 
+  // What a command moved out of handleCommand sees of the TUI (command-review.ts).
+  const commandCtx = (): CommandCtx => ({
+    cwd: args.cwd,
+    ...(model ? { model } : {}),
+    ...(thread ? { thread } : {}),
+    store,
+    policy: { allow: args.allow ?? [], deny: args.deny ?? [], unlock: args.unlock ?? [] },
+    ...(args.privacy ? { privacy: args.privacy } : {}),
+    say: (text, tone) => push({ role: 'system', text, ...(tone ? { tone } : {}) }),
+    reply: (text) => push({ role: 'assistant', text }),
+    toolEvent: applyToolEvent,
+    spend: (usd) => setSpent((v) => v + usd),
+    confirm: (what, yes) => { pendingRef.current = { what, yes: () => yes() }; },
+    send: (prompt) => submit(prompt, undefined),
+  });
   const handleCommand = useCallback((line: string) => {
     const [name = '', ...rest] = line.trim().split(/\s+/);
     const say = (t: string, tone?: 'red') => push({ role: 'system', text: t, ...(tone ? { tone } : {}) });
     switch (name) {
       case 'help': {
-        const groups: [string, string[]][] = [
-          ['thread', ['/new', '/thread', '/resume', '/rename', '/fork', '/rewind', '/undo', '/redo', '/diff']],
-          ['run', ['/plan', '/quick', '/model', '/goal', '/effort', '/permission']],
-          ['project', ['/commit', '/pr', '/review', '/ultrareview', '/memory', '/skills', '/mcp']],
-          ['view', ['/clear', '/transcript', '/search', '/settings', '/doctor', '/theme', '/palette', '/actions', '/copy', '/export', '/compact', '/agents', '/tasks', '/branch', '/status', '/cost', '/context']],
-          ['other', ['/help', '/quit', '/vim', '/hooks', '/btw', '/suggest', '/trust', '/onboarding', '/statusline', '/output-style', '/config', '/notify']],
-        ];
-        const byName = new Map(INK_COMMANDS.map((c) => [c.name, c.description]));
-        say(groups.map(([g, names]) => `${g}: ${names.map((n) => `${n} — ${byName.get(n.slice(1)) ?? ''}`).join(' · ')}`).join('\n'));
+        say(helpGroups().map(([g, cmds]) => `${g}: ${cmds.map((c) => `/${c.name} — ${c.description}`).join(' · ')}`).join('\n'));
         say('keys: Esc stops a turn · !<command> runs it in your shell · Ctrl+C cancels/quits · Ctrl+R history · Ctrl+O rewind · Ctrl+F search · Ctrl+G external editor · Tab completes · Shift+Tab permission · Meta+P model · Meta+O fast · Meta+T thinking · ↑↓ navigate · PgUp/PgDn scroll · type / for commands · @ for files · Alt+Enter or \\+Enter newline · Ctrl+A/E/U/K/W edit the line' + (bindingHints ? ` · custom keys: ${bindingHints}` : ''));
         return;
       }
@@ -762,7 +706,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
           let message = own;
           if (!message) {
             try {
-              const writerModel = writerRef(model);
+              const writerModel = sideModel('write', { picked: model, threadWriter: threadWriter(store, thread) }).ref;
               const drafted = await draftCommitMessage({ cwd: args.cwd, model: writerModel, files, signal: new AbortController().signal });
               message = drafted.message;
               setSpent((s) => s + drafted.costUsd);
@@ -803,7 +747,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
           try {
             const got = await reviewSubject(args.cwd, rest[0], stop.signal);
             if ('error' in got) { say(got.error); return; }
-            const reviewModel = askedReviewModel(model && !isMode(model) ? model : undefined);
+            const reviewModel = sideModel('review', { picked: model, ...(thread ? { threadWriter: threadWriter(store, thread) } : {}) });
             say(`ultrareviewing ${subjectTitle(got.subject)} with ${reviewModel.ref}, ${FOCUSES.length} focuses side by side…`);
             setActivity('ultrareviewing');
             const r = await ultraReview({
@@ -830,46 +774,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       }
       case 'review': {
         busyRef.current = true;
-        void (async () => {
-          try {
-          const got = await reviewSubject(args.cwd, rest[0]);
-          if ('error' in got) { say(got.error); return; }
-          const { subject, patch } = got;
-          const reviewModel = askedReviewModel(model && !isMode(model) ? model : undefined);
-          say(`reviewing ${subjectTitle(subject)} with ${reviewModel.ref}…`);
-          const id = crypto.randomUUID();
-          const log = SessionLog.create({ id, path: sessionPath(args.cwd, id) });
-          log.listeners.push((e) => {
-            if (e.kind === 'assistant') for (const b of (e as { blocks?: { type: string; text?: string }[] }).blocks ?? []) if (b.type === 'text' && b.text?.trim()) push({ role: 'assistant', text: (b.text as string) });
-            if (e.kind === 'tool_intent' || e.kind === 'tool_result' || e.kind === 'permission') applyToolEvent(e);
-            // no requestRender in ink; state update triggers render
-          });
-          const fauxScript = process.env.CEDIA_FAUX_SCRIPT ? JSON.parse(require('node:fs').readFileSync(process.env.CEDIA_FAUX_SCRIPT, 'utf8')) : undefined;
-          const r = await runPrompt(
-            {
-              log,
-              provider: providerFor(reviewModel, { fauxScript }),
-              model: reviewModel,
-              tools: CORE_TOOLS.filter((t) => t.effect !== 'write_workspace'),
-              system: systemFor(reviewModel),
-              cwd: args.cwd,
-              role: 'review',
-              permission: { ...loadPolicy(args.cwd, { allow: args.allow ?? [], deny: args.deny ?? [], unlock: args.unlock ?? [] }), mode: 'read-only' },
-              privacy: loadPrivacy(args.cwd, args.privacy),
-              maxTurns: 40,
-              signal: new AbortController().signal,
-            },
-            askedReviewPrompt(subject, patch),
-          );
-          setSpent((s) => s + r.costUsd);
-          say(`review ${r.subtype === 'success' ? 'done' : r.subtype} · ${r.numTurns} turn${r.numTurns === 1 ? '' : 's'} · $${r.costUsd.toFixed(4)}`);
-          if (r.subtype !== 'success') { if (r.result.trim()) say(r.result.trim(), 'red'); return; }
-          const { verdict, findings } = parseVerdict(r.result);
-          if (verdict !== 'changes' || subject.kind !== 'changes' || !findings) return;
-          say(`send these findings to ${thread ? "this thread's writer" : 'a new thread'} to fix? y to send; n, or anything else you type, cancels`);
-          pendingRef.current = { what: 'sending the findings', yes: (signal) => submit(fixPrompt(reviewModel.ref, findings), undefined) };
-          } finally { busyRef.current = false; }
-        })();
+        void reviewCommand(commandCtx(), rest[0]).finally(() => { busyRef.current = false; });
         return;
       }
       case 'undo': {

@@ -1,11 +1,7 @@
-import { readFileSync } from 'node:fs';
 import { cediaHome } from '../config.ts';
 import { projectKey } from '../session/log.ts';
-import { SessionLog, sessionPath } from '../session/log.ts';
 import { resolveModel } from '../providers/catalog.ts';
-import { providerFor } from '../providers/index.ts';
-import { runPrompt } from '../loop/run.ts';
-import { loadPrivacy } from '../config.ts';
+import { runSide } from '../loop/side.ts';
 import { memoryPath, MemoryStore, rememberTool, MAX_NOTE } from '../project/memory.ts';
 import { consolidateLockPath, readLock, writeLock } from '../project/consolidate.ts';
 
@@ -36,29 +32,19 @@ export async function gatherNotes(opts: { cwd: string; home?: string; model?: st
 
   const modelRef = opts.model ?? (process.env.CEDIA_FAUX_SCRIPT ? 'faux' : 'beam');
   const model = resolveModel(modelRef);
-  const fauxScript = process.env.CEDIA_FAUX_SCRIPT ? JSON.parse(readFileSync(process.env.CEDIA_FAUX_SCRIPT, 'utf8')) : undefined;
-  const provider = providerFor(model, { fauxScript });
-  const id = crypto.randomUUID();
-  // Logged like any session, so `cedia usage` counts what it cost; scanTranscripts leaves its role out.
-  const log = SessionLog.create({ id, path: sessionPath(opts.cwd, id, home) });
-  const privacy = loadPrivacy(opts.cwd, undefined);
   const system = `You extract durable memories from a session transcript. Keep short facts (commands that work, decisions and reasons, where things live, traps). Not progress. At most ${MAX_NOTE} chars per note. Use remember tool, at most 5 notes. If nothing durable, call nothing.`;
   const prompt = `Extract durable memories from these transcripts:\n\n${scan.text}`;
-  await runPrompt(
-    {
-      log,
-      provider,
-      model,
-      tools: [rememberTool(store, 'extract')],
-      system,
-      cwd: opts.cwd,
-      role: 'extract',
-      permission: { mode: 'workspace', allow: [], deny: [] },
-      privacy,
-      maxTurns: 6,
-    },
+  // Logged like any session, so `cedia usage` counts what it cost; scanTranscripts leaves its role out.
+  await runSide({
+    cwd: opts.cwd,
+    home,
+    model,
+    role: 'extract',
+    access: { kind: 'tools', tools: [rememberTool(store, 'extract')], permission: { mode: 'workspace', allow: [], deny: [] } },
+    system,
     prompt,
-  );
+    maxTurns: 6,
+  });
   writeLock(lockPath, now);
   const after = store.notes().length;
   return { extracted: true, notesBefore: before, notesAfter: after, added: after - before, lockPath, sessionsScanned: scan.count };

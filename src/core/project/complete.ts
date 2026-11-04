@@ -1,12 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
-import { cediaHome, loadPrivacy } from '../config.ts';
-import { runPrompt } from '../loop/run.ts';
+import { cediaHome } from '../config.ts';
+import { runSide } from '../loop/side.ts';
 import { resolveModel } from '../providers/catalog.ts';
-import { providerFor } from '../providers/index.ts';
 import { REDACTED, redactSecrets, secretPaths } from '../safety/secrets.ts';
-import { SessionLog, sessionPath } from '../session/log.ts';
 import { inert } from '../trust/frame.ts';
+import type { SessionEvent } from '../types.ts';
 import { type InlineEditPosition, rangeOffsets } from './inline-edit.ts';
 
 // Tab completion, the desktop's ghost text (SPEC "Desktop"): the file around the cursor, answered with the text to
@@ -105,20 +104,27 @@ export async function complete(opts: { cwd: string; file: string; at: InlineEdit
   const before = redactSecrets(text.slice(0, at.from));
   const after = redactSecrets(text.slice(at.from));
   const model = resolveModel(opts.model);
-  const fauxScript = process.env.CEDIA_FAUX_SCRIPT ? JSON.parse(readFileSync(process.env.CEDIA_FAUX_SCRIPT, 'utf8')) : undefined;
-  const id = crypto.randomUUID();
-  const log = SessionLog.create({ id, path: sessionPath(opts.cwd, id) });
   // The lowest effort the model takes: a completion is wanted now, not thought over.
   const effort = model.caps.effortLevels[0];
   const started = performance.now();
-  const r = await runPrompt(
-    { log, provider: providerFor(model, { fauxScript }), model, tools: [], system: COMPLETE_SYSTEM, cwd: opts.cwd, role: 'complete', privacy: loadPrivacy(opts.cwd, opts.privacy), maxTurns: 1, maxTokens: MAX_TOKENS, ...(effort ? { effort } : {}), ...(opts.signal ? { signal: opts.signal } : {}) },
-    completePrompt(shown, before.text + after.text, before.text.length),
-  );
+  let turn: SessionEvent | undefined;
+  const r = await runSide({
+    cwd: opts.cwd,
+    model,
+    role: 'complete',
+    onEvent: (e) => { if (!turn && e.kind === 'assistant') turn = e; },
+    access: { kind: 'none' },
+    system: COMPLETE_SYSTEM,
+    prompt: completePrompt(shown, before.text + after.text, before.text.length),
+    maxTurns: 1,
+    maxTokens: MAX_TOKENS,
+    ...(effort ? { effort } : {}),
+    ...(opts.privacy ? { privacy: opts.privacy } : {}),
+    ...(opts.signal ? { signal: opts.signal } : {}),
+  });
   const ms = Math.round(performance.now() - started);
   // The answer is the one turn's text, whatever the loop asked for after it (to go on past the token cap, or for a
   // reply after an empty one): a completion is one reply, and the cap is the point.
-  const turn = log.events.find((e) => e.kind === 'assistant');
   const reply = turn?.kind === 'assistant' && turn.stop !== 'aborted' && turn.stop !== 'error' && turn.stop !== 'refusal' ? turn.blocks.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('') : undefined;
   if (reply === undefined) return { error: `no completion (${r.subtype})` };
   const insert = completionText(reply, text.slice(at.from), text.slice(0, at.from));
