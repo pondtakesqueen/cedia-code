@@ -8,9 +8,9 @@ import { COMPACT_INSTRUCTIONS, compactionCut, compactPlan, firstReply } from '..
 import { hash, stableJson } from '../hash.ts';
 import { MAX_IMAGES_PER_SESSION, type ImageRef } from '../images.ts';
 import { costUsd } from '../providers/catalog.ts';
-import { isRetryable } from '../providers/http.ts';
 import { capEffort, loadMaxEffort } from '../config.ts';
 import { hookName, runHook, type Hooks } from '../hooks.ts';
+import { retryDecision, type RetryConfig } from './retry.ts';
 import { decide, READ_ONLY_POLICY, ruleMatches, type Policy } from '../safety/policy.ts';
 import { REDACTED, redactSecrets } from '../safety/secrets.ts';
 import type { Snapshots } from '../safety/snapshot.ts';
@@ -327,6 +327,7 @@ export async function runPrompt(opts: RunOptions, prompt: string): Promise<Headl
   // ends the wait early. Slices do not consume retries: quota waits are bounded by their ceiling, not by count.
   // A wait that says no time (a spent balance) is not a wait at all, so a zero slice cannot spin.
   const recheckMs = opts.quotaRecheckMs !== undefined && opts.quotaRecheckMs > 0 ? opts.quotaRecheckMs : QUOTA_RECHECK_MS;
+  const retryCfg: RetryConfig = { max: retryMax, baseMs: opts.retry?.baseMs ?? 1000, capMs: opts.retry?.capMs ?? 30_000, recheckMs, ...(opts.quotaWaitMs !== undefined ? { quotaWaitMs: opts.quotaWaitMs } : {}) };
   const byName = new Map(tools.map((t) => [t.name, t]));
 
   // Streaming tool execution: a read-only call starts as soon as its tool_use block ends in the stream, so it
@@ -605,44 +606,32 @@ export async function runPrompt(opts: RunOptions, prompt: string): Promise<Headl
       }
       log.append({ kind: 'attempt', requestId: request.id, n, error: got.error, ...t });
       timing.modelMs += t.ms ?? 0;
-      const after = got.error.retryAfterMs;
-      const budget = opts.quotaWaitMs;
-      const quotaWait = got.error.code === 'quota' && budget !== undefined && after !== undefined && after > 0 && quotaWaited < budget ? after : undefined;
-      // A gateway that rejects a beta-gated feature gets the turn once more without it: no effort messages,
-      // no role-system mapping, custom headers kept. Once only, and never for a compaction request (a summary
-      // needs its beta to be read back); the attempts show the rejection that motivated the resend.
-      if (n === 1 && !stripped && got.error.code === 'bad_request' && (got.error.status === undefined || got.error.status === 400) && /beta/i.test(got.error.message)) {
+      const state = { n, stripped, quotaWaited };
+      let next = retryDecision(got.error, state, retryCfg);
+      if (next.kind === 'strip') {
         const alt = provider.stripForGateway?.(req);
         if (alt) {
           stripped = true;
           req = alt;
           continue;
         }
+        next = retryDecision(got.error, { ...state, stripped: true }, retryCfg);
       }
-      if ((!isRetryable(got.error) && quotaWait === undefined) || (quotaWait === undefined && n >= retryMax)) return fail(apiFailure(got.error), got.error.message);
-      const base = opts.retry?.baseMs ?? 1000;
-      const cap = opts.retry?.capMs ?? 30_000;
-      const wait = after ?? Math.min(cap, base * 2 ** (n - 1));
-      if (quotaWait !== undefined) {
-        // One slice, then around again for a fresh request: a lifted quota succeeds early, a fresh 429 carries
-        // a new retry-after, and the ceiling bounds the total (the last slice is cut short at it). Quota cycles
-        // never consume retries.
-        const step = Math.min(quotaWait, recheckMs, (opts.quotaWaitMs ?? 0) - quotaWaited);
-        if (step <= 0) return fail(apiFailure(got.error), got.error.message);
-        log.append({ kind: 'retry', requestId: request.id, n, waitMs: step, code: got.error.code, ...(got.error.status !== undefined ? { status: got.error.status } : {}) });
-        await sleep(step);
-        timing.retryMs += step;
+      if (next.kind === 'fail' || next.kind === 'strip') return fail(apiFailure(got.error), got.error.message);
+      const status = got.error.status !== undefined ? { status: got.error.status } : {};
+      if (next.kind === 'quota') {
+        log.append({ kind: 'retry', requestId: request.id, n, waitMs: next.waitMs, code: got.error.code, ...status });
+        await sleep(next.waitMs);
+        timing.retryMs += next.waitMs;
         if (signal.aborted) return finish('interrupted', 'aborted');
-        quotaWaited += step;
-        opts.onQuotaWait?.(step);
+        quotaWaited += next.waitMs;
+        opts.onQuotaWait?.(next.waitMs);
         continue;
-      } else {
-        if (wait >= WAIT_SAY_MS) opts.onWait?.(wait);
-        log.append({ kind: 'retry', requestId: request.id, n, waitMs: wait, code: got.error.code, ...(got.error.status !== undefined ? { status: got.error.status } : {}), of: retryMax });
-        await sleep(wait);
-        timing.retryMs += wait;
-        if (signal.aborted) return finish('interrupted', 'aborted');
       }
+      if (next.waitMs >= WAIT_SAY_MS) opts.onWait?.(next.waitMs);
+      log.append({ kind: 'retry', requestId: request.id, n, waitMs: next.waitMs, code: got.error.code, ...status, of: retryMax });
+      await sleep(next.waitMs);
+      timing.retryMs += next.waitMs;
       if (signal.aborted) return finish('interrupted', 'aborted');
     }
     if (!got.ok) throw new Error('unreachable');
