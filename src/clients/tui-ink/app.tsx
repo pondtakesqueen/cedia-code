@@ -4,12 +4,13 @@ import { selectedPrefix, useCediaScreenReader } from './a11y.ts';
 import { readPicks, savePick, pickBoost } from './picks.ts';
 import { retryLabel, sinceLabel } from './when.ts';
 import { bindingSummary } from './keybindings/summary.ts';
+import { wrapWords } from './wrap.ts';
 import { buildAutoItems, menuStart, highlightSpans, paintRuns, truncateDescription, truncateLongText, estimateLines, offsetAt, type AutoItem } from './autocomplete.ts';
 import { humanizeSettingKey, settingDisplayValue } from './settings-format.ts';
 import { VimInput } from './vim-input.tsx';
 import { collapses, expandPastes, pasteToken } from './line-edit.ts';
 import Markdown, { clipLines, clipRange, mdPlain, spanProps } from './markdown.tsx';
-import { deniedRow, doneRow, intentRow, resultRow, rowProps, rowText, thinkingRow, type RowBand, type RowLine } from './rows.ts';
+import { deniedRow, doneRow, intentRow, resultRow, rowProps, rowText, thinkingRow, todoLines, todoSteps, type RowBand, type RowLine, type TodoStep } from './rows.ts';
 import { inkTheme, PANEL_BAR, type ThemeTokens } from './theme-tokens.ts';
 import { PermissionDialog } from './permission-dialogs.tsx';
 import { askedBannerText } from './asked.ts';
@@ -32,7 +33,7 @@ import { cancelStep, messageFullySelected, offsetForIndex, rowMapFromWalk, selec
 import { createHeightCache, heightCacheKey, visibleWindow } from './visible-window.ts';
 import { assignRecycleSlots, messageSlotKey, type RecycleSlot } from './virtual-list.ts';
 import { onTerminalResume } from './terminal-resume.ts';
-import { showSplash, wordmark } from './splash.ts';
+import { MASCOT_WIDTH, SPLASH_SIDE_COLUMNS, mascotRuns, showSplash, type Pixel } from './splash.ts';
 import { SUBTHREAD_HINT, childThreads, recentCalls, subthreadLines } from './subthreads.ts';
 import { runOwnerShell, shellCommand, shellEnd, shellNote, type ShellRun } from './shell.ts';
 import { FOCUS_OFF, FOCUS_ON, NOTIFY_MODES, channelFor, focusFrom, notifyModeFrom, notifySequence, shouldNotify, turnNotice, type Focus } from './notify.ts';
@@ -55,7 +56,7 @@ import { rewindThread, rewoundText, runLines } from '../../core/project/rewind.t
 import { forkThread } from '../../core/project/fork.ts';
 import { ThreadStore, threadsDir } from '../../core/project/threads.ts';
 import { projectKey } from '../../core/session/log.ts';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { readFileSync as fsRead, writeFileSync as fsWrite, existsSync as fsExists, unlinkSync as fsUnlink, mkdirSync as fsMkdir } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { loadProjectUsage } from './usage-summary.ts';
@@ -76,6 +77,10 @@ type Msg = {
   lines?: RowLine[];
   callId?: string;
   thinking?: { text: string; ms?: number };
+  // When a running tool row's call started: the row counts its seconds.
+  startedAt?: number;
+  // A finished call's row expanded (alt+e shows these in place of lines).
+  full?: RowLine[];
 };
 
 const INPUT_PLACEHOLDERS = [
@@ -158,8 +163,10 @@ const MessageSlot = React.memo(function MessageSlot({ m, gap, pad, clip: slotCli
   const keep = <X,>(xs: X[]): X[] => clipLines(xs, clip);
   const isUserRow = m.role === 'user' && !hasSel && !queryHit;
   const isToolError = m.role === 'tool' && m.status === 'error';
+  // A prompt wraps here, not in Ink, so every line it paints keeps the bar and the band.
+  const userWrapped = isUserRow && !screenReader ? wrapWords(capped, contentWidth) : [];
   const userLines = isUserRow && !screenReader
-    ? keep(capped.split('\n')).map((ln) => ln.padEnd(Math.max(ln.length, contentWidth)))
+    ? keep(userWrapped).map((ln) => ln.padEnd(contentWidth))
     : null;
   const full = hasSel || queryHit ? capped : keep(capped.split('\n')).join('\n');
   // The row above and below a prompt's text, on its band behind its bar; blank while the prompt is selected.
@@ -205,6 +212,9 @@ const MessageSlot = React.memo(function MessageSlot({ m, gap, pad, clip: slotCli
                     <Text key={si} {...(rowProps(sp.style, T) ?? spanProps(sp.style as Parameters<typeof spanProps>[0], T))} backgroundColor={sp.bg ? bandColor(sp.bg, T) : undefined}>{sp.text}</Text>
                   ),
                 )}
+                {li === 0 && m.status === 'running' && m.startedAt !== undefined && Date.now() - m.startedAt >= 1000
+                  ? <Text color={T.textMuted}><Text color={T.textFaint}> · </Text>{((Date.now() - m.startedAt) / 1000).toFixed(0)}s</Text>
+                  : null}
                 {ln.band ? ' '.repeat(Math.max(0, contentWidth - used)) : null}
               </Text>
             );
@@ -212,7 +222,7 @@ const MessageSlot = React.memo(function MessageSlot({ m, gap, pad, clip: slotCli
         </Box>
       ) : isUserRow ? (
         <>{(userLines ?? [capped]).map((ln, i) => (
-          <Text key={clipRange(capped.split('\n').length, clip)[0] + i} wrap="wrap" backgroundColor={T.userRowBg} color={T.text}>
+          <Text key={clipRange(userWrapped.length || 1, clip)[0] + i} wrap="truncate" backgroundColor={T.userRowBg} color={T.text}>
             <Text color={T.primary}>▌ </Text>{ln}
           </Text>
         ))}</>
@@ -301,6 +311,9 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
   const lastActivityRef = useRef(Date.now());
   const [thread, setThread] = useState<string | undefined>(args.thread);
   const [permission, setPermission] = useState<string | undefined>(args.permission);
+  // What the last run took the setting as: `auto` without a sandbox runs read-only (headless onPermission).
+  // Cleared when the setting changes, since the next run settles it again.
+  const [runPermission, setRunPermission] = useState<{ setting: string; took: string } | undefined>();
   const permissionRef = useRef(permission);
   permissionRef.current = permission;
   const syncOnboardingRef = useRef<(openTrust?: boolean) => void>(() => {});
@@ -333,7 +346,10 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       const ref = writerRef(model);
       const m = resolveModel(ref);
       // A mode keeps the writer, so the header names both: "Haiku 5.5 · auto".
-      return { ref, label: isMode(model) ? `${modelLabel(m)} · ${model}` : modelLabel(m), provider: m.ref.split('/')[0] ?? m.ref, window: m.caps?.contextWindow };
+      // Where a long session hands off: often well before the window is full, so the status bar says it.
+      let handoffAt: number | undefined;
+      try { handoffAt = loadHandoffAt(m, args.handoffAt); } catch {}
+      return { ref, label: isMode(model) ? `${modelLabel(m)} · ${model}` : modelLabel(m), provider: m.ref.split('/')[0] ?? m.ref, window: m.caps?.contextWindow, handoffAt };
     } catch { return null; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model]);
@@ -416,6 +432,8 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
   const [thinkingText, setThinkingText] = useState('');
   // Thinking shows as one line ("∴ Thought for 2.1s"); alt+t expands every thinking row.
   const [showThinking, setShowThinking] = useState(false);
+  // Tool rows show a few lines of output; alt+e shows each row's output and diff in full (up to EXPANDED_LINES).
+  const [showOutput, setShowOutput] = useState(false);
   const [spin, setSpin] = useState(0);
   useEffect(() => {
     if (!running) return;
@@ -437,9 +455,18 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
   const push = (m: Msg) => setMessages((prev) => [...prev, m]);
   const thinkingStartRef = useRef<number | undefined>(undefined);
   // What the running turn did, for the line that ends it.
-  const turnRef = useRef<{ tools: number; files: Set<string> }>({ tools: 0, files: new Set() });
+  const turnRef = useRef<{ tools: number; blocked: number; files: Set<string> }>({ tools: 0, blocked: 0, files: new Set() });
+  const streamedRef = useRef(0);
   const rowWidth = () => Math.max(20, columnsRef.current - 4);
   // One row per tool call: it appears running at the call's intent and becomes its result in place.
+  // The rule that stopped the call just before, so a run of calls it stops does not repeat its reason.
+  const lastDeniedRef = useRef<string | undefined>(undefined);
+  // An edited file as it is now, for the lines around the edit's diff; undefined when it cannot be read.
+  const editedFile = (input: unknown): string | undefined => {
+    const path = (input as { path?: unknown })?.path;
+    if (typeof path !== 'string' || !path) return undefined;
+    try { return fsRead(isAbsolute(path) ? path : join(args.cwd, path), 'utf8'); } catch { return undefined; }
+  };
   const applyToolEvent = (e: SessionEvent) => {
     if (e.kind === 'assistant') {
       // The reply names every call's input, so a call denied before its intent still shows what it was.
@@ -451,21 +478,24 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         if (e.servedBy) push({ role: 'system', text: `answered by ${e.servedBy} (fallback${fb?.type === 'fallback' && fb.category ? `: ${fb.category}` : ''})`, dim: true });
       }
     } else if (e.kind === 'tool_intent') {
+      lastDeniedRef.current = undefined;
       toolInputByCallRef.current[e.callId] = e.input;
       toolStartByCallRef.current[e.callId] = Date.now();
       toolNameByCallRef.current[e.callId] = e.tool;
       turnRef.current.tools += 1;
-      push(rowMsg(intentRow(e.tool, e.input, rowWidth()), { status: 'running', callId: e.callId }));
+      push(rowMsg(intentRow(e.tool, e.input, rowWidth()), { status: 'running', callId: e.callId, startedAt: Date.now() }));
       setActivity(`running ${e.tool}`);
     } else if (e.kind === 'tool_result') {
       const tool = toolNameByCallRef.current[e.callId];
       // A denied or unstarted call has no intent: its denial row (if any) already says what happened.
       if (tool === undefined) return;
       const started = toolStartByCallRef.current[e.callId];
-      const row = rowMsg(
-        resultRow(tool, toolInputByCallRef.current[e.callId], e.output, started !== undefined ? Date.now() - started : undefined, rowWidth()),
-        { status: e.output.isError ? 'error' : 'success', callId: e.callId },
-      );
+      const ms = started !== undefined ? Date.now() - started : undefined;
+      const file = tool === 'edit' && !e.output.isError ? editedFile(toolInputByCallRef.current[e.callId]) : undefined;
+      const lines = resultRow(tool, toolInputByCallRef.current[e.callId], e.output, ms, rowWidth(), file);
+      const full = resultRow(tool, toolInputByCallRef.current[e.callId], e.output, ms, rowWidth(), file, true);
+      const row = rowMsg(lines, { status: e.output.isError ? 'error' : 'success', callId: e.callId, ...(full.length > lines.length ? { full } : {}) });
+      if (tool === 'todo' && !e.output.isError) setSteps(todoSteps(toolInputByCallRef.current[e.callId]));
       delete toolStartByCallRef.current[e.callId];
       delete toolNameByCallRef.current[e.callId];
       setMessages((prev) => {
@@ -488,9 +518,14 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       // The rule the owner may add from the notice, when only a missing allow rule stopped the call.
       const allow = input && typeof input === 'object' && !Array.isArray(input) ? allowRuleFor(e.tool, input as JsonObject, e.rule, args.cwd) : undefined;
       setPermissionDialog({ tool: e.tool, input, reason: e.reason, rule: e.rule, ...(allow ? { allow } : {}) });
-      push(rowMsg(deniedRow(e.tool, input, e.rule, e.reason, rowWidth()), { status: 'error', callId: e.callId }));
+      turnRef.current.blocked += 1;
+      const same = lastDeniedRef.current === e.rule;
+      lastDeniedRef.current = e.rule;
+      push(rowMsg(deniedRow(e.tool, input, e.rule, e.reason, rowWidth(), same), { status: 'error', callId: e.callId }));
     }
   };
+  // The writer's steps (the todo tool), shown over the prompt while a turn runs.
+  const [steps, setSteps] = useState<TodoStep[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   // The person's own keybindings, listed under /help.
   const bindingHints = React.useMemo(() => bindingSummary(loadedKeybindings), [loadedKeybindings]);
@@ -582,7 +617,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
     switch (name) {
       case 'help': {
         say(helpGroups().map(([g, cmds]) => `${g}: ${cmds.map((c) => `/${c.name} — ${c.description}`).join(' · ')}`).join('\n'));
-        say('keys: Esc stops a turn · !<command> runs it in your shell · Ctrl+C cancels/quits · Ctrl+R history · Ctrl+O rewind · Ctrl+F search · Ctrl+G external editor · Tab completes · Shift+Tab permission · Meta+P model · Meta+O fast · Meta+T thinking · ↑↓ navigate · PgUp/PgDn scroll · type / for commands · @ for files · Alt+Enter or \\+Enter newline · Ctrl+A/E/U/K/W edit the line' + (bindingHints ? ` · custom keys: ${bindingHints}` : ''));
+        say('keys: Esc stops a turn · !<command> runs it in your shell · Ctrl+C cancels/quits · Ctrl+R history · Ctrl+O rewind · Ctrl+F search · Ctrl+G external editor · Tab completes · Shift+Tab permission · Meta+P model · Meta+O fast · Meta+T thinking · Meta+E tool output · ↑↓ navigate · PgUp/PgDn scroll · type / for commands · @ for files · Alt+Enter or \\+Enter newline · Ctrl+A/E/U/K/W edit the line' + (bindingHints ? ` · custom keys: ${bindingHints}` : ''));
         return;
       }
       case 'historyUp':
@@ -1098,10 +1133,13 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         return;
       }
       case 'palette': {
-        const cmdItems = INK_COMMANDS.map((c) => ({ value: c.name, label: `/${c.name}  ${c.description}` }));
+        // One column of names and one of descriptions, as the `/` menu has, and a search over both.
         const skills = (() => { try { return loadSkills(args.cwd, cediaHome()); } catch { return []; } })();
-        const items = [...cmdItems, ...skills.map((sk) => ({ value: sk.name, label: `${sk.name}  ${sk.description}` }))];
-        setPicker({ title: 'commands', items, onPick: (v) => { setInput(`/${v} `); inputRef.current = `/${v} `; } });
+        const rowsOf = [...INK_COMMANDS.map((c) => ({ name: c.name, about: c.description })), ...skills.map((sk) => ({ name: sk.name, about: `skill · ${sk.description}` }))];
+        const nameWidth = Math.max(...rowsOf.map((r) => r.name.length + 1));
+        const items = rowsOf.map((r) => ({ value: r.name, label: `${`/${r.name}`.padEnd(nameWidth)}  ${r.about}` }));
+        setPicker({ title: 'commands', items, searchable: true, onPick: (v) => { setInput(`/${v} `); inputRef.current = `/${v} `; } });
+        setPickerQuery('');
         openDialog('picker');
         setPickerSelected(0);
         return;
@@ -1297,7 +1335,9 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
     setActivity('starting');
     setThinkingText('');
     thinkingRef.current = '';
-    turnRef.current = { tools: 0, files: new Set() };
+    turnRef.current = { tools: 0, blocked: 0, files: new Set() };
+    streamedRef.current = 0;
+    setSteps([]);
     let buffer = '';
     const handleChunk = (chunk: string) => {
       buffer += chunk;
@@ -1309,6 +1349,8 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
           const m = decode<CoreMessage>(line);
           if (m.type === 'stream') {
             const e = m.event;
+            // What the model has sent this turn, about four characters a token, for the status bar.
+            if ('delta' in e && typeof e.delta === 'string') streamedRef.current += e.delta.length;
             if (e.type === 'text_delta') {
               setMessages((prev) => {
                 const last = prev[prev.length - 1] as Msg | undefined;
@@ -1352,7 +1394,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
     turnStartRef.current = turnStart;
     try {
       const result = await runHeadless(
-        { ...args, model: model ?? args.model, permission: permission ?? args.permission, ...(effort ? { effort } : {}), cacheTtl: args.cacheTtl ?? '1h', streamingTools: true, prompt: takeShellNote() + expandPastes(text, pastesRef.current), outputFormat: 'stream-json', note: (t: string) => { if (t.trim()) push({ role: 'system', text: t.trim(), dim: true }); }, ...(thread ? { thread } : {}), ...(goal ? { goal } : {}), ...(planWhen ? { planWhen } : {}), signal: stop.signal },
+        { ...args, model: model ?? args.model, permission: permission ?? args.permission, ...(effort ? { effort } : {}), cacheTtl: args.cacheTtl ?? '1h', streamingTools: true, prompt: takeShellNote() + expandPastes(text, pastesRef.current), outputFormat: 'stream-json', note: (t: string) => { if (t.trim()) push({ role: 'system', text: `▲ ${t.trim().replace(/^cedia: /, '')}`, tone: 'accent' }); }, onPermission: (took: string) => setRunPermission({ setting: permission ?? args.permission ?? 'auto', took }), ...(thread ? { thread } : {}), ...(goal ? { goal } : {}), ...(planWhen ? { planWhen } : {}), signal: stop.signal },
         handleChunk,
       );
       setThread(result.thread ?? thread);
@@ -1361,7 +1403,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       resultCost = result.costUsd ?? 0;
       setSpent((prev) => prev + resultCost);
       if (typeof result.timing?.outputTokPerSec === 'number') setLastRate(result.timing.outputTokPerSec);
-      push(rowMsg(doneRow({ subtype: result.subtype, ms: Date.now() - turnStart, tools: turnRef.current.tools, files: turnRef.current.files.size, costUsd: result.costUsd }), { role: 'system' }));
+      push(rowMsg(doneRow({ subtype: result.subtype, ms: Date.now() - turnStart, tools: turnRef.current.tools, blocked: turnRef.current.blocked, files: turnRef.current.files.size, costUsd: result.costUsd }, rowWidth()), { role: 'system' }));
       // A classifier refusal streams no text: the result names the model and the category it fired on.
       if (result.failure?.cause === 'refusal' && result.result.trim()) push({ role: 'system', text: result.result.trim() });
       // A run that ended asking waits for the owner: surface the question with its options, answered by the
@@ -1538,7 +1580,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         const names = completedNames(next);
         const pending = ONBOARDING_STEPS.filter((step) => !names.has(step));
         const mode = permissionRef.current ?? 'auto';
-        setNotice(`onboarding: ${pending.join(', ')} pending — /onboarding accept. Shift+Tab cycles the permission setting. This run is ${mode}.`);
+        setNotice(`onboarding: ${pending.join(', ')} not done yet · /onboarding · shift+tab changes the permission (now ${mode})`);
       } else {
         setNotice((n) => (n?.startsWith('onboarding:') ? null : n));
       }
@@ -1566,11 +1608,12 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       messages
         .filter((m) => transcriptExpanded || m.role !== 'tool')
         .map((m) => {
+          if (showOutput && m.full) return { ...m, text: rowText(m.full), lines: m.full };
           if (!m.thinking) return m;
           const lines = thinkingRow(m.thinking.text, m.thinking.ms, showThinking);
           return { ...m, text: rowText(lines), lines };
         }),
-    [messages, transcriptExpanded, showThinking],
+    [messages, transcriptExpanded, showThinking, showOutput],
   );
   const windowSize = Math.max(5, rows - 6);
   // Full message range: the height-budgeted slice below decides what fits,
@@ -1583,16 +1626,22 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
   // Height-budgeted window with cached estimates and message overscan.
   // windowSize stays as the PgUp/PgDn step. The budget reserves the header,
   // both scroll indicators, the input box, the model line and the status bar.
-  const heightBudget = Math.max(3, rows - 8);
+  // The writer's steps pinned over the prompt while a turn runs take rows from the transcript.
+  const showSteps = running && !screenReader && steps.some((st) => st.state !== 'done');
+  const stepRows = showSteps ? 1 + Math.min(steps.length, 6) + (steps.length > 6 ? 1 : 0) : 0;
+  const heightBudget = Math.max(3, rows - 8 - stepRows);
   React.useEffect(() => {
     heightCacheRef.current.clear();
-  }, [columns, displayMessages.length, screenReader, transcriptExpanded, showThinking]);
+  }, [columns, displayMessages.length, screenReader, transcriptExpanded, showThinking, showOutput]);
   // One blank row where the transcript changes hands: before each prompt, between the reply's words and its
   // tool calls, and before the line that ends a turn. Thinking belongs with the reply it precedes. A short
   // terminal (under 16 rows) spends no rows on gaps.
   const group = (m: Msg | undefined) => (!m ? '' : m.role === 'assistant' || m.thinking ? 'reply' : m.role === 'user' ? 'user' : 'work');
   const gapBefore = (index: number): number =>
-    screenReader || index === 0 || rows < 16 ? 0 : group(displayMessages[index]) !== group(displayMessages[index - 1]) || displayMessages[index]?.role === 'user' ? 1 : 0;
+    screenReader || index === 0 || rows < 16 ? 0
+      : group(displayMessages[index]) !== group(displayMessages[index - 1]) || displayMessages[index]?.role === 'user' ? 1
+      // A call with lines under it (a diff, output, a checklist) ends with a blank row, so the next call stands apart.
+      : group(displayMessages[index]) === 'work' && (displayMessages[index - 1]?.lines?.length ?? 1) > 1 ? 1 : 0;
   // A prompt sits in a panel with a row of padding above and below its text (none on a short terminal).
   const padAt = (index: number): number => (!screenReader && rows >= 16 && displayMessages[index]?.role === 'user' ? 1 : 0);
   const heightAt = (index: number): number => gapBefore(index) + 2 * padAt(index) + rowsAt(index);
@@ -1602,6 +1651,8 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
     const width = paintedWidth(msg?.role, columns, screenReader);
     const key = heightCacheKey(index, width, raw.length, msg?.role ?? '');
     // A reply shows as rendered markdown: count the rows of what paints, not of the source.
+    // A prompt paints word-wrapped behind its bar (MessageSlot): count those lines.
+    if (msg?.role === 'user' && !screenReader) return heightCacheRef.current.lines(key, () => wrapWords(truncateLongText(raw), width).length);
     return heightCacheRef.current.lines(key, () => estimateLines(truncateLongText(msg?.role === 'assistant' ? mdPlain(raw) : raw), width));
   };
   const bottomIdx = displayMessages.length - 1 - scrollOffset;
@@ -2144,6 +2195,12 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
     if (key.ctrl && key.shift && (input === 'f' || input === 'F')) { setTranscriptSearch({ open: true, query: '', selected: 0 }); return; }
     if (key.meta && (input === 'p' || input === 'P')) { handleCommand('model'); return; }
     if (key.meta && (input === 'o' || input === 'O')) { handleCommand('fast'); return; }
+    if (key.meta && (input === 'e' || input === 'E')) {
+      const next = !showOutput;
+      setShowOutput(next);
+      push({ role: 'system', text: `tool output ${next ? 'expanded' : 'collapsed'}` });
+      return;
+    }
     if (key.meta && (input === 't' || input === 'T')) {
       const next = !showThinking;
       setShowThinking(next);
@@ -2212,7 +2269,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       {splash ? null : displayMessages.length === 0 ? (
         <Box flexDirection="column" flexShrink={0} paddingX={1} marginTop={screenReader ? 0 : 1}>
           <Text>
-            <Text color={screenReader ? undefined : T.primary} bold={!screenReader}>{screenReader ? 'cedia' : '◆ cedia'}</Text>
+            <Text color={screenReader ? undefined : T.primary} bold={!screenReader}>{screenReader ? 'cedia' : '● cedia'}</Text>
             <Text color={screenReader ? undefined : T.textMuted}>  {versionInfo().version}</Text>
           </Text>
           <Text wrap="truncate">
@@ -2233,7 +2290,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       ) : (
         <Box paddingX={1} flexShrink={0}>
           <Text wrap="truncate" color={screenReader ? undefined : T.textMuted}>
-            <Text color={screenReader ? undefined : T.primary}>{screenReader ? '' : '◆ '}</Text>
+            <Text color={screenReader ? undefined : T.primary}>{screenReader ? '' : '● '}</Text>
             {(() => {
               const lead = `cedia · ${effModel?.label ?? model ?? 'auto'}${branch ? (screenReader ? ` · branch ${branch}` : ` · ⎇ ${branch}`) : ''}`;
               // The path goes last and gives way first: it takes what the line has left.
@@ -2250,13 +2307,35 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       <Box flexDirection="column" flexGrow={1} overflow="hidden" justifyContent={splash ? 'center' : 'flex-end'} alignItems={splash ? 'center' : undefined} paddingX={1}>
           {splash ? (
             <>
-              {wordmark().map((ln, i) => <Text key={i} color={T.primary}>{ln}</Text>)}
-              <Text> </Text>
-              <Text wrap="truncate">
-                <Text color={T.text}>{effModel?.label ?? model ?? 'auto'}</Text>
-                {branch ? <Text color={T.thinking}>{` · ⎇ ${branch}`}</Text> : null}
-              </Text>
-              <Text wrap="truncate" color={T.textMuted}>{fitPath(shortCwd(args.cwd), Math.max(10, columns - 16))}<Text color={T.textFaint}>{`  ${versionInfo().version}`}</Text></Text>
+              {(() => {
+                const pixelColor: Record<Pixel, string> = { body: T.text, leaf: T.primary, stem: T.primary };
+                // The mascot, with the name, the model and the place beside it; on a narrower screen, under it.
+                const side = columns >= SPLASH_SIDE_COLUMNS;
+                const room = Math.max(10, side ? columns - MASCOT_WIDTH - 10 : columns - 6);
+                const facts = (
+                  <Box flexDirection="column" alignItems={side ? 'flex-start' : 'center'} marginLeft={side ? 4 : 0} marginTop={side ? 0 : 1}>
+                    <Text>
+                      <Text color={T.heading} bold>cedia</Text>
+                      <Text color={T.textFaint}>{`  ${versionInfo().version}`}</Text>
+                    </Text>
+                    <Text wrap="truncate">
+                      <Text color={T.text}>{effModel?.label ?? model ?? 'auto'}</Text>
+                      {branch ? <Text color={T.textMuted}>{` · ⎇ ${branch}`}</Text> : null}
+                    </Text>
+                    <Text wrap="truncate" color={T.textMuted}>{fitPath(shortCwd(args.cwd), room)}</Text>
+                  </Box>
+                );
+                return (
+                  <Box flexDirection={side ? 'row' : 'column'} alignItems="center">
+                    <Box flexDirection="column" flexShrink={0}>
+                      {mascotRuns().map((runs, i) => (
+                        <Text key={i}>{runs.map((r, j) => <Text key={j} color={r.fg && pixelColor[r.fg]} backgroundColor={r.bg && pixelColor[r.bg]}>{r.text}</Text>)}</Text>
+                      ))}
+                    </Box>
+                    {facts}
+                  </Box>
+                );
+              })()}
               <Text> </Text>
               <Text wrap="truncate">
                 {KEY_HINTS.map(([k, v], i) => (
@@ -2362,7 +2441,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
               const gi = pStart + i;
               const isSel = gi === sel;
               return (
-              <Text key={gi} color={screenReader ? undefined : (isSel ? T.primary : undefined)} bold={screenReader ? false : isSel}>{selectedPrefix(isSel, screenReader)}{picker.searchable ? '' : `${gi + 1}. `}{it.label}</Text>
+              <Text key={gi} wrap="truncate" color={screenReader ? undefined : (isSel ? T.primary : undefined)} bold={screenReader ? false : isSel}>{selectedPrefix(isSel, screenReader)}{picker.searchable ? '' : `${gi + 1}. `}{it.label}</Text>
               );
             })}
             {list.length === 0 ? <Text dimColor={!screenReader}>no matches</Text> : null}
@@ -2606,6 +2685,17 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
             })()}
           </Box>
         ) : null}
+        {showSteps ? (
+          // Under the transcript, the marks in the column of the tool rows' marks, a row apart from them.
+          <Box flexDirection="column" paddingLeft={3} paddingRight={2} marginTop={1}>
+            {todoLines(steps.slice(0, 6), Math.max(20, columns - 4), '').map((ln, i) => (
+              <Text key={`step-${i}`} wrap="truncate">
+                {ln.spans.map((sp, si) => <Text key={si} {...(rowProps(sp.style, T) ?? spanProps(sp.style as Parameters<typeof spanProps>[0], T))}>{sp.text}</Text>)}
+              </Text>
+            ))}
+            {steps.length > 6 ? <Text color={T.textFaint}>… {steps.length - 6} more</Text> : null}
+          </Box>
+        ) : null}
         {queued.map((q, i) => (
           <Box key={`queued-${i}`} paddingX={2}>
             <Text wrap="truncate" color={screenReader ? undefined : T.textMuted}>
@@ -2614,15 +2704,20 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
             </Text>
           </Box>
         ))}
-        {notice ? (
+        {/* Unfinished onboarding is a quiet line on the empty screen, gone once the conversation starts; other
+            notices are warnings and stay until cleared. */}
+        {notice && !(notice.startsWith('onboarding:') && displayMessages.length > 0) ? (
           <Box justifyContent="flex-end" paddingX={1}>
-            <Text color={screenReader ? undefined : T.warning}>{notice}</Text>
+            <Text wrap={notice.startsWith('onboarding:') ? 'truncate' : 'wrap'} color={screenReader ? undefined : notice.startsWith('onboarding:') ? T.textFaint : T.warning}>{notice}</Text>
           </Box>
         ) : null}
         {/* The trust question owns the screen until it is answered (like cc): no prompt under it. */}
         {trustOpen ? null : (() => {
-          const mode = permission ?? args.permission ?? 'auto';
-          const modeColor = mode === 'plan' ? T.thinking : mode === 'read-only' ? T.textMuted : T.primary;
+          const setting = permission ?? args.permission ?? 'auto';
+          // The chip says what runs: a setting the last run could not take shows as what it became, in amber.
+          const took = runPermission?.setting === setting ? runPermission.took : undefined;
+          const mode = took && took !== setting ? `${setting} → ${took}` : setting;
+          const modeColor = took && took !== setting ? T.warning : mode === 'plan' ? T.thinking : mode === 'read-only' ? T.textMuted : T.primary;
           // The box says what the prompt will do: brand while a turn runs, amber for a `!` shell command or in vim
           // normal, violet in plan mode.
           const shellMode = !running && input.trimStart().startsWith('!');
@@ -2647,11 +2742,13 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
                 images={args.images?.length ?? 0}
                 tokens={context}
                 windowSize={effModel?.window}
+                handoffAt={effModel?.handoffAt}
                 spend={spent}
                 vimMode={vimMode}
                 activity={activity}
                 running={running}
                 elapsedMs={running ? Date.now() - turnStartRef.current : 0}
+                streamedTokens={running ? Math.round(streamedRef.current / 4) : 0}
                 spinner={SPINNER_FRAMES[spin % SPINNER_FRAMES.length]}
                 hint={exitHint ?? undefined}
               />

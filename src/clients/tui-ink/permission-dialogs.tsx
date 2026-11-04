@@ -310,21 +310,27 @@ export function PermissionDialog(props: PermissionDialogProps): React.ReactEleme
   // The head, the rule, the note, the key and the blank and padding rows around them take 9.
   const rows = diff ? diffRows(diff.hunks, width, diff.lang, 0, Math.max(2, Math.min(12, maxRows - 9))) : undefined;
   const target = textOf(asRecord(input)?.path) ?? textOf(asRecord(input)?.command) ?? textOf(asRecord(input)?.url);
-  // Without a diff, the fields say what the call was.
-  const fields = rows ? [] : blocks;
+  // Without a diff, the fields say what the call was; one the head line already shows whole is left out.
+  const headLine = target?.split('\n')[0];
+  const fields = rows ? [] : blocks.filter((b) => !(b.kind === 'field' && b.value === target && headLine === target && `✗ Blocked  ${toolDisplayName(label)}  ${target}`.length <= width));
   return (
     <Box flexDirection="column" borderStyle={PANEL_BAR} borderTop={false} borderRight={false} borderBottom={false} borderLeftColor={T.error} backgroundColor={T.backgroundElement} paddingX={1} paddingY={1} marginX={1}>
       <Text wrap="truncate">
         <Text color={T.error} bold>✗ Blocked  </Text>
         <Text bold>{toolDisplayName(label)}</Text>
-        {target ? <Text>{`  ${target.split('\n')[0]}`}</Text> : null}
+        {headLine ? <Text>{`  ${headLine}`}</Text> : null}
       </Text>
       {rule || reason ? (
-        <Text wrap="wrap">
+        // The rule's label hangs: a reason that wraps lines up under the rule, not under the label.
+        <Box>
           <Text color={T.textMuted}>rule  </Text>
-          {rule ? <Text color={T.accent}>{rule}</Text> : null}
-          {reason ? <Text color={T.textMuted}>{`${rule ? ' · ' : ''}${reason}`}</Text> : null}
-        </Text>
+          <Box flexShrink={1}>
+            <Text wrap="wrap">
+              {rule ? <Text color={T.accent}>{rule}</Text> : null}
+              {reason ? <Text color={T.textMuted}>{`${rule ? ' · ' : ''}${reason}`}</Text> : null}
+            </Text>
+          </Box>
+        </Box>
       ) : null}
       {rows || fields.length ? <Text> </Text> : null}
       {rows ? rows.lines.map((ln, i) => rowLine(ln, i, width, T)) : null}

@@ -46,7 +46,7 @@ describe('ink markdown lines', () => {
 
   test('a code block gets a rule and its language, and an unclosed fence runs to the end', async () => {
     const { mdLines, mdPlain } = await import('../src/clients/tui-ink/markdown.tsx');
-    expect(mdPlain('```js\nreturn 1; // one\n```')).toBe('┃ js\n┃ return 1; // one');
+    expect(mdPlain('```js\nreturn 1; // one\n```')).toBe('┏ js\n┃ return 1; // one');
     const code = mdLines('```js\nreturn 1; // one')[1]!;
     expect(code.map((s) => s.style)).toEqual(['faint', 'kw', 'text', 'num', 'text', 'com']);
     expect(mdLines('```py\nx = "a" # c\n```')[1]!.at(-1)).toEqual({ text: '# c', style: 'com' });
