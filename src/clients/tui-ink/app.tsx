@@ -346,7 +346,10 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       const ref = writerRef(model);
       const m = resolveModel(ref);
       // A mode keeps the writer, so the header names both: "Haiku 5.5 · auto".
-      return { ref, label: isMode(model) ? `${modelLabel(m)} · ${model}` : modelLabel(m), provider: m.ref.split('/')[0] ?? m.ref, window: m.caps?.contextWindow };
+      // Where a long session hands off: often well before the window is full, so the status bar says it.
+      let handoffAt: number | undefined;
+      try { handoffAt = loadHandoffAt(m, args.handoffAt); } catch {}
+      return { ref, label: isMode(model) ? `${modelLabel(m)} · ${model}` : modelLabel(m), provider: m.ref.split('/')[0] ?? m.ref, window: m.caps?.contextWindow, handoffAt };
     } catch { return null; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model]);
@@ -1130,10 +1133,13 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         return;
       }
       case 'palette': {
-        const cmdItems = INK_COMMANDS.map((c) => ({ value: c.name, label: `/${c.name}  ${c.description}` }));
+        // One column of names and one of descriptions, as the `/` menu has, and a search over both.
         const skills = (() => { try { return loadSkills(args.cwd, cediaHome()); } catch { return []; } })();
-        const items = [...cmdItems, ...skills.map((sk) => ({ value: sk.name, label: `${sk.name}  ${sk.description}` }))];
-        setPicker({ title: 'commands', items, onPick: (v) => { setInput(`/${v} `); inputRef.current = `/${v} `; } });
+        const rowsOf = [...INK_COMMANDS.map((c) => ({ name: c.name, about: c.description })), ...skills.map((sk) => ({ name: sk.name, about: `skill · ${sk.description}` }))];
+        const nameWidth = Math.max(...rowsOf.map((r) => r.name.length + 1));
+        const items = rowsOf.map((r) => ({ value: r.name, label: `${`/${r.name}`.padEnd(nameWidth)}  ${r.about}` }));
+        setPicker({ title: 'commands', items, searchable: true, onPick: (v) => { setInput(`/${v} `); inputRef.current = `/${v} `; } });
+        setPickerQuery('');
         openDialog('picker');
         setPickerSelected(0);
         return;
@@ -2413,7 +2419,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
               const gi = pStart + i;
               const isSel = gi === sel;
               return (
-              <Text key={gi} color={screenReader ? undefined : (isSel ? T.primary : undefined)} bold={screenReader ? false : isSel}>{selectedPrefix(isSel, screenReader)}{picker.searchable ? '' : `${gi + 1}. `}{it.label}</Text>
+              <Text key={gi} wrap="truncate" color={screenReader ? undefined : (isSel ? T.primary : undefined)} bold={screenReader ? false : isSel}>{selectedPrefix(isSel, screenReader)}{picker.searchable ? '' : `${gi + 1}. `}{it.label}</Text>
               );
             })}
             {list.length === 0 ? <Text dimColor={!screenReader}>no matches</Text> : null}
@@ -2713,6 +2719,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
                 images={args.images?.length ?? 0}
                 tokens={context}
                 windowSize={effModel?.window}
+                handoffAt={effModel?.handoffAt}
                 spend={spent}
                 vimMode={vimMode}
                 activity={activity}

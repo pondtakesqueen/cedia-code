@@ -24,6 +24,8 @@ export function StatusBar(props: {
   images?: number;
   tokens?: number;
   windowSize?: number;
+  // The context size a long session hands off at, when it does.
+  handoffAt?: number;
   spend?: number;
   vimMode?: string;
   activity?: string;
@@ -35,7 +37,7 @@ export function StatusBar(props: {
   // A passing word that takes the left side, such as "Press Ctrl+C again to exit".
   hint?: string;
 }): React.ReactElement {
-  const { T, mode, modeColor, model, effort, images, tokens, windowSize, spend, vimMode, activity, running, elapsedMs, spinner, streamedTokens, hint } = props;
+  const { T, mode, modeColor, model, effort, images, tokens, windowSize, handoffAt, spend, vimMode, activity, running, elapsedMs, spinner, streamedTokens, hint } = props;
   const screenReader = useCediaScreenReader();
   const pct = tokens !== undefined && windowSize ? Math.min(99, Math.round((tokens / windowSize) * 100)) : undefined;
   const money = typeof spend === 'number' ? usd(spend) : '';
@@ -87,6 +89,8 @@ export function StatusBar(props: {
           </>
         ) : null}
         {tokens ? <Text color={T.textMuted}>{m ? ' · ' : ''}{fmt(tokens)}</Text> : null}
+        {/* Near the handoff point the bar says where it is: the session goes on in a new one there. */}
+        {tokens && handoffAt && tokens >= handoffAt * 0.8 ? <Text color={T.accent}> · handoff at {fmt(handoffAt)}</Text> : null}
         {money ? <Text color={T.textMuted}>{m || tokens ? ' · ' : ''}{money}</Text> : null}
       </Text>
       </Box>
