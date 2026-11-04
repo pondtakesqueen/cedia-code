@@ -13,8 +13,11 @@ research/mirror-errors.log
 cc-re/
 research/cc-re-map.md
 
-# eval output (baselines worth keeping go in evals/baseline/)
+# eval output (baselines worth keeping go in evals/baseline/). Only an experiment's write-up (*.md) is committed.
 results*.jsonl
+evals/results/**
+!evals/results/**/
+!evals/results/**/*.md
 
 # control-cedia proof. The PR quotes the command output. Session text stays out of git.
 .cursor/skills/verify-cedia/artifacts/

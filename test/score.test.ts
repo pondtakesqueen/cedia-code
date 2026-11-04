@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { combinePanels, loadVerdicts, passAtK, passCaretK, tallyCounts, trialReport, readTrials, type VerdictRow } from "../evals/score.ts";
 
-const SONNET = new URL("../evals/results/2026-10-30-plan-habits/main/judge/verdicts-opmed.json", import.meta.url).pathname;
-const OPUS = new URL("../evals/results/2026-10-30-plan-habits/main/opus/verdicts-opmed.json", import.meta.url).pathname;
-const XHIGH = new URL("../evals/results/2026-10-30-plan-habits/cc-xhigh/runs.jsonl", import.meta.url).pathname;
+const SONNET = new URL("fixtures/evals/plan-habits-sonnet-verdicts-opmed.json", import.meta.url).pathname;
+const OPUS = new URL("fixtures/evals/plan-habits-opus-verdicts-opmed.json", import.meta.url).pathname;
+const XHIGH = new URL("fixtures/evals/plan-habits-cc-xhigh-runs.jsonl", import.meta.url).pathname;
 
 const panels = () => ({ sonnet: loadVerdicts(SONNET), opus: loadVerdicts(OPUS) });
 
@@ -107,7 +107,7 @@ describe("trial grade", () => {
   });
 });
 
-const POOL_DIFF = new URL("../evals/results/2026-10-29-opus-high/judge-planmed/opmed-hard-pool-1.diff", import.meta.url).pathname;
+const POOL_DIFF = new URL("fixtures/evals/opus-high-opmed-hard-pool-1.diff", import.meta.url).pathname;
 
 describe("hard-pool contract", () => {
   test("the committed cedia diff fails the Symbol limit case", () => {
