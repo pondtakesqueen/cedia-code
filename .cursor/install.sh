@@ -31,7 +31,7 @@ fi
 
 is_cedian_url() {
   case "$1" in
-    *github.com/pongsathonkheereekaew/cedian | *github.com/pongsathonkheereekaew/cedian.git | *github.com:pongsathonkheereekaew/cedian | *github.com:pongsathonkheereekaew/cedian.git)
+    *github.com/pondtakesqueen/cedian | *github.com/pondtakesqueen/cedian.git | *github.com:pondtakesqueen/cedian | *github.com:pondtakesqueen/cedian.git)
       return 0
       ;;
   esac
@@ -79,7 +79,7 @@ prepare_dest() {
 clone_cedian() {
   remove_dest || true
   prepare_dest || true
-  if GIT_TERMINAL_PROMPT=0 git clone https://github.com/pongsathonkheereekaew/cedian.git "$dest"; then
+  if GIT_TERMINAL_PROMPT=0 git clone https://github.com/pondtakesqueen/cedian.git "$dest"; then
     return 0
   fi
   remove_dest || true
