@@ -1,0 +1,6 @@
+# A person always reviews these paths (CONTRIBUTING.md, .agents/skills/code-review/SKILL.md).
+/src/core/safety/     @pondtakesqueen
+/src/core/providers/  @pondtakesqueen
+/scripts/             @pondtakesqueen
+/.github/             @pondtakesqueen
+/src/cli.ts           @pondtakesqueen
