@@ -13,7 +13,7 @@ When `ANTHROPIC_API_KEY`, `CEDIA_ANTHROPIC_API_KEY`, `OPENCODE_API_KEY`, and `DE
 
 ## Launch
 
-Bun has to be on `PATH`. `.github/workflows/ci.yml` pins Bun 1.4.2. If `bun` is missing, install that version, then run `bun install --frozen-lockfile` from the repo root.
+Bun has to be on `PATH`. `.github/workflows/ci.yml` pins Bun 1.4.4. If `bun` is missing, install that version, then run `bun install --frozen-lockfile` from the repo root.
 
 From the repo root:
 
