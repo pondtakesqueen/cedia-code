@@ -1,0 +1,137 @@
+name: eval-gate
+
+# The regression gate from evals/gate/README.md, run by CI instead of by memory: on a pull request that touches what
+# the model sees or how a run is scored, and weekly on main to catch a model or provider that changed under us.
+# Exit 1 (a model regressed) fails the job. Exit 3 (no comparison could be made: provider errors, a quota, no
+# baseline, the estimate above maxUsd) is a warning, since it says nothing about the change. It never updates a
+# baseline: that stays a local, reviewed step.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'src/core/prompts.ts'
+      - 'src/core/roles.ts'
+      - 'src/core/config.ts'
+      - 'src/core/profiles.ts'
+      - 'src/core/side-model.ts'
+      - 'src/core/loop/**'
+      - 'src/core/tools/**'
+      - 'src/core/trust/**'
+      - 'src/core/safety/**'
+      - 'src/core/context/**'
+      - 'src/core/session/**'
+      - 'src/core/memory/**'
+      - 'src/core/skills/**'
+      - 'src/core/providers/**'
+      - 'src/clients/headless/**'
+      - 'src/cli.ts'
+      - 'evals/*.ts'
+      - 'evals/gate/**'
+      - 'evals/tasks/**'
+      - 'package.json'
+      - 'bun.lock'
+      - '.github/workflows/eval-gate.yml'
+  schedule:
+    # Mondays 02:17 UTC: the regression suite and the frontier suite on main.
+    - cron: '17 2 * * 1'
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: 'Suite file'
+        default: 'evals/gate/suite.json'
+      only:
+        description: 'Comma-separated task ids (empty: the whole suite)'
+        default: ''
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    # A draft is still moving; the gate runs when it is marked ready.
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: ${{ github.event_name == 'schedule' && fromJSON('["evals/gate/suite.json", "evals/gate/frontier.json"]') || fromJSON(format('["{0}"]', inputs.suite || 'evals/gate/suite.json')) }}
+    env:
+      OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+      SUITE: ${{ matrix.suite }}
+      ONLY: ${{ inputs.only }}
+    steps:
+      - name: Check the key
+        id: key
+        run: |
+          if [ -z "$OPENCODE_API_KEY" ]; then
+            echo "::warning::OPENCODE_API_KEY is not set in the repository secrets; the eval gate did not run."
+            echo "### Eval gate skipped: no OPENCODE_API_KEY secret" >> "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.run == 'true'
+        with:
+          # The real-* tasks are built from this repository's history.
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        if: steps.key.outputs.run == 'true'
+        with:
+          bun-version: 1.4.4
+          cache: true
+      - name: Sandbox and verify tools
+        if: steps.key.outputs.run == 'true'
+        run: |
+          sudo rm -f /var/lib/man-db/auto-update
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends bubblewrap socat ripgrep
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          # Two tasks verify with pytest.
+          python3 -m pip install --user -q pytest
+      - if: steps.key.outputs.run == 'true'
+        run: bun install --frozen-lockfile
+      - name: Estimate
+        if: steps.key.outputs.run == 'true'
+        run: bun evals/gate.ts --suite "$SUITE" --estimate
+      - name: Gate
+        if: steps.key.outputs.run == 'true'
+        run: |
+          args=(--suite "$SUITE")
+          if [ -n "$ONLY" ]; then args+=(--only "$ONLY"); fi
+          set +e
+          bun evals/gate.ts "${args[@]}" 2>&1 | tee gate.log
+          code=${PIPESTATUS[0]}
+          set -e
+          # The report starts at the "Spent" line; the per-run lines above it are in the job log. A gate that stopped
+          # before running (missing verify tools, estimate above maxUsd) has no such line: show its last lines.
+          report=$(sed -n '/^Spent \$/,$p' gate.log)
+          [ -n "$report" ] || report=$(tail -n 20 gate.log)
+          {
+            echo "### Eval gate: \`$SUITE\` (exit $code)"
+            echo
+            echo '```'
+            echo "$report"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          case "$code" in
+            0) ;;
+            3) echo "::warning::The eval gate could not compare (exit 3): provider errors, a quota, a missing baseline or the estimate above maxUsd. See the report." ;;
+            *) echo "::error::The eval gate failed (exit $code). Read the failing runs' rows before changing anything; never update the baseline to make it green."
+               exit "$code" ;;
+          esac
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.key.outputs.run == 'true'
+        with:
+          name: eval-gate-${{ strategy.job-index }}
+          path: |
+            evals/results/*.jsonl
+            gate.log
+          if-no-files-found: ignore
+          retention-days: 30
