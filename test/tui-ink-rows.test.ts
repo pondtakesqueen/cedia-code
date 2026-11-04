@@ -95,8 +95,10 @@ describe('ink transcript rows', () => {
   });
 
   test('the turn line names how it ended', () => {
-    expect(plain(doneRow({ subtype: 'success', ms: 3200, tools: 3, files: 1, costUsd: 0.0045 }))).toEqual(['✓ Done in 3.2s · 3 tools · 1 file changed · $0.0045   /diff  /undo  /commit']);
-    expect(plain(doneRow({ subtype: 'success', ms: 100, tools: 0, files: 0, costUsd: 0 }))).toEqual(['✓ Done in 0.1s · $0.0000']);
+    expect(plain(doneRow({ subtype: 'success', ms: 3200, tools: 3, files: 1, costUsd: 0.0123 }))).toEqual(['✓ Done in 3.2s · 3 tools · 1 file changed · $0.012   /diff  /undo  /commit']);
+    expect(plain(doneRow({ subtype: 'success', ms: 100, tools: 0, files: 0, costUsd: 0 }))).toEqual(['✓ Done in 0.1s · $0.000']);
+    // Calls the policy stopped are counted apart; on a narrow row the commands give way, not the facts.
+    expect(plain(doneRow({ subtype: 'success', ms: 3200, tools: 1, blocked: 4, files: 1, costUsd: 0.0123 }, 60))).toEqual(['✓ Done in 3.2s · 1 tool ran, 4 blocked · 1 file changed · $0.012']);
     expect(plain(doneRow({ subtype: 'interrupted', ms: 100, tools: 0, files: 0, costUsd: 0 }))[0]).toStartWith('■ Stopped');
   });
 

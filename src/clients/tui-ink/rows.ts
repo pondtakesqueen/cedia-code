@@ -1,6 +1,7 @@
 import type { MdStyle } from './markdown.tsx';
 import { diffRows, hunkOf, langOf, withFileContext, type Hunk } from './diff-rows.ts';
 import { wrapWords } from './wrap.ts';
+import { usd } from './status-bar.tsx';
 
 // The transcript rows a turn adds besides the reply itself: one per tool call, the thinking marker and the line
 // that ends a turn. A row is styled spans per line; its text (the spans joined) is exactly what shows, so the
@@ -192,12 +193,21 @@ export function thinkingRow(text: string, ms: number | undefined, expanded: bool
   return [top, ...text.split('\n').map((l) => ({ spans: [{ text: `  ${l}`, style: 'quote' as const }] }))];
 }
 
-export type TurnEnd = { subtype: string; ms: number; tools: number; files: number; costUsd: number };
+export type TurnEnd = { subtype: string; ms: number; tools: number; blocked?: number; files: number; costUsd: number };
 
-export function doneRow(t: TurnEnd): RowLine[] {
-  const facts = [`in ${(t.ms / 1000).toFixed(1)}s`, t.tools ? `${t.tools} tool${t.tools === 1 ? '' : 's'}` : '', t.files ? `${t.files} file${t.files === 1 ? '' : 's'} changed` : '', `$${t.costUsd.toFixed(4)}`].filter(Boolean).join(' · ');
+/** The line that ends a turn. The commands after it give way first on a narrow row; the facts never do. */
+export function doneRow(t: TurnEnd, width = Infinity): RowLine[] {
+  const ran = t.tools ? `${t.tools} tool${t.tools === 1 ? '' : 's'}` : '';
+  const facts = [
+    `in ${(t.ms / 1000).toFixed(1)}s`,
+    t.blocked ? `${ran ? `${ran} ran, ` : ''}${t.blocked} blocked` : ran,
+    t.files ? `${t.files} file${t.files === 1 ? '' : 's'} changed` : '',
+    usd(t.costUsd),
+  ].filter(Boolean).join(' · ');
   if (t.subtype === 'success') {
-    return [{ spans: [{ text: '✓ Done', style: 'ok' }, { text: ` ${facts}`, style: 'muted' }, { text: t.files ? '   /diff  /undo  /commit' : '', style: 'faint' }] }];
+    const hints = t.files ? '   /diff  /undo  /commit' : '';
+    const fits = `✓ Done ${facts}${hints}`.length <= width;
+    return [{ spans: [{ text: '✓ Done', style: 'ok' }, { text: ` ${facts}`, style: 'muted' }, { text: fits ? hints : '', style: 'faint' }] }];
   }
   const [mark, style] = END_MARKS[t.subtype] ?? [`✗ Ended: ${t.subtype.replace(/_/g, ' ')}`, 'err' as const];
   return [{ spans: [{ text: mark, style }, { text: ` ${facts}`, style: 'muted' }] }];

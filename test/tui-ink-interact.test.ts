@@ -194,7 +194,7 @@ describe('ink TUI interaction (fake terminal, faux model)', () => {
       expect(f).toContain('✗ Edit  notes.txt · blocked');
       expect(f).toContain('• notes.txt read');
       expect(f).not.toContain('## Result');
-      expect(f).toMatch(/✓ Done in \d+\.\ds · 1 tool · \$/);
+      expect(f).toMatch(/✓ Done in \d+\.\ds · 1 tool ran, 1 blocked · \$/);
       // The command menu opens over the transcript and the prompt panel keeps its three rows: padding, the
       // prompt, padding, all behind its bar.
       expect(f).toContain('/actions');

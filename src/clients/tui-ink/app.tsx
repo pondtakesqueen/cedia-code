@@ -452,7 +452,8 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
   const push = (m: Msg) => setMessages((prev) => [...prev, m]);
   const thinkingStartRef = useRef<number | undefined>(undefined);
   // What the running turn did, for the line that ends it.
-  const turnRef = useRef<{ tools: number; files: Set<string> }>({ tools: 0, files: new Set() });
+  const turnRef = useRef<{ tools: number; blocked: number; files: Set<string> }>({ tools: 0, blocked: 0, files: new Set() });
+  const streamedRef = useRef(0);
   const rowWidth = () => Math.max(20, columnsRef.current - 4);
   // One row per tool call: it appears running at the call's intent and becomes its result in place.
   // The rule that stopped the call just before, so a run of calls it stops does not repeat its reason.
@@ -514,6 +515,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       // The rule the owner may add from the notice, when only a missing allow rule stopped the call.
       const allow = input && typeof input === 'object' && !Array.isArray(input) ? allowRuleFor(e.tool, input as JsonObject, e.rule, args.cwd) : undefined;
       setPermissionDialog({ tool: e.tool, input, reason: e.reason, rule: e.rule, ...(allow ? { allow } : {}) });
+      turnRef.current.blocked += 1;
       const same = lastDeniedRef.current === e.rule;
       lastDeniedRef.current = e.rule;
       push(rowMsg(deniedRow(e.tool, input, e.rule, e.reason, rowWidth(), same), { status: 'error', callId: e.callId }));
@@ -1327,7 +1329,8 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
     setActivity('starting');
     setThinkingText('');
     thinkingRef.current = '';
-    turnRef.current = { tools: 0, files: new Set() };
+    turnRef.current = { tools: 0, blocked: 0, files: new Set() };
+    streamedRef.current = 0;
     setSteps([]);
     let buffer = '';
     const handleChunk = (chunk: string) => {
@@ -1340,6 +1343,8 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
           const m = decode<CoreMessage>(line);
           if (m.type === 'stream') {
             const e = m.event;
+            // What the model has sent this turn, about four characters a token, for the status bar.
+            if ('delta' in e && typeof e.delta === 'string') streamedRef.current += e.delta.length;
             if (e.type === 'text_delta') {
               setMessages((prev) => {
                 const last = prev[prev.length - 1] as Msg | undefined;
@@ -1392,7 +1397,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       resultCost = result.costUsd ?? 0;
       setSpent((prev) => prev + resultCost);
       if (typeof result.timing?.outputTokPerSec === 'number') setLastRate(result.timing.outputTokPerSec);
-      push(rowMsg(doneRow({ subtype: result.subtype, ms: Date.now() - turnStart, tools: turnRef.current.tools, files: turnRef.current.files.size, costUsd: result.costUsd }), { role: 'system' }));
+      push(rowMsg(doneRow({ subtype: result.subtype, ms: Date.now() - turnStart, tools: turnRef.current.tools, blocked: turnRef.current.blocked, files: turnRef.current.files.size, costUsd: result.costUsd }, rowWidth()), { role: 'system' }));
       // A classifier refusal streams no text: the result names the model and the category it fired on.
       if (result.failure?.cause === 'refusal' && result.result.trim()) push({ role: 'system', text: result.result.trim() });
       // A run that ended asking waits for the owner: surface the question with its options, answered by the
@@ -2713,6 +2718,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
                 activity={activity}
                 running={running}
                 elapsedMs={running ? Date.now() - turnStartRef.current : 0}
+                streamedTokens={running ? Math.round(streamedRef.current / 4) : 0}
                 spinner={SPINNER_FRAMES[spin % SPINNER_FRAMES.length]}
                 hint={exitHint ?? undefined}
               />
