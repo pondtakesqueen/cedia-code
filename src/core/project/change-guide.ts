@@ -1,13 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { loadPolicy, loadPrivacy } from '../config.ts';
-import { runPrompt } from '../loop/run.ts';
+import { runSide } from '../loop/side.ts';
 import { resolveModel } from '../providers/catalog.ts';
-import { providerFor } from '../providers/index.ts';
-import { READ_ONLY_SYSTEM } from '../prompts.ts';
 import type { Snapshots } from '../safety/snapshot.ts';
-import { SessionLog, sessionPath } from '../session/log.ts';
-import { CORE_TOOLS } from '../tools/index.ts';
 import { inert } from '../trust/frame.ts';
 import { findingRef, MAX_REVIEW_DIFF } from '../trust/review.ts';
 import { commitPatch, defaultBranch, threadChanges } from './commit.ts';
@@ -105,25 +99,15 @@ export function parseGuide(text: string): { intent: string; steps: GuideStep[] }
 
 export async function changeGuide(opts: { cwd: string; patch: string; files: string[]; base: DiffBase; model: string; signal?: AbortSignal }): Promise<ChangeGuide> {
   const model = resolveModel(opts.model);
-  const fauxScript = process.env.CEDIA_FAUX_SCRIPT ? JSON.parse(readFileSync(process.env.CEDIA_FAUX_SCRIPT, 'utf8')) : undefined;
-  const id = crypto.randomUUID();
-  const log = SessionLog.create({ id, path: sessionPath(opts.cwd, id) });
-  const r = await runPrompt(
-    {
-      log,
-      provider: providerFor(model, { fauxScript }),
-      model,
-      tools: CORE_TOOLS.filter((t) => t.effect !== 'write_workspace'),
-      system: READ_ONLY_SYSTEM,
-      cwd: opts.cwd,
-      role: 'review',
-      permission: { ...loadPolicy(opts.cwd, { allow: [], deny: [], unlock: [] }), mode: 'read-only' },
-      privacy: loadPrivacy(opts.cwd),
-      maxTurns: 30,
-      signal: opts.signal ?? new AbortController().signal,
-    },
-    guidePrompt(opts.patch, opts.base),
-  );
+  const r = await runSide({
+    cwd: opts.cwd,
+    model,
+    role: 'review',
+    access: { kind: 'read-only' },
+    maxTurns: 30,
+    ...(opts.signal ? { signal: opts.signal } : {}),
+    prompt: guidePrompt(opts.patch, opts.base),
+  });
   if (r.subtype !== 'success') return { error: `the guide did not finish (${r.subtype})` };
   const g = parseGuide(r.result);
   if (!g.steps.length) return { error: 'the model gave no STEP lines' };

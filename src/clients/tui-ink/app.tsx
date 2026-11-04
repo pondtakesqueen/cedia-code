@@ -16,17 +16,12 @@ import { askedBannerText } from './asked.ts';
 import { StatusBar } from './status-bar.tsx';
 import { runHeadless } from '../headless/main.ts';
 
-import { runPrompt } from '../../core/loop/run.ts';
-import { SessionLog, sessionPath } from '../../core/session/log.ts';
-import { providerFor } from '../../core/providers/index.ts';
 import { resolveModel } from '../../core/providers/catalog.ts';
-import { systemFor } from '../../core/prompts.ts';
-import { CORE_TOOLS } from '../../core/tools/index.ts';
 import { askedReviewPrompt, fixPrompt, parseVerdict } from '../../core/trust/review.ts';
 import { decode, type CoreMessage } from '../../protocol/index.ts';
 import type { TuiArgs } from './args.ts';
 import type { JsonObject, SessionEvent } from '../../core/types.ts';
-import { cediaHome, loadHandoffAt, loadPromptSuggestions, loadRoles, isMode, modeFlags, loadPolicy, loadPrivacy, readSettings } from '../../core/config.ts';
+import { cediaHome, loadHandoffAt, loadPromptSuggestions, loadRoles, isMode, modeFlags, readSettings } from '../../core/config.ts';
 import { modelLabel, modelList } from '../../core/providers/models.ts';
 import { processKeychain } from '../../core/providers/keychain.ts';
 import { versionInfo } from '../../protocol/version.ts';
@@ -43,12 +38,11 @@ import { SUBTHREAD_HINT, childThreads, recentCalls, subthreadLines } from './sub
 import { runOwnerShell, shellCommand, shellEnd, shellNote, type ShellRun } from './shell.ts';
 import { FOCUS_OFF, FOCUS_ON, NOTIFY_MODES, channelFor, focusFrom, notifyModeFrom, notifySequence, shouldNotify, turnNotice, type Focus } from './notify.ts';
 import { matchesKey } from '@mariozechner/pi-tui';
-import { TeamStore } from '../../core/project/teams.ts';
-import { voiceInput } from '../../core/project/voice.ts';
 import { acceptTrust, completedNames, isComplete, loadOnboarding, markStep, ONBOARDING_STEPS, reconcileOnboarding, saveOnboarding } from './onboarding.ts';
 import { workingDiff } from '../../core/project/git.ts';
 import { FOCUSES, reviewSubject, subjectTitle, ultraReview } from '../../core/project/ultrareview.ts';
 import { sideModel, threadWriter } from '../../core/side-model.ts';
+import { runSide } from '../../core/loop/side.ts';
 import { MemoryStore, memoryPath } from '../../core/project/memory.ts';
 import { loadSkills } from '../../core/skills/skills.ts';
 import { listMcp } from '../../core/mcp/manage.ts';
@@ -62,7 +56,7 @@ import { forkThread } from '../../core/project/fork.ts';
 import { ThreadStore, threadsDir } from '../../core/project/threads.ts';
 import { projectKey } from '../../core/session/log.ts';
 import { join } from 'node:path';
-import { readFileSync as fsRead, writeFileSync as fsWrite, existsSync as fsExists, readdirSync as fsReaddir, statSync as fsStat, unlinkSync as fsUnlink, mkdirSync as fsMkdir } from 'node:fs';
+import { readFileSync as fsRead, writeFileSync as fsWrite, existsSync as fsExists, unlinkSync as fsUnlink, mkdirSync as fsMkdir } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { loadProjectUsage } from './usage-summary.ts';
 import { awayText, presentIn, recapWhen, type PendingRecap } from './away.ts';
@@ -838,30 +832,19 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
           const { subject, patch } = got;
           const reviewModel = sideModel('review', { picked: model, ...(thread ? { threadWriter: threadWriter(store, thread) } : {}) });
           say(`reviewing ${subjectTitle(subject)} with ${reviewModel.ref}…`);
-          const id = crypto.randomUUID();
-          const log = SessionLog.create({ id, path: sessionPath(args.cwd, id) });
-          log.listeners.push((e) => {
-            if (e.kind === 'assistant') for (const b of (e as { blocks?: { type: string; text?: string }[] }).blocks ?? []) if (b.type === 'text' && b.text?.trim()) push({ role: 'assistant', text: (b.text as string) });
-            if (e.kind === 'tool_intent' || e.kind === 'tool_result' || e.kind === 'permission') applyToolEvent(e);
-            // no requestRender in ink; state update triggers render
-          });
-          const fauxScript = process.env.CEDIA_FAUX_SCRIPT ? JSON.parse(require('node:fs').readFileSync(process.env.CEDIA_FAUX_SCRIPT, 'utf8')) : undefined;
-          const r = await runPrompt(
-            {
-              log,
-              provider: providerFor(reviewModel, { fauxScript }),
-              model: reviewModel,
-              tools: CORE_TOOLS.filter((t) => t.effect !== 'write_workspace'),
-              system: systemFor(reviewModel),
-              cwd: args.cwd,
-              role: 'review',
-              permission: { ...loadPolicy(args.cwd, { allow: args.allow ?? [], deny: args.deny ?? [], unlock: args.unlock ?? [] }), mode: 'read-only' },
-              privacy: loadPrivacy(args.cwd, args.privacy),
-              maxTurns: 40,
-              signal: new AbortController().signal,
+          const r = await runSide({
+            cwd: args.cwd,
+            model: reviewModel,
+            role: 'review',
+            access: { kind: 'read-only', policy: { allow: args.allow ?? [], deny: args.deny ?? [], unlock: args.unlock ?? [] } },
+            ...(args.privacy ? { privacy: args.privacy } : {}),
+            maxTurns: 40,
+            prompt: askedReviewPrompt(subject, patch),
+            onEvent: (e) => {
+              if (e.kind === 'assistant') for (const b of (e as { blocks?: { type: string; text?: string }[] }).blocks ?? []) if (b.type === 'text' && b.text?.trim()) push({ role: 'assistant', text: (b.text as string) });
+              if (e.kind === 'tool_intent' || e.kind === 'tool_result' || e.kind === 'permission') applyToolEvent(e);
             },
-            askedReviewPrompt(subject, patch),
-          );
+          });
           setSpent((s) => s + r.costUsd);
           say(`review ${r.subtype === 'success' ? 'done' : r.subtype} · ${r.numTurns} turn${r.numTurns === 1 ? '' : 's'} · $${r.costUsd.toFixed(4)}`);
           if (r.subtype !== 'success') { if (r.result.trim()) say(r.result.trim(), 'red'); return; }

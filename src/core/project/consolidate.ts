@@ -1,14 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cediaHome } from '../config.ts';
-import { loadPrivacy } from '../config.ts';
 import { loadRoles } from '../config.ts';
 import { projectKey } from '../session/log.ts';
-import { SessionLog, sessionPath } from '../session/log.ts';
 import { resolveModel } from '../providers/catalog.ts';
-import { providerFor } from '../providers/index.ts';
-import { runPrompt } from '../loop/run.ts';
-import { redactSecrets } from '../safety/secrets.ts';
+import { runSide } from '../loop/side.ts';
 import { memoryPath, MemoryStore, rememberTool, MAX_NOTE } from './memory.ts';
 
 // Memory consolidation: between sessions, scan a project's session transcripts
@@ -154,31 +150,21 @@ export async function consolidateMemory(opts: {
 
   const modelRef = opts.model ?? (process.env.CEDIA_FAUX_SCRIPT ? 'faux' : loadRoles({}).code.ref);
   const model = resolveModel(modelRef);
-  const fauxScript = process.env.CEDIA_FAUX_SCRIPT ? JSON.parse(readFileSync(process.env.CEDIA_FAUX_SCRIPT, 'utf8')) : undefined;
-  const provider = providerFor(model, { fauxScript });
-  const id = crypto.randomUUID();
-  // Logged like any session, so `cedia usage` counts what it cost; scanTranscripts leaves its role out.
-  const log = SessionLog.create({ id, path: sessionPath(opts.cwd, id, home) });
-  const privacy = loadPrivacy(opts.cwd, undefined);
 
   const prompt = `Consolidate memory for this project. Here are the recent session transcripts:\n\n${scan.text}\n\nKeep the durable facts with the remember tool.`;
 
-  await runPrompt(
-    {
-      log,
-      provider,
-      model,
-      tools: [rememberTool(store, 'dream')],
-      system: SYSTEM,
-      cwd: opts.cwd,
-      role: 'consolidate',
-      permission: { mode: 'workspace', allow: [], deny: [] },
-      privacy,
-      maxTurns: 8,
-      ...(opts.signal ? { signal: opts.signal } : {}),
-    },
+  // Logged like any session, so `cedia usage` counts what it cost; scanTranscripts leaves its role out.
+  await runSide({
+    cwd: opts.cwd,
+    home,
+    model,
+    role: 'consolidate',
+    access: { kind: 'tools', tools: [rememberTool(store, 'dream')], permission: { mode: 'workspace', allow: [], deny: [] } },
+    system: SYSTEM,
     prompt,
-  );
+    maxTurns: 8,
+    ...(opts.signal ? { signal: opts.signal } : {}),
+  });
 
   writeLock(lockPath, now);
   const after = store.notes().length;
