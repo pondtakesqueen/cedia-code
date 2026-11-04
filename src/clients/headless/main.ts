@@ -9,7 +9,7 @@ import { providerFor } from '../../core/providers/index.ts';
 import { projectKey, projectRoot, projectSlug, SessionLog, sessionExists, sessionPath, workspaceRoots } from '../../core/session/log.ts';
 import { DAILY_SPEND_WARN_USD, daySpendUsd } from '../../core/session/select.ts';
 import { dayOf } from '../../core/session/usage.ts';
-import { cediaHome, sharedSkillDirs, detectChecks, loadChecks, loadContext, loadFallback, loadMedia, loadHandoff, loadHandoffAt, loadHooks, loadMcp, loadMaxEffort, capEffort, loadPolicy, loadPrivacy, loadQuotaWait, loadRoles, loadSandbox, loadSpawn, loadAsk, loadTodo, loadProfiles, loadLsp, loadPlanWhen, loadPlanOverlap, loadPromptSuggestions, isMode, modeFlags, type Mode, type RoleChoice } from '../../core/config.ts';
+import { cediaHome, sharedSkillDirs, detectChecks, loadChecks, loadContext, loadFallback, loadMedia, loadHandoff, loadHandoffAt, loadHooks, loadMcp, loadMaxEffort, capEffort, loadPolicy, loadPrivacy, loadQuotaWait, loadRoles, loadSandbox, loadSpawn, loadAsk, loadTodo, loadCreator, loadProfiles, loadLsp, loadPlanWhen, loadPlanOverlap, loadPromptSuggestions, isMode, modeFlags, type Mode, type RoleChoice } from '../../core/config.ts';
 import { attachedNote, blobDir, STORED_IMAGE, storedImage, type ImageRef } from '../../core/images.ts';
 import { storeAttachment } from '../../core/video.ts';
 import { claimThread } from '../../core/project/busy.ts';
@@ -29,6 +29,7 @@ import { spawnNudgeAt, spawnPool, spawnReport, spawnTool, subtaskPrompt, type Sp
 import { recallTool, threadTools, type EarlierSession } from '../../core/tools/threads.ts';
 import { answerPrompt, askTool } from '../../core/tools/ask.ts';
 import { todoTool } from '../../core/tools/todo.ts';
+import { pluginTool } from '../../core/tools/plugin.ts';
 import { teamTool } from '../../core/tools/team.ts';
 import { TeamStore } from '../../core/project/teams.ts';
 import { BROWSER_TOOL, browserAccess as browserAccessOf, browserSites, browserStub, browserTool } from '../../core/tools/browser.ts';
@@ -100,6 +101,9 @@ export type HeadlessArgs = {
   ask?: string;
   // "on" gives the writer the todo tool, whose list a client draws as the thread's progress (core/tools/todo.ts).
   todo?: string;
+  // "on" gives the writer the plugin tool: creator mode, a plugin it wrote installed in the same run
+  // (core/tools/plugin.ts).
+  creator?: string;
   // A Chromium's DevTools endpoint (core/tools/browser.ts): the writer gets the browser tool on its page. "off" or
   // none: no browser.
   browser?: string;
@@ -292,6 +296,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
   const lspSetting = loadLsp(args.lsp);
   const askOn = loadAsk(args.ask);
   const todoOn = loadTodo(args.todo);
+  const creatorOn = loadCreator(args.creator);
   const promptSuggestionsOn = loadPromptSuggestions(args.promptSuggestions);
   const planWhen = loadPlanWhen(args.planWhen);
   const planOverlap = loadPlanOverlap(args.planOverlap);
@@ -448,6 +453,8 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
   const skills = loadSkills(args.cwd, cediaHome(), sharedSkillDirs());
   const skillList = skillsBlock(skills);
   const skill = skillTool(skills);
+  // Shares the skill tool's list, so a plugin it installs is loadable in the same session.
+  const pluginT = creatorOn ? pluginTool({ home: cediaHome(), skills }) : undefined;
   // The hosts the shell may reach, so a fetch is no way around the sandbox.
   // web_fetch reaches what the session's shell may reach (core/tools/web.ts): the named domains, plus any public
   // host when the sandbox is off and the session may run commands. Allow rules widen it: `web_fetch` for any host,
@@ -581,7 +588,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
     // With skills, or on a resumed session that had the tool: its tool list stays as it was even when the skills
     // are gone since, and a call to one that is gone says so.
     // cedia's own skills come in the `/` prompt itself (skillCommand), so they add no tool to a session.
-    const withSkill = skills.some((s) => s.source !== 'builtin') || !!header?.tools.some((d) => d.name === 'skill');
+    const withSkill = !!pluginT || skills.some((s) => s.source !== 'builtin') || !!header?.tools.some((d) => d.name === 'skill');
     // MCP tools: all for the writer, the read-only ones for reviewers and sub-threads; past the definition budget
     // they run through mcp_call. A resumed session whose server is gone keeps the tool, and a call to it says the
     // server is not there; one opened with a tool that now runs through mcp_call keeps it by name.
@@ -592,7 +599,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
     const mcpRead = [...mcpTools.filter((t) => t.effect === 'read'), ...callOf(deferred.filter((t) => t.effect === 'read'))];
     // A resumed session that had the browser keeps the tool when this run has none, and a call says so.
     const browserTools = browser ? [browser.tool] : header?.tools.some((d) => d.name === BROWSER_TOOL) ? [browserStub] : [];
-    const extra = [...(spawnOn ? [spawnHere] : []), ...((askOn || policy.plan) && store && threadId ? [askTool] : []), ...(todoOn && store && threadId ? [todoTool(store, threadId, runId)] : []), ...(store && threadId ? [teamTool(new TeamStore(), threadId)] : []), ...(profile?.openThread && store && threadId ? [openThreadTool(store, threadId, opened, projectRoot(args.cwd), workspaceRoots())] : []), ...(profile?.schedule && store && threadId ? [scheduleTool(new ScheduleStore(schedulesPath(cediaHome(), projectKey(args.cwd))), threadId)] : []), ...(earlier.some((s) => s.id !== log.id) ? [recall] : []), ...(store && threadId && others ? threadTools(store, threadId) : []), ...(remember ? [remember] : []), ...(withSkill ? [skill] : []), webFetch, ...browserTools, ...mcpTools];
+    const extra = [...(spawnOn ? [spawnHere] : []), ...((askOn || policy.plan) && store && threadId ? [askTool] : []), ...(todoOn && store && threadId ? [todoTool(store, threadId, runId)] : []), ...(store && threadId ? [teamTool(new TeamStore(), threadId)] : []), ...(profile?.openThread && store && threadId ? [openThreadTool(store, threadId, opened, projectRoot(args.cwd), workspaceRoots())] : []), ...(profile?.schedule && store && threadId ? [scheduleTool(new ScheduleStore(schedulesPath(cediaHome(), projectKey(args.cwd))), threadId)] : []), ...(earlier.some((s) => s.id !== log.id) ? [recall] : []), ...(store && threadId && others ? threadTools(store, threadId) : []), ...(remember ? [remember] : []), ...(withSkill ? [skill] : []), ...(pluginT ? [pluginT] : []), webFetch, ...browserTools, ...mcpTools];
     // The advisor and the classifier answer in one reply, with no tools, in a session of their own.
     const helper = opts.role === 'advisor' || opts.role === 'classifier' || opts.role === 'triage';
     const tools = helper ? [] : reviewer ? [...REVIEW_TOOLS, ...(withSkill ? [skill] : []), webFetchRead, ...mcpRead] : child ? [...CORE_TOOLS, ...(child.recall ? [child.recall] : []), ...(withSkill ? [skill] : []), webFetch, ...mcpRead] : header ? [...CORE_TOOLS, ...extra].filter((t) => header.tools.some((d) => d.name === t.name)) : [...CORE_TOOLS, ...extra];

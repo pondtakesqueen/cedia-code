@@ -63,11 +63,63 @@ Check the file with \`wc -l AGENTS.md\` and by opening every path it names. Repo
 - The file comes out over 200 lines: move the longest reference sections to docs/ and link them; cut what the code already says.
 - An instruction file in a subdirectory contradicts the root one: report both lines and ask which holds; do not pick one silently.`;
 
+// /make-plugin: creator mode's procedure (core/tools/plugin.ts). cedia's own words, in the Claude Code plugin layout
+// cedia already reads, so a plugin the writer makes works in Claude Code too.
+const MAKE_PLUGIN = `Make a plugin that gives cedia a skill or a command, install it with the plugin tool, and check that it loads.
+
+## 1. Decide what it holds
+
+- A skill (skills/<name>/SKILL.md) says how to do a kind of task; the model loads it when a task matches its description. Use one for a procedure that recurs: a release, a migration, a review checklist.
+- A command (commands/<name>.md) is a prompt the person runs as /<plugin>:<name>; $ARGUMENTS stands for the text they type after it.
+- Keep one plugin to one subject. Name it with lowercase letters, digits and dashes, and not after a plugin that is already installed (the plugin tool's \`list\`).
+
+## 2. Write it in the working directory
+
+\`\`\`
+plugins/<plugin>/
+  .claude-plugin/plugin.json      {"name": "<plugin>", "version": "0.1.0", "description": "..."}
+  skills/<skill>/SKILL.md         front matter, then the instructions
+  skills/<skill>/<file>           scripts or templates the skill uses (optional)
+  commands/<command>.md           front matter (description, argument-hint), then the prompt
+\`\`\`
+
+SKILL.md starts with front matter:
+
+\`\`\`
+---
+name: <skill>
+description: <what it does and when to use it, in one or two sentences>
+---
+\`\`\`
+
+- The description decides when the skill is loaded: name the task and the words a person would use for it.
+- Keep SKILL.md short (under about 150 lines). Put long references in files beside it and say in SKILL.md when to read each.
+- Write concrete steps and the commands that confirm the work, as the repository runs them. Read the repository first so the commands are real.
+- No secrets, tokens or personal paths in any file: the folder is copied into ~/.cedia/plugins.
+
+## 3. Install and check
+
+1. \`plugin\` with \`{"action": "install", "path": "plugins/<plugin>"}\`. The result names each skill as <plugin>:<skill>.
+2. Load each new skill with the skill tool and read it back. If the result says it has no skills, a SKILL.md is missing its name or description.
+3. To change it, edit the files and install the same folder again.
+
+No plugin tool means creator mode is off for this session: write the folder, check each SKILL.md by reading it back, and tell the person to install it with \`cedia plugin install plugins/<plugin>\` (or to turn creator mode on with \`--creator on\`, or \`creator\` in settings).
+
+## 4. Report
+
+Say where the plugin is, what each skill and command does, and that later sessions list it. An MCP server in the plugin (.mcp.json) starts only after the person runs \`cedia plugin mcp <plugin>\`; hooks never run. If the plugin should live in the repository, leave plugins/<plugin> in place for the person to commit.`;
+
 export const BUILTIN_SKILLS: BuiltinSkill[] = [
   {
     name: 'init',
     description: "Write the repository's AGENTS.md (or CLAUDE.md), or trim one that is too long: the commands that confirm work, the code's traps and the decisions it does not show, under 200 lines. Use to set up agent instructions in a new repository or to clean up an old file.",
     argumentHint: '[what to focus on]',
     text: INIT,
+  },
+  {
+    name: 'make-plugin',
+    description: 'Make a cedia plugin with a skill or a command, install it with the plugin tool (creator mode) and check that it loads.',
+    argumentHint: '[what the plugin should do]',
+    text: MAKE_PLUGIN,
   },
 ];

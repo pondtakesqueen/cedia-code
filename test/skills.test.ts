@@ -119,8 +119,8 @@ describe('skills', () => {
     const found = loadSkills(dir, mkdtempSync(join(tmpdir(), 'h-')));
     expect(found.find((s) => s.name === 'statechart')?.manual).toBe(true);
     expect(found.find((s) => s.name === 'lint')?.manual).toBeUndefined();
-    // 61 manual skills and one listed: past the 50 a session lists, yet all are there, and /init too.
-    expect(found).toHaveLength(63);
+    // 61 manual skills and one listed: past the 50 a session lists, yet all are there, and cedia's own two too.
+    expect(found).toHaveLength(64);
     const block = skillsBlock(found);
     expect(block).toContain('- lint');
     expect(block).not.toContain('statechart');
@@ -158,7 +158,7 @@ describe('skills', () => {
 
     const home = join(dir, '.home');
     const p = Bun.spawnSync([join(import.meta.dir, '..', 'bin', 'cedia'), 'commands', '--json', '--cwd', dir], { env: { ...process.env, CEDIA_HOME: home } });
-    expect(JSON.parse(p.stdout.toString()).commands.map((c: { name: string }) => c.name)).toEqual(['haiku', 'plain', 'init']);
+    expect(JSON.parse(p.stdout.toString()).commands.map((c: { name: string }) => c.name)).toEqual(['haiku', 'plain', 'init', 'make-plugin']);
 
     // Through a run: the writer's message carries the request to load it.
     const script = join(dir, '.script.json');
