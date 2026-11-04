@@ -1,19 +1,21 @@
 import { describe, expect, test } from 'bun:test';
-import { MARK_HEIGHT, MARK_WIDTH, SPLASH_MIN_COLUMNS, SPLASH_MIN_ROWS, mark, markRuns, seeds, showSplash } from '../src/clients/tui-ink/splash.ts';
+import { MASCOT_HEIGHT, MASCOT_WIDTH, SPLASH_MIN_COLUMNS, SPLASH_MIN_ROWS, mascot, mascotRuns, showSplash } from '../src/clients/tui-ink/splash.ts';
 
 describe('the first screen (splash.ts)', () => {
-  test('the mark is every seed of the brand, one character each, on a grid of one width', () => {
-    const rows = mark();
-    expect(rows).toHaveLength(MARK_HEIGHT);
+  test('the mascot is six rows of half blocks, all one width', () => {
+    const rows = mascot();
+    expect(rows).toHaveLength(MASCOT_HEIGHT);
+    expect(MASCOT_HEIGHT).toBe(6);
     for (const r of rows) {
-      expect(r.length).toBe(MARK_WIDTH);
-      expect(r).toMatch(/^[●•· ]+$/);
+      expect(r.length).toBe(MASCOT_WIDTH);
+      expect(r).toMatch(/^[█▀▄ ]+$/);
     }
-    // No two seeds share a cell.
-    expect(rows.join('').replace(/ /g, '').length).toBe(seeds().length);
-    // Only the first seed takes the brand color.
-    expect(markRuns().flat().filter((r) => r.first).map((r) => r.text)).toEqual(['●']);
-    expect(MARK_WIDTH).toBeLessThan(SPLASH_MIN_COLUMNS);
+    // The leaves take the brand color; the stem meets them on a shared cell, top half leaf, bottom half stem.
+    expect(mascotRuns()[0]!.some((r) => r.fg === 'leaf')).toBe(true);
+    expect(mascotRuns()[1]!.some((r) => r.fg === 'leaf' && r.bg === 'stem')).toBe(true);
+    // The eyes are holes in the body.
+    expect(rows[3]!.trim()).toBe('██ ████ ██');
+    expect(MASCOT_WIDTH).toBeLessThan(SPLASH_MIN_COLUMNS);
   });
 
   test('a screen reader, a short or a narrow terminal keep the plain header', () => {

@@ -10,7 +10,7 @@ import { acceptTrust } from '../src/clients/tui-ink/onboarding.ts';
 import type { TuiArgs } from '../src/clients/tui-ink/args.ts';
 import { inkRenderOptions } from '../src/clients/tui-ink/render-options.ts';
 import { ThreadStore, threadsDir } from '../src/core/project/threads.ts';
-import { mark } from '../src/clients/tui-ink/splash.ts';
+import { mascot } from '../src/clients/tui-ink/splash.ts';
 import { projectKey } from '../src/core/session/log.ts';
 
 const strip = (s: string) =>
@@ -620,12 +620,12 @@ describe('ink TUI interaction (fake terminal, faux model)', () => {
     }
   }, 30000);
 
-  test('the first screen shows the mark; a prompt replaces it and sits in a panel of its own', async () => {
+  test('the first screen shows the mascot; a prompt replaces it and sits in a panel of its own', async () => {
     const h = start({ script: [{ blocks: [{ type: 'text', text: 'hi there' }] }] });
     try {
       await Bun.sleep(500);
       const first = h.frame();
-      expect(first).toContain(mark()[4]!.trim());
+      expect(first).toContain(mascot()[3]!.trim());
       expect(first).toContain('! shell');
       h.drain();
       h.write('hello');
@@ -634,7 +634,7 @@ describe('ink TUI interaction (fake terminal, faux model)', () => {
       for (let i = 0; i < 40 && !h.frame().includes('✓ Done'); i++) await Bun.sleep(250);
       // The newest frame: it starts at the one-line header that takes the splash's place.
       const f = h.frame().slice(h.frame().lastIndexOf('● cedia ·'));
-      expect(f).not.toContain(mark()[4]!.trim());
+      expect(f).not.toContain(mascot()[3]!.trim());
       // The prompt: its bar on a row of padding, its text, and padding again; the reply two columns in, under it.
       expect(f).toMatch(/ ▌ *\n ▌ hello *\n ▌ *\n\n {3}hi there/);
     } finally {

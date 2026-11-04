@@ -1,57 +1,59 @@
-// The first screen, before any message: the mark beside the name, the model and the place, with the keys under
-// them. The mark is the owner's (cedian's brand/mark, script/brand/icon.py): seeds set at the golden angle, as a
-// sunflower sets them, the outer seeds larger, the first one in the brand color. Here each seed is one character
-// on a grid twice as wide as it is tall, as a terminal cell is, sized by the seed's radius.
-const GOLDEN = (137.508 * Math.PI) / 180;
-const LAYOUT = { count: 34, spread: 7.1, inner: 2.2, outer: 5.2, first: 1.35 };
+// The first screen, before any message: the mascot beside the name, the model and the place, with the keys under
+// them. The mascot is cedia's own: a seed that has sprouted, its leaves in the brand color (the seed nods to the
+// owner's mark, cedian's sunflower seeds). It is drawn in pixels, two pixel rows to a terminal row through the
+// half blocks, so a pixel is about square.
+//   'W' the body (text color), 'L' the leaves (brand color), 'G' the stem, '.' nothing (the eyes are holes).
+const MASCOT = [
+  '...LLL..LLL...',
+  '..LLLLL.LLLL..',
+  '...LLLLLLLL...',
+  '......GG......',
+  '....WWWWWW....',
+  '...WWWWWWWW...',
+  '..WW.WWWW.WW..',
+  '..WW.WWWW.WW..',
+  '..WWWWWWWWWW..',
+  '..WWWWWWWWWW..',
+  '...WWWWWWWW...',
+  '....WW..WW....',
+];
 
-type Seed = { x: number; y: number; r: number; first: boolean };
+/** Which theme color a pixel takes. */
+export type Pixel = 'body' | 'leaf' | 'stem';
+const PIXEL: Record<string, Pixel | undefined> = { W: 'body', L: 'leaf', G: 'stem' };
 
-/** The seeds on a 100-unit square centered on 50, 50, outermost first (the same sums as the brand's script). */
-export function seeds(): Seed[] {
-  const out: Seed[] = [];
-  for (let i = LAYOUT.count; i >= 1; i--) {
-    const a = i * GOLDEN;
-    const d = LAYOUT.spread * Math.sqrt(i);
-    const r = LAYOUT.inner + (LAYOUT.outer - LAYOUT.inner) * Math.sqrt(i / LAYOUT.count);
-    out.push({ x: 50 + d * Math.cos(a), y: 50 + d * Math.sin(a), r: i === 1 ? r * LAYOUT.first : r, first: i === 1 });
-  }
-  return out;
-}
+/** A run of the mascot's characters with one foreground and one background (undefined: the terminal's own). */
+export type MascotRun = { text: string; fg?: Pixel; bg?: Pixel };
 
-// 22 by 9 is the smallest grid where no two seeds share a cell (they touch side by side once).
-export const MARK_WIDTH = 22;
-export const MARK_HEIGHT = 9;
+export const MASCOT_WIDTH = MASCOT[0]!.length;
+export const MASCOT_HEIGHT = MASCOT.length / 2;
 
-/** A run of the mark's characters in one color: the seeds, or the first seed. */
-export type MarkRun = { text: string; first?: boolean };
-
-/** The mark, one list of runs per terminal row; each row's runs join to MARK_WIDTH characters. */
-export function markRuns(width = MARK_WIDTH, height = MARK_HEIGHT): MarkRun[][] {
-  const grid: { ch: string; first: boolean }[][] = Array.from({ length: height }, () => Array.from({ length: width }, () => ({ ch: ' ', first: false })));
-  for (const s of seeds()) {
-    const x = Math.round(((s.x - 2) / 96) * (width - 1));
-    const y = Math.round(((s.y - 2) / 96) * (height - 1));
-    grid[y]![x] = { ch: s.first || s.r >= 4.4 ? '●' : s.r >= 3.4 ? '•' : '·', first: s.first };
-  }
-  return grid.map((row) => {
-    const runs: MarkRun[] = [];
-    for (const c of row) {
+/** The mascot, one list of runs per terminal row; each row's runs join to MASCOT_WIDTH characters. */
+export function mascotRuns(): MascotRun[][] {
+  const rows: MascotRun[][] = [];
+  for (let y = 0; y < MASCOT.length; y += 2) {
+    const runs: MascotRun[] = [];
+    for (let x = 0; x < MASCOT_WIDTH; x++) {
+      const top = PIXEL[MASCOT[y]![x]!];
+      const bottom = PIXEL[MASCOT[y + 1]![x]!];
+      // A full block when both halves match, else the top half in the foreground over the bottom as background.
+      const cell: MascotRun = !top && !bottom ? { text: ' ' } : top === bottom ? { text: '█', fg: top } : top ? { text: '▀', fg: top, ...(bottom ? { bg: bottom } : {}) } : { text: '▄', fg: bottom };
       const last = runs.at(-1);
-      if (last && !!last.first === c.first) last.text += c.ch;
-      else runs.push(c.first ? { text: c.ch, first: true } : { text: c.ch });
+      if (last && last.fg === cell.fg && last.bg === cell.bg) last.text += cell.text;
+      else runs.push(cell);
     }
-    return runs;
-  });
+    rows.push(runs);
+  }
+  return rows;
 }
 
-/** The mark as plain strings, one per terminal row. */
-export function mark(): string[] {
-  return markRuns().map((runs) => runs.map((r) => r.text).join(''));
+/** The mascot as plain strings, one per terminal row. */
+export function mascot(): string[] {
+  return mascotRuns().map((runs) => runs.map((r) => r.text).join(''));
 }
 
-// The splash needs the mark, the lines beside or under it and room around them; a smaller terminal keeps the
-// plain header. Narrower than SPLASH_SIDE_COLUMNS, the lines go under the mark.
+// The splash needs the mascot, the lines beside or under it and room around them; a smaller terminal keeps the
+// plain header. Narrower than SPLASH_SIDE_COLUMNS, the lines go under the mascot.
 export const SPLASH_MIN_ROWS = 20;
 export const SPLASH_MIN_COLUMNS = 44;
 export const SPLASH_SIDE_COLUMNS = 72;

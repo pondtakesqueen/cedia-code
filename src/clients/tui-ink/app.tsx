@@ -33,7 +33,7 @@ import { cancelStep, messageFullySelected, offsetForIndex, rowMapFromWalk, selec
 import { createHeightCache, heightCacheKey, visibleWindow } from './visible-window.ts';
 import { assignRecycleSlots, messageSlotKey, type RecycleSlot } from './virtual-list.ts';
 import { onTerminalResume } from './terminal-resume.ts';
-import { MARK_WIDTH, SPLASH_SIDE_COLUMNS, markRuns, showSplash } from './splash.ts';
+import { MASCOT_WIDTH, SPLASH_SIDE_COLUMNS, mascotRuns, showSplash, type Pixel } from './splash.ts';
 import { SUBTHREAD_HINT, childThreads, recentCalls, subthreadLines } from './subthreads.ts';
 import { runOwnerShell, shellCommand, shellEnd, shellNote, type ShellRun } from './shell.ts';
 import { FOCUS_OFF, FOCUS_ON, NOTIFY_MODES, channelFor, focusFrom, notifyModeFrom, notifySequence, shouldNotify, turnNotice, type Focus } from './notify.ts';
@@ -2308,9 +2308,10 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
           {splash ? (
             <>
               {(() => {
-                // The mark, with the name, the model and the place beside it; on a narrower screen, under it.
+                const pixelColor: Record<Pixel, string> = { body: T.text, leaf: T.primary, stem: T.primary };
+                // The mascot, with the name, the model and the place beside it; on a narrower screen, under it.
                 const side = columns >= SPLASH_SIDE_COLUMNS;
-                const room = Math.max(10, side ? columns - MARK_WIDTH - 10 : columns - 6);
+                const room = Math.max(10, side ? columns - MASCOT_WIDTH - 10 : columns - 6);
                 const facts = (
                   <Box flexDirection="column" alignItems={side ? 'flex-start' : 'center'} marginLeft={side ? 4 : 0} marginTop={side ? 0 : 1}>
                     <Text>
@@ -2327,8 +2328,8 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
                 return (
                   <Box flexDirection={side ? 'row' : 'column'} alignItems="center">
                     <Box flexDirection="column" flexShrink={0}>
-                      {markRuns().map((runs, i) => (
-                        <Text key={i}>{runs.map((r, j) => <Text key={j} color={r.first ? T.primary : T.text}>{r.text}</Text>)}</Text>
+                      {mascotRuns().map((runs, i) => (
+                        <Text key={i}>{runs.map((r, j) => <Text key={j} color={r.fg && pixelColor[r.fg]} backgroundColor={r.bg && pixelColor[r.bg]}>{r.text}</Text>)}</Text>
                       ))}
                     </Box>
                     {facts}
