@@ -5,7 +5,29 @@ import type { EventOf, Evidence, SessionEvent } from '../types.ts';
 // The evidence ledger is derived from the log alone, so it says what happened, not what the model claims.
 export type LedgerEntry =
   | { kind: 'write'; at: number; tool: string; path?: string; command?: string }
-  | { kind: 'check'; at: number; command: string; exitCode: number };
+  | { kind: 'check'; at: number; command: string; exitCode: number; tail?: string; ms?: number };
+
+// Lines a test runner ends with to say how it went: counts of passes and failures, a result line. They come before
+// other lines that only mention an outcome (a test's own `(pass) name` line).
+const COUNTS = /\d+\s+(pass(ed|es)?|fail(ed|s|ures?)?|skip(ped)?|errors?|tests?)\b|test result|^ran \d+/i;
+// Lines a test runner or build ends with to say how it went: counts of passes and failures, a result line.
+const OUTCOME = /\b(pass(ed|es)?|fail(ed|s|ures?)?|errors?|skip(ped)?|todo|ok|tests?|warnings?)\b/i;
+const TAIL_LINES = 5;
+const TAIL_CHARS = 300;
+
+// The end of a check's output that says how it went: up to five of its last lines that count outcomes (bun's
+// `1110 pass`, `3 fail`, `Ran 1130 tests`; pytest's `5 passed in 0.1s`; cargo's `test result: ok`), else that read
+// like one, else its last two lines. cedia's own trailers (`[exit 1]`, `[cedia: …]`, a hook's note) are not the check's words.
+export function checkTail(text: string): string | undefined {
+  const lines = text.split('\n').map((l) => l.trim()).filter((l) => l && l !== '(no output)' && !/^\[(exit \d+|cedia[: ]|hook )/.test(l) && !/\x1b/.test(l));
+  const tail = lines.slice(-40);
+  const counts = tail.filter((l) => COUNTS.test(l));
+  const outcome = (counts.length ? counts : tail.filter((l) => OUTCOME.test(l))).slice(-TAIL_LINES);
+  const picked = outcome.length ? outcome : lines.slice(-2);
+  const joined = picked.map((l) => (l.length > 120 ? `${l.slice(0, 117)}...` : l)).join(' · ');
+  if (!joined) return undefined;
+  return joined.length > TAIL_CHARS ? `${joined.slice(0, TAIL_CHARS - 3)}...` : joined;
+}
 
 // A bash call counts as a declared check only when its whole command is the check, give or take
 // whitespace and a trailing 2>&1. A pipe would hide the check's exit code, so `bun test | tail` does not count.
@@ -35,7 +57,9 @@ export function ledgerEntries(events: SessionEvent[], checks: string[], cwd?: st
     const check = command !== undefined ? matchCheck(command, checks, cwd) : undefined;
     if (check !== undefined) {
       // Files a check leaves behind (caches, coverage) are not the change it verifies.
-      out.push({ kind: 'check', at, command: check, exitCode: e.output.exitCode ?? (e.output.isError ? 1 : 0) });
+      const tail = checkTail(e.output.text);
+      const ms = Date.parse(e.at) - Date.parse(intent.at);
+      out.push({ kind: 'check', at, command: check, exitCode: e.output.exitCode ?? (e.output.isError ? 1 : 0), ...(tail ? { tail } : {}), ...(ms >= 0 ? { ms } : {}) });
     } else if (files) {
       for (const path of files) out.push({ kind: 'write', at, tool: intent.tool, path });
     } else if (intent.tool === 'edit' || intent.tool === 'write') {
@@ -59,7 +83,7 @@ export function evidence(entries: LedgerEntry[]): Evidence {
   const uniq = (xs: string[]) => [...new Set(xs)];
   return {
     changed: uniq(writes.map(label)),
-    checks: checks.map(({ command, exitCode }) => ({ command, exitCode })),
+    checks: checks.map(({ command, exitCode, tail, ms }) => ({ command, exitCode, ...(tail ? { tail } : {}), ...(ms !== undefined ? { ms } : {}) })),
     unverified: uniq(writes.filter((w) => w.at > lastPass).map(label)),
   };
 }
