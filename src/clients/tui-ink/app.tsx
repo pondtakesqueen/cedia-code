@@ -1628,7 +1628,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
   // both scroll indicators, the input box, the model line and the status bar.
   // The writer's steps pinned over the prompt while a turn runs take rows from the transcript.
   const showSteps = running && !screenReader && steps.some((st) => st.state !== 'done');
-  const stepRows = showSteps ? Math.min(steps.length, 6) + (steps.length > 6 ? 1 : 0) : 0;
+  const stepRows = showSteps ? 1 + Math.min(steps.length, 6) + (steps.length > 6 ? 1 : 0) : 0;
   const heightBudget = Math.max(3, rows - 8 - stepRows);
   React.useEffect(() => {
     heightCacheRef.current.clear();
@@ -2664,7 +2664,8 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
           </Box>
         ) : null}
         {showSteps ? (
-          <Box flexDirection="column" paddingX={2}>
+          // Under the transcript, the marks in the column of the tool rows' marks, a row apart from them.
+          <Box flexDirection="column" paddingLeft={3} paddingRight={2} marginTop={1}>
             {todoLines(steps.slice(0, 6), Math.max(20, columns - 4), '').map((ln, i) => (
               <Text key={`step-${i}`} wrap="truncate">
                 {ln.spans.map((sp, si) => <Text key={si} {...(rowProps(sp.style, T) ?? spanProps(sp.style as Parameters<typeof spanProps>[0], T))}>{sp.text}</Text>)}
