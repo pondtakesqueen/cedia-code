@@ -432,6 +432,7 @@ Taken from the DeepSeek harness (`packages/core/agent-loop/README.md`, "KV Cache
 4. Cancelled tool calls get synthetic results appended; history is never cut.
 5. Roles change only when a subagent starts.
    The main session never switches model; each subagent owns its cache.
+   A new work sub-thread on the writer's model opens with the writer's tool list and system prompt byte for byte, so its first request reads them from the cache the writer's spawn call just wrote (`sharedPrefixTools`, `core/loop/profile.ts`). The writer tools it may not use keep their definitions and refuse every call. A sub-thread that needs a tool the writer does not list (recall after its own handoff) opens with its own list.
    The one exception is Anthropic's server-side fallback (`fallbacks: "default"`, on `anthropic/claude-opus-5-5`): when a safety classifier declines a turn, the API itself answers it on another model (cyber on Opus 4.8, bio and frontier LLM work on Opus 5) and keeps later turns of that conversation there for about an hour.
    That model writes its own cache; Anthropic credits the miss.
    The `fallback` block goes back every turn where it came, the declined model's thinking and tool calls before it do not, and the `assistant` event names the model in `servedBy`.

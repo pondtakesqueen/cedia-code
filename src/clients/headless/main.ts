@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { profilePermission, profileSystem, profileTools, sessionKind } from '../../core/loop/profile.ts';
+import { profilePermission, profileSystem, profileTools, sessionKind, sharedPrefixTools } from '../../core/loop/profile.ts';
 import { join, resolve } from 'node:path';
 import { historyRejected, runPrompt, type RunOptions } from '../../core/loop/run.ts';
 import { modeNote, preamble, READ_ONLY_SYSTEM, systemFor, timeNote } from '../../core/prompts.ts';
@@ -581,6 +581,9 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
     say(
       `cedia: ${sub ? "a sub-thread's " : ''}context reached ${handoffAt} tokens; ${r.compaction ? 'going on in a new session from a summary of its older turns' : `handing ${sub ? 'it ' : ''}off to a new session`}\n`,
     );
+  // The tools and system prompt the latest writer session opened with, on its model: the prefix a work sub-thread
+  // shares.
+  let writerPrefix: { model: string; system: string; tools: ToolSpec[] } | undefined;
   const run = async (m: ModelSpec, log: SessionLog, prompt: string, opts: RunOpts = {}) => {
     const { continues } = opts;
     const child = opts.child;
@@ -611,7 +614,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
     const extra = [...(spawnOn ? [spawnHere] : []), ...((askOn || policy.plan) && store && threadId ? [askTool] : []), ...(todoOn && store && threadId ? [todoTool(store, threadId, runId)] : []), ...(store && threadId ? [teamTool(new TeamStore(), threadId)] : []), ...(profile?.openThread && store && threadId ? [openThreadTool(store, threadId, opened, projectRoot(args.cwd), workspaceRoots())] : []), ...(profile?.schedule && store && threadId ? [scheduleTool(new ScheduleStore(schedulesPath(cediaHome(), projectKey(args.cwd))), threadId)] : []), ...(earlier.some((s) => s.id !== log.id) ? [recall] : []), ...(store && threadId && others ? threadTools(store, threadId) : []), ...(remember ? [remember] : []), ...(withSkill ? [skill] : []), ...(pluginT ? [pluginT] : []), webFetch, ...browserTools, ...mcpTools];
     // The advisor and the classifier answer in one reply, with no tools, in a session of their own.
     const helper = kind === 'helper';
-    const tools = profileTools(kind, {
+    let tools = profileTools(kind, {
       core: CORE_TOOLS,
       review: REVIEW_TOOLS,
       extra,
@@ -622,6 +625,15 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
       ...(child?.recall ? { childRecall: child.recall } : {}),
       ...(header ? { resumed: header.tools.map((d) => d.name) } : {}),
     });
+    let system = profileSystem(opts.role, m, { writing, fromPlan });
+    // A new work sub-thread on the writer's model opens with the writer's tools and system prompt, so its first
+    // request reads them from the cache the writer just wrote (core/loop/profile.ts).
+    const shared = kind === 'child' && !header && writerPrefix?.model === m.ref ? sharedPrefixTools(writerPrefix.tools, tools) : undefined;
+    if (shared) {
+      tools = shared;
+      system = writerPrefix!.system;
+    }
+    if (writing) writerPrefix = { model: m.ref, system, tools };
     // A work sub-thread in a worktree works there: its own directory, environment line and snapshots.
     const place = child?.place;
     if (writing) writerRuns.push({ log, from: log.events.length });
@@ -632,7 +644,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
         model: m,
         // Plan and review get no write tools, and their policy is read-only whatever the run's mode.
         tools,
-        system: profileSystem(opts.role, m, { writing, fromPlan }),
+        system,
         ...(helper ? {} : { preamble: reviewer ? reviewPreamble() : opts.note ? `${place?.preamble ?? basePreamble()}\n\n${opts.note}` : (place?.preamble ?? basePreamble()) }),
         cwd: place?.cwd ?? args.cwd,
         ...(opts.images?.length ? { images: opts.images } : {}),
