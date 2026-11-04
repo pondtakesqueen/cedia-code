@@ -177,7 +177,7 @@ describe('hooks and the workspace', () => {
     const { opts } = setup([{ blocks: [toolUse('c0', 'bash', { command: 'echo x > changed.txt' })] }, { blocks: [toolUse('c1', 'bash', { command: 'echo ok' })] }, { blocks: [text('done')] }, { blocks: [text('done')] }], { postToolUse: [{ match: 'bash(echo ok)', command: block }] }, { checks: ['echo ok'] });
     const r = await runPrompt(opts, 'x');
     expect(r.subtype).toBe('error_unverified_claim');
-    expect(r.evidence?.checks).toEqual([{ command: 'echo ok', exitCode: 1 }]);
+    expect(r.evidence?.checks).toEqual([{ command: 'echo ok', exitCode: 1, tail: 'ok', ms: expect.any(Number) }]);
   });
 
   test('a stop on the run ends a hook at once', async () => {

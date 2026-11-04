@@ -480,7 +480,7 @@ describe('loop', () => {
       const { log, opts } = gate([{ blocks: [fixA()] }, { blocks: [run('true 2>&1')] }, { blocks: [text('fixed')] }], ['true']);
       const res = await runPrompt(opts, 'fix');
       expect(res.subtype).toBe('success');
-      expect(res.evidence).toEqual({ changed: ['g.ts'], checks: [{ command: 'true', exitCode: 0 }], unverified: [] });
+      expect(res.evidence).toEqual({ changed: ['g.ts'], checks: [{ command: 'true', exitCode: 0, ms: expect.any(Number) }], unverified: [] });
       expectPaired(log.events);
     });
 

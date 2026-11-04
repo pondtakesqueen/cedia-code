@@ -156,7 +156,10 @@ export type HeadlessArgs = {
 // (a sub-thread) is named as that thread's.
 export function receipt(ev: Evidence, thread?: string): string {
   const list = (xs: string[]) => (xs.length ? xs.join(', ') : 'none');
-  const checks = ev.checks.map((c) => `${c.command} (exit ${c.exitCode}${c.thread && c.thread !== thread ? `, in sub-thread ${c.thread}` : ''})`);
+  // A check's time is shown once it is long enough to matter (10 s).
+  const secs = (ms?: number) => (ms === undefined || ms < 10_000 ? '' : `, ${Math.round(ms / 1000)}s`);
+  // What each check showed comes with its exit code, so a reader sees what the check proved before the report.
+  const checks = ev.checks.map((c) => `${c.command} (exit ${c.exitCode}${c.tail ? `: ${c.tail}` : ''}${secs(c.ms)}${c.thread && c.thread !== thread ? `, in sub-thread ${c.thread}` : ''})`);
   return `cedia receipt: changed ${list(ev.changed)}; checks ${list(checks)}; unverified ${list(ev.unverified)}${ev.flags?.length ? `; flagged ${ev.flags.join(', ')}` : ''}`;
 }
 

@@ -486,6 +486,12 @@
         },
         "thread": {
           "type": "string"
+        },
+        "tail": {
+          "type": "string"
+        },
+        "ms": {
+          "type": "number"
         }
       },
       "required": [

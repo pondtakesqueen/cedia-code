@@ -226,7 +226,9 @@ export type Provider = {
 
 // flags: what the slop guard found in this run's changes (see core/trust/slop.ts). A check's thread is the thread
 // whose session ran it: a run's result pools its sub-threads' checks with its own.
-export type Check = { command: string; exitCode: number; thread?: string };
+// tail: the lines of its output that say how it went ("1110 pass", "3 fail"), redacted as the result was, so a
+// person reads what a check showed and not only its exit code. ms: from the call's start to its result.
+export type Check = { command: string; exitCode: number; thread?: string; tail?: string; ms?: number };
 export type Evidence = { changed: string[]; checks: Check[]; unverified: string[]; flags?: string[] };
 
 // 'handoff' ends a session, never a run: the session wrote its handoff note (the result) and the client goes on
