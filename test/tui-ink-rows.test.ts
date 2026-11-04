@@ -31,6 +31,30 @@ describe('ink transcript rows', () => {
     expect(plain(resultRow('bash', { command: 'seq 5' }, { text: '1\n2\n3\n4\n5\n[exit 0]', exitCode: 0 }, 0, 80))).toEqual(['● Bash  seq 5', '  └ 1', '    2', '    3', '    … +2 lines']);
   });
 
+  test('a failing bash shows what went wrong, not the first line it printed, and its exit code', () => {
+    const text = 'index.ts\nlib.ts\n[stderr]\ncat: nope.txt: No such file or directory\n[exit 1]';
+    expect(plain(resultRow('bash', { command: 'ls && cat nope.txt' }, { text, isError: true }, 0, 80))).toEqual([
+      '● Bash  ls && cat nope.txt · exit 1',
+      '  └ cat: nope.txt: No such file or directory',
+    ]);
+    // No stderr: the last line it printed is the nearest to the failure.
+    expect(plain(resultRow('bash', { command: 'make' }, { text: 'step 1\nstep 2 failed\n[exit 2]', isError: true, exitCode: 2 }, 0, 80))).toEqual([
+      '● Bash  make · exit 2',
+      '  └ step 2 failed',
+    ]);
+  });
+
+  test('a search shows its pattern, and where it looked when that is not the root', () => {
+    expect(toolTarget({ pattern: 'add\\(', path: '.' })).toBe('add\\(');
+    expect(toolTarget({ pattern: 'TODO', path: 'src' })).toBe('TODO  in src');
+    expect(toolTarget({ pattern: 'src/**/*.ts' })).toBe('src/**/*.ts');
+  });
+
+  test('write counts the lines of its content, not the empty one after the last newline', () => {
+    expect(plain(resultRow('write', { path: 'a.ts', content: 'a\nb\n' }, { text: 'wrote a.ts' }, 0, 80))).toEqual(['● Write  a.ts · +2 lines']);
+    expect(plain(resultRow('write', { path: 'a.ts', content: 'a' }, { text: 'wrote a.ts' }, 0, 80))).toEqual(['● Write  a.ts · +1 line']);
+  });
+
   test('read counts lines; an error shows its first line under the call', () => {
     expect(plain(resultRow('read', { path: 'a' }, { text: '1\tx\n2\ty\n' }, 0, 80))).toEqual(['● Read  a · 2 lines']);
     expect(plain(resultRow('read', { path: 'a' }, { text: 'cannot read a: ENOENT', isError: true }, 0, 80))).toEqual(['● Read  a', '  └ cannot read a: ENOENT']);

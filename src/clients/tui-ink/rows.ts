@@ -34,8 +34,13 @@ export function toolName(tool: string): string {
 /** What a call works on, in one line: its command, path, pattern or url. */
 export function toolTarget(input: unknown): string {
   const o = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
-  const v = o.command ?? o.path ?? o.pattern ?? o.url ?? o.query ?? o.name ?? o.file_path ?? Object.values(o).find((x) => typeof x === 'string');
-  return typeof v === 'string' ? v.split('\n')[0]!.replace(/\s+/g, ' ').trim() : '';
+  const one = (v: unknown) => (typeof v === 'string' ? v.split('\n')[0]!.replace(/\s+/g, ' ').trim() : '');
+  // A search is named by what it looks for; where it looked follows unless that is the root.
+  if (typeof o.pattern === 'string' && o.command === undefined) {
+    const where = one(o.path);
+    return `${one(o.pattern)}${where && where !== '.' && where !== './' ? `  in ${where}` : ''}`;
+  }
+  return one(o.command ?? o.path ?? o.url ?? o.query ?? o.name ?? o.file_path ?? Object.values(o).find((x) => typeof x === 'string'));
 }
 
 const clip = (s: string, n: number) => (n <= 1 ? '' : s.length > n ? `${s.slice(0, n - 1)}…` : s);
@@ -85,7 +90,17 @@ export function resultRow(
     detail.push({ spans: [{ text: '  └ ', style: 'faint' }, { text: clip(s.replace(/\t/g, '  '), Math.max(10, width - 6)), style }] });
   const more = (s: string, style: RowStyle = 'muted') =>
     detail.push({ spans: [{ text: '    ', style: 'faint' }, { text: clip(s.replace(/\t/g, '  '), Math.max(10, width - 6)), style }] });
-  if (output.isError) {
+  // The exit code bash closes its output with, when the event did not carry one.
+  const exit = output.exitCode ?? (tool === 'bash' ? Number(text.match(/^\[exit (-?\d+)/m)?.[1] ?? NaN) : NaN);
+  if (output.isError && tool === 'bash') {
+    if (Number.isFinite(exit) && exit !== 0) sum.push({ text: `exit ${exit}`, style: 'err' });
+    // What went wrong is on stderr; without it, the last line printed is the nearest to the failure.
+    const lines = text.split('\n');
+    const errAt = lines.indexOf('[stderr]');
+    const pick = (ls: string[]) => ls.filter((l) => l.trim() && !/^\[exit -?\d+/.test(l) && l !== '[stderr]' && l !== '(no output)');
+    const said = errAt >= 0 ? pick(lines.slice(errAt + 1)) : [];
+    sub((said[0] ?? pick(lines).at(-1)) || 'failed', 'err');
+  } else if (output.isError) {
     sub(nonEmpty[0] ?? 'failed', 'err');
   } else if (tool === 'read') {
     sum.push({ text: `${nonEmpty.length} line${nonEmpty.length === 1 ? '' : 's'}`, style: 'muted' });
@@ -97,7 +112,8 @@ export function resultRow(
     detail.push(...rows.lines);
     if (rows.hidden) detail.push({ spans: [{ text: `     … ${rows.hidden} more line${rows.hidden === 1 ? '' : 's'} · /diff`, style: 'faint' }] });
   } else if (tool === 'write') {
-    const n = String((input as { content?: unknown })?.content ?? '').split('\n').length;
+    const content = String((input as { content?: unknown })?.content ?? '');
+    const n = content.replace(/\n$/, '').split('\n').length;
     sum.push({ text: `+${n} line${n === 1 ? '' : 's'}`, style: 'ok' });
   } else if (tool === 'bash') {
     if (output.exitCode !== undefined && output.exitCode !== 0) sum.push({ text: `exit ${output.exitCode}`, style: 'err' });
