@@ -5,13 +5,11 @@ description: Use when proving cedia, the headless Bun CLI coding harness, by lau
 
 # Verify cedia
 
-cedia is a CLI. A user runs `bin/cedia` from this repo. With no prompt, when stdin and stdout are both terminals, `src/cli.ts` starts the TUI in `src/clients/tui/main.ts`. This skill drives headless runs. A run with no prompt and no terminal prints usage and exits 2.
+cedia is a CLI. A user runs `bin/cedia` from this repo. With no prompt, when stdin and stdout are both terminals, `src/cli.ts` starts the TUI in `src/clients/tui-ink/`. This skill drives headless runs. A run with no prompt and no terminal prints usage and exits 2.
 
 Drive cedia with `.cursor/skills/verify-cedia/scripts/control-cedia`. The script finds the repo from its own path. Each launch creates an empty work directory and an empty `CEDIA_HOME` under `/tmp/cedia-verify-<id>`. Two launches can run side by side because the ids differ. Never point a run at `~/.cedia`.
 
 When `ANTHROPIC_API_KEY`, `CEDIA_ANTHROPIC_API_KEY`, `OPENCODE_API_KEY`, and `DEEPSEEK_API_KEY` are unset, use `-m faux` and `CEDIA_FAUX_SCRIPT`. That stand-in is the model provider boundary in `providerFor`. Bash, files, the session log, the thread store, and the done gate still run.
-
-Read `features/README.md` before choosing a journey.
 
 ## Launch
 
@@ -81,7 +79,7 @@ Tool names in a script are `read`, `edit`, `write`, and `bash`. Export the file 
 export CEDIA_FAUX_SCRIPT="$CEDIA_VERIFY_ROOT/script.json"
 ```
 
-Pass `-m faux`. The default model is `deepseek`, which calls a provider.
+Pass `-m faux`. The default model is `haiku`, which calls a provider.
 
 ## Evidence
 
@@ -93,7 +91,7 @@ Faux skips the provider network. A traced `bin/cedia -m faux` run on 2026-10-21,
 
 These journeys stay unverified without keys or a sandbox.
 
-- Any model alias other than `faux`, including the default `deepseek`.
+- Any model alias other than `faux`, including the default `haiku`.
 - `--plan` and `--review`, including a `claude-code:<model>` role.
 - Quota fallback onto Haiku.
 - `--sandbox on`. With `bwrap` and `socat` missing, that command exits 1 and prints `cedia: sandbox unavailable: bubblewrap (bwrap) not installed; socat not installed`.
