@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { SPLASH_MIN_COLUMNS, SPLASH_MIN_ROWS, WORDMARK_WIDTH, showSplash, wordmark } from '../src/clients/tui-ink/splash.ts';
+import { SPLASH_MIN_COLUMNS, SPLASH_MIN_ROWS, WORDMARK_WIDTH, showSplash, wordmark, wordmarkRuns } from '../src/clients/tui-ink/splash.ts';
 
 describe('the first screen (splash.ts)', () => {
   test('the wordmark is four rows of half blocks, all one width', () => {
@@ -10,7 +10,9 @@ describe('the first screen (splash.ts)', () => {
       expect(r).toMatch(/^[█▀▄ ]+$/);
     }
     // The d's ascender and the i's dot stand above the rest of the word.
-    expect(rows[0]!.trim()).toBe('█ ▀▀');
+    expect(rows[0]!.trim()).toBe('██  ▀▀');
+    // Only the dot takes the brand color.
+    expect(wordmarkRuns()[0]!.filter((r) => r.dot).map((r) => r.text)).toEqual(['▀▀']);
     expect(WORDMARK_WIDTH).toBeLessThan(SPLASH_MIN_COLUMNS);
   });
 

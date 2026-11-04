@@ -33,7 +33,7 @@ import { cancelStep, messageFullySelected, offsetForIndex, rowMapFromWalk, selec
 import { createHeightCache, heightCacheKey, visibleWindow } from './visible-window.ts';
 import { assignRecycleSlots, messageSlotKey, type RecycleSlot } from './virtual-list.ts';
 import { onTerminalResume } from './terminal-resume.ts';
-import { showSplash, wordmark } from './splash.ts';
+import { showSplash, wordmarkRuns } from './splash.ts';
 import { SUBTHREAD_HINT, childThreads, recentCalls, subthreadLines } from './subthreads.ts';
 import { runOwnerShell, shellCommand, shellEnd, shellNote, type ShellRun } from './shell.ts';
 import { FOCUS_OFF, FOCUS_ON, NOTIFY_MODES, channelFor, focusFrom, notifyModeFrom, notifySequence, shouldNotify, turnNotice, type Focus } from './notify.ts';
@@ -2307,7 +2307,9 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       <Box flexDirection="column" flexGrow={1} overflow="hidden" justifyContent={splash ? 'center' : 'flex-end'} alignItems={splash ? 'center' : undefined} paddingX={1}>
           {splash ? (
             <>
-              {wordmark().map((ln, i) => <Text key={i} color={T.primary}>{ln}</Text>)}
+              {wordmarkRuns().map((runs, i) => (
+                <Text key={i}>{runs.map((r, j) => <Text key={j} color={r.dot ? T.primary : T.heading}>{r.text}</Text>)}</Text>
+              ))}
               <Text> </Text>
               <Text wrap="truncate">
                 <Text color={T.text}>{effModel?.label ?? model ?? 'auto'}</Text>
