@@ -1,0 +1,21 @@
+# Weekly dependency updates, one grouped PR per ecosystem.
+version: 2
+updates:
+  - package-ecosystem: bun
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      dependencies:
+        patterns: ["*"]
+    ignore:
+      # Patched through patches/ink@8.0.0.patch; a new version needs the patch redone by hand.
+      - dependency-name: ink
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
