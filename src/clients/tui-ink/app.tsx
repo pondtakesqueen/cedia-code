@@ -47,7 +47,8 @@ import { TeamStore } from '../../core/project/teams.ts';
 import { voiceInput } from '../../core/project/voice.ts';
 import { acceptTrust, completedNames, isComplete, loadOnboarding, markStep, ONBOARDING_STEPS, reconcileOnboarding, saveOnboarding } from './onboarding.ts';
 import { workingDiff } from '../../core/project/git.ts';
-import { askedReviewModel, FOCUSES, reviewSubject, subjectTitle, ultraReview } from '../../core/project/ultrareview.ts';
+import { FOCUSES, reviewSubject, subjectTitle, ultraReview } from '../../core/project/ultrareview.ts';
+import { sideModel, threadWriter } from '../../core/side-model.ts';
 import { MemoryStore, memoryPath } from '../../core/project/memory.ts';
 import { loadSkills } from '../../core/skills/skills.ts';
 import { listMcp } from '../../core/mcp/manage.ts';
@@ -151,7 +152,7 @@ const INPUT_PLACEHOLDERS = [
 
 // The writer a turn runs on: the model picked, or under a mode (`auto`, `oplan`) or none the code role, which a
 // mode keeps (core/config.ts). Helpers that need one model (commit messages) take this.
-const writerRef = (model: string | undefined): string => (model && !isMode(model) ? model : loadRoles({}).code.ref);
+const writerRef = (model: string | undefined): string => sideModel('write', { picked: model }).ref;
 // Prompt suggestions run on the model picked (a mode's writer), else their own default (prompt-suggestion.ts).
 const suggestModel = (model: string | undefined): string | undefined => (isMode(model) ? writerRef(model) : model);
 
@@ -762,7 +763,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
           let message = own;
           if (!message) {
             try {
-              const writerModel = writerRef(model);
+              const writerModel = sideModel('write', { picked: model, threadWriter: threadWriter(store, thread) }).ref;
               const drafted = await draftCommitMessage({ cwd: args.cwd, model: writerModel, files, signal: new AbortController().signal });
               message = drafted.message;
               setSpent((s) => s + drafted.costUsd);
@@ -803,7 +804,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
           try {
             const got = await reviewSubject(args.cwd, rest[0], stop.signal);
             if ('error' in got) { say(got.error); return; }
-            const reviewModel = askedReviewModel(model && !isMode(model) ? model : undefined);
+            const reviewModel = sideModel('review', { picked: model, ...(thread ? { threadWriter: threadWriter(store, thread) } : {}) });
             say(`ultrareviewing ${subjectTitle(got.subject)} with ${reviewModel.ref}, ${FOCUSES.length} focuses side by side…`);
             setActivity('ultrareviewing');
             const r = await ultraReview({
@@ -835,7 +836,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
           const got = await reviewSubject(args.cwd, rest[0]);
           if ('error' in got) { say(got.error); return; }
           const { subject, patch } = got;
-          const reviewModel = askedReviewModel(model && !isMode(model) ? model : undefined);
+          const reviewModel = sideModel('review', { picked: model, ...(thread ? { threadWriter: threadWriter(store, thread) } : {}) });
           say(`reviewing ${subjectTitle(subject)} with ${reviewModel.ref}…`);
           const id = crypto.randomUUID();
           const log = SessionLog.create({ id, path: sessionPath(args.cwd, id) });

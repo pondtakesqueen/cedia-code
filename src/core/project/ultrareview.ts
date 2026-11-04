@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { loadPolicy, loadPrivacy, loadRoles } from '../config.ts';
+import { loadPolicy, loadPrivacy } from '../config.ts';
 import { runPrompt } from '../loop/run.ts';
-import { resolveModel } from '../providers/catalog.ts';
 import { providerFor } from '../providers/index.ts';
 import { READ_ONLY_SYSTEM } from '../prompts.ts';
 import { SessionLog, sessionPath } from '../session/log.ts';
@@ -43,12 +42,6 @@ export async function reviewSubject(cwd: string, pr?: string, signal?: AbortSign
   if (!w) return { error: 'not a git repository' };
   if (!w.patch && !w.untracked.length) return { error: 'no changes to review' };
   return { subject: { kind: 'changes', untracked: w.untracked }, patch: w.patch };
-}
-
-// The model an asked review runs on: the review role when cedia runs it, else the writer (`code`, or the configured one).
-export function askedReviewModel(code?: string): ModelSpec {
-  const roles = loadRoles(code ? { code } : {});
-  return roles.review?.via === 'cedia' ? roles.review.model : resolveModel(roles.code.ref);
 }
 
 export const subjectTitle = (s: ReviewSubject) => (s.kind === 'pr' ? `pull request #${s.number}` : 'the uncommitted changes');
