@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { profilePermission, profileSystem, profileTools, sessionKind, type ToolSets } from '../src/core/loop/profile.ts';
+import { profilePermission, profileSystem, profileTools, sessionKind, sharedPrefixTools, type ToolSets } from '../src/core/loop/profile.ts';
 import { READ_ONLY_SYSTEM, systemFor } from '../src/core/prompts.ts';
 import { resolveModel } from '../src/core/providers/catalog.ts';
 import type { Policy } from '../src/core/safety/policy.ts';
@@ -52,4 +52,37 @@ test('the system prompt by role', () => {
   expect(profileSystem('review', m, { writing: false, fromPlan: false })).toBe(READ_ONLY_SYSTEM);
   expect(profileSystem('plan', m, { writing: false, fromPlan: true })).toBe(systemFor(m));
   expect(profileSystem(undefined, m, { writing: true, fromPlan: true })).toBe(systemFor({ ...m, thorough: true }));
+});
+
+// A work sub-thread on the writer's model opens with the writer's tool list, byte for byte, so its first request
+// reads the tools and system prompt from the cache the writer just wrote. It still runs only its own tools.
+const spec = (name: string, description = `${name} does a thing`): ToolSpec =>
+  ({ name, description, schema: { type: 'object' }, effect: 'write_workspace', replay: 'unsafe', run: async () => ({ text: `${name} ran`, isError: false }) }) as ToolSpec;
+
+test('a sub-thread shares the writer\'s tool list; tools that are not its own are listed but refused', async () => {
+  const read = spec('read');
+  const edit = spec('edit');
+  const webFetch = spec('web_fetch');
+  const spawn = spec('spawn');
+  const ask = spec('ask');
+  const writer = [read, edit, spawn, ask, webFetch];
+  const shared = sharedPrefixTools(writer, [read, edit, webFetch])!;
+  // The same definitions in the same order: the bytes the provider caches.
+  expect(shared.map(({ name, description, schema }) => ({ name, description, schema }))).toEqual(writer.map(({ name, description, schema }) => ({ name, description, schema })));
+  // Its own tools are the very same specs; the writer's others refuse every call and change nothing.
+  expect(shared[0]).toBe(read);
+  expect(shared[4]).toBe(webFetch);
+  for (const i of [2, 3]) {
+    expect(shared[i]).not.toBe(writer[i]);
+    expect(shared[i]!.effect).toBe('read');
+    const out = await shared[i]!.run({}, {} as never);
+    expect(out.isError).toBe(true);
+    expect(out.text).toContain('not a sub-thread\'s');
+  }
+});
+
+test('a sub-thread that needs a tool the writer does not list, or lists differently, keeps its own list', () => {
+  const read = spec('read');
+  expect(sharedPrefixTools([read, spec('spawn')], [read, spec('recall')])).toBeUndefined();
+  expect(sharedPrefixTools([read, spec('web_fetch', 'the writer\'s version')], [read, spec('web_fetch')])).toBeUndefined();
 });

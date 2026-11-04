@@ -736,10 +736,35 @@ describe('sub-threads (offline, faux)', () => {
     ]);
     const child = sessionsOf(dir).find((l) => l.id === sub.sessions[0]!.sessionId)!;
     expect(head(child.events)).toMatchObject({ thread: sub.id });
-    expect(head(child.events).tools.map((t) => t.name)).toEqual(['read', 'grep', 'edit', 'write', 'bash', 'sleep', 'NotebookEdit', 'ToolSearch', 'Monitor', 'web_fetch']);
+    // It opens with the parent's tools and system prompt byte for byte (a prefix the provider has cached), and a
+    // call to a tool that is the parent's only is refused.
+    expect(head(child.events).tools).toEqual(head(parent.events).tools);
+    expect(head(child.events).system).toBe(head(parent.events).system);
     for (const l of [parent, child]) expect(lintSession(l.events)).toEqual([]);
     expect(threadsCli(dir).out).not.toContain(sub.id);
     expect(threadsCli(dir, '--all').out).toContain(`(sub-thread of ${result.thread}) (archived)`);
+  });
+
+  test("a work sub-thread's call to a tool that is only the parent's is refused, and nothing else runs", () => {
+    const dir = tmp();
+    const script = [
+      tool('s1', 'spawn', { kind: 'work', task: 'Write good to f.txt.' }),
+      tool('n1', 'spawn', { kind: 'work', task: 'Write good to f.txt for me.' }),
+      call('c1', 'echo good > f.txt'),
+      call('c2', 'grep -q good f.txt'),
+      reply('Wrote good to f.txt; grep -q good f.txt passes.'),
+      call('c3', 'grep -q good f.txt'),
+      reply('done, checked'),
+    ];
+    const result = JSON.parse(cedia(dir, script, ['-p', 'make f.txt say good', ...ws]).out);
+    expect(result).toMatchObject({ subtype: 'success', result: 'done, checked', spawned: { explore: 0, work: 1 } });
+    const sub = storeOf(dir).list().find((t) => t.parent === result.thread)!;
+    const child = sessionsOf(dir).find((l) => l.id === sub.sessions[0]!.sessionId)!;
+    const refused = child.events.find((e): e is EventOf<'tool_result'> => e.kind === 'tool_result' && e.callId === 'n1')!;
+    expect(refused).toMatchObject({ status: 'failed', output: { isError: true } });
+    expect(refused.output.text).toContain("spawn is the parent session's tool, not a sub-thread's");
+    expect(storeOf(dir).list().filter((t) => t.parent)).toHaveLength(1);
+    expect(lintSession(child.events)).toEqual([]);
   });
 
   test('a long work sub-thread hands off to a new session of the sub-thread, which can recall and must still verify', () => {
@@ -780,7 +805,9 @@ describe('sub-threads (offline, faux)', () => {
     expect(head(second!.events)).toMatchObject({ thread: sub.id, parentSession: first!.id });
     expect(userText(second!.events)).toContain(`<handoff session="${first!.id}">\nWrote f.txt. Next: run grep -q good f.txt.\n</handoff>`);
     expect(userText(second!.events)).toContain('Write good to f.txt, then run grep -q good f.txt.');
-    expect(head(first!.events).tools.map((t) => t.name)).toEqual(['read', 'grep', 'edit', 'write', 'bash', 'sleep', 'NotebookEdit', 'ToolSearch', 'Monitor', 'web_fetch']);
+    // The first shares the parent's tools; the one it handed off to needs recall, which the parent does not list, so
+    // it opens with its own.
+    expect(head(first!.events).tools).toEqual(head(parent.events).tools);
     expect(head(second!.events).tools.map((t) => t.name)).toEqual(['read', 'grep', 'edit', 'write', 'bash', 'sleep', 'NotebookEdit', 'ToolSearch', 'Monitor', 'recall', 'web_fetch']);
     for (const l of [parent, first!, second!]) expect(lintSession(l.events)).toEqual([]);
 

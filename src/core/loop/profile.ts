@@ -66,3 +66,27 @@ export function profileTools(kind: SessionKind, t: ToolSets): ToolSpec[] {
   const all = [...t.core, ...t.extra];
   return t.resumed ? all.filter((x) => t.resumed!.includes(x.name)) : all;
 }
+
+// A work sub-thread on the writer's model opens with the writer's tool list and system prompt, byte for byte, when
+// it can: the provider caches the request prefix (tools, then system), and the writer wrote that prefix to the
+// cache in the request that called spawn, so the sub-thread's first request reads it instead of writing it again.
+// It still runs only its own tools. Each writer tool it also has is its own spec (the same definition); each one it
+// does not have (spawn, ask, the thread tools, MCP tools that write) keeps the writer's definition and refuses every
+// call, so the list says more than the sub-thread may do and nothing more runs. A sub-thread that needs a tool the
+// writer does not list, or lists with another definition, keeps its own list: undefined.
+export function sharedPrefixTools(writer: ToolSpec[], own: ToolSpec[]): ToolSpec[] | undefined {
+  const def = (t: ToolSpec) => JSON.stringify([t.name, t.description, t.schema]);
+  const byName = new Map(writer.map((t) => [t.name, t]));
+  if (own.some((t) => !byName.has(t.name) || def(byName.get(t.name)!) !== def(t))) return undefined;
+  const mine = new Map(own.map((t) => [t.name, t]));
+  return writer.map((t) => mine.get(t.name) ?? refused(t));
+}
+
+const refused = ({ name, description, schema }: ToolSpec): ToolSpec => ({
+  name,
+  description,
+  schema,
+  effect: 'read',
+  replay: 'safe',
+  run: async () => ({ text: `${name} is the parent session's tool, not a sub-thread's: a call to it is refused. Do this part with your own tools, or say in your report what is left for the parent.`, isError: true }),
+});
