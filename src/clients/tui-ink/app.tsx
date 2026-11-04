@@ -43,6 +43,7 @@ import { workingDiff } from '../../core/project/git.ts';
 import { FOCUSES, reviewSubject, subjectTitle, ultraReview } from '../../core/project/ultrareview.ts';
 import { sideModel, threadWriter } from '../../core/side-model.ts';
 import { runSide } from '../../core/loop/side.ts';
+import { helpGroups, INK_COMMANDS } from './commands.ts';
 import { MemoryStore, memoryPath } from '../../core/project/memory.ts';
 import { loadSkills } from '../../core/skills/skills.ts';
 import { listMcp } from '../../core/mcp/manage.ts';
@@ -77,64 +78,6 @@ type Msg = {
   callId?: string;
   thinking?: { text: string; ms?: number };
 };
-
-// `opens`: the command opens a picker or a view with no argument, so accepting it from autocomplete runs it
-// at once instead of waiting for another Enter.
-const INK_COMMANDS: { name: string; description: string; opens?: true }[] = [
-  { name: 'help', description: 'these commands and keys' },
-  { name: 'clear', description: 'clear the chat view' },
-  { name: 'quit', description: 'leave' },
-  { name: 'cost', description: 'spend, context tokens, rate' },
-  { name: 'context', description: 'what fills the context: prompt, tools, MCP, history' },
-  { name: 'status', description: 'the status line' },
-  { name: 'transcript', description: 'show the full transcript' },
-  { name: 'search', description: 'search the chat transcript' },
-  { name: 'actions', description: 'message actions menu', opens: true },
-  { name: 'new', description: 'start a new thread' },
-  { name: 'diff', description: 'working tree changes' },
-  { name: 'undo', description: 'put back the files the last turn changed' },
-  { name: 'redo', description: 'put them forward again' },
-  { name: 'rewind', description: 'go back to before a run' },
-  { name: 'commit', description: 'commit the files this thread changed' },
-  { name: 'pr', description: 'push and open a pull request' },
-  { name: 'review', description: 'review the uncommitted changes' },
-  { name: 'ultrareview', description: 'review the changes or a pull request once per focus, side by side; Esc stops it' },
-  { name: 'plan', description: 'send this prompt to the planner first' },
-  { name: 'quick', description: 'send this prompt straight to the writer' },
-  { name: 'memory', description: 'project memory' },
-  { name: 'skills', description: 'skills this session can load' },
-  { name: 'mcp', description: 'MCP servers configured' },
-  { name: 'fork', description: 'fork a thread' },
-  { name: 'thread', description: 'go on with a thread' },
-  { name: 'model', description: 'the model the next turn runs on', opens: true },
-  { name: 'goal', description: 'keep each turn going until a judge finds this holds' },
-  { name: 'palette', description: 'command palette', opens: true },
-  { name: 'settings', description: 'show the current settings' },
-  { name: 'config', description: 'show settings.json' },
-  { name: 'rename', description: 'rename this thread' },
-  { name: 'resume', description: 'go on with a thread' },
-  { name: 'branch', description: 'git branches', opens: true },
-  { name: 'copy', description: 'copy the last reply' },
-  { name: 'tasks', description: 'alias for /agents', opens: true },
-  { name: 'agents', description: 'watch this thread\'s sub-threads, even mid-turn (← → between them)', opens: true },
-  { name: 'compact', description: 'show handoff/compaction status' },
-  { name: 'fast', description: 'toggle fast mode' },
-  { name: 'export', description: 'export this thread to a file' },
-  { name: 'btw', description: 'ask a side question' },
-  { name: 'theme', description: 'the current theme', opens: true },
-  { name: 'color', description: 'alias for /theme', opens: true },
-  { name: 'doctor', description: 'versions, settings, MCP, sandbox' },
-  { name: 'permission', description: 'permission mode', opens: true },
-  { name: 'vim', description: 'toggle vim mode' },
-  { name: 'hooks', description: 'hooks configured' },
-  { name: 'effort', description: 'show or set starting effort' },
-  { name: 'output-style', description: 'output style', opens: true },
-  { name: 'suggest', description: 'suggest a next prompt' },
-  { name: 'trust', description: 'accept trust' },
-  { name: 'onboarding', description: 'onboarding status' },
-  { name: 'statusline', description: 'run a status line command' },
-  { name: 'notify', description: 'tell you when a turn ends while you look away (auto | bell | off)' },
-];
 
 const INPUT_PLACEHOLDERS = [
   'Try "explain how auth works here"',
@@ -624,15 +567,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
     const say = (t: string, tone?: 'red') => push({ role: 'system', text: t, ...(tone ? { tone } : {}) });
     switch (name) {
       case 'help': {
-        const groups: [string, string[]][] = [
-          ['thread', ['/new', '/thread', '/resume', '/rename', '/fork', '/rewind', '/undo', '/redo', '/diff']],
-          ['run', ['/plan', '/quick', '/model', '/goal', '/effort', '/permission']],
-          ['project', ['/commit', '/pr', '/review', '/ultrareview', '/memory', '/skills', '/mcp']],
-          ['view', ['/clear', '/transcript', '/search', '/settings', '/doctor', '/theme', '/palette', '/actions', '/copy', '/export', '/compact', '/agents', '/tasks', '/branch', '/status', '/cost', '/context']],
-          ['other', ['/help', '/quit', '/vim', '/hooks', '/btw', '/suggest', '/trust', '/onboarding', '/statusline', '/output-style', '/config', '/notify']],
-        ];
-        const byName = new Map(INK_COMMANDS.map((c) => [c.name, c.description]));
-        say(groups.map(([g, names]) => `${g}: ${names.map((n) => `${n} — ${byName.get(n.slice(1)) ?? ''}`).join(' · ')}`).join('\n'));
+        say(helpGroups().map(([g, cmds]) => `${g}: ${cmds.map((c) => `/${c.name} — ${c.description}`).join(' · ')}`).join('\n'));
         say('keys: Esc stops a turn · !<command> runs it in your shell · Ctrl+C cancels/quits · Ctrl+R history · Ctrl+O rewind · Ctrl+F search · Ctrl+G external editor · Tab completes · Shift+Tab permission · Meta+P model · Meta+O fast · Meta+T thinking · ↑↓ navigate · PgUp/PgDn scroll · type / for commands · @ for files · Alt+Enter or \\+Enter newline · Ctrl+A/E/U/K/W edit the line' + (bindingHints ? ` · custom keys: ${bindingHints}` : ''));
         return;
       }
