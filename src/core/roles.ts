@@ -10,12 +10,16 @@ export type Split = { mode: 'alone' | 'parallel'; writer: string; workers: strin
 export type Part = { files: string[]; brief: string; model?: string };
 export const MAX_PARTS = 4;
 
+const PLAN_PROBE = `Before you plan, try the code as it stands: run the inputs the task and the doc comments imply against it with \`bun -e '<code>'\` (import the module by its path, call it, print the result), a few short calls, each bounded in time and size, to see which rules fail now and how. Put what each probe showed in the plan, with the input and the result. Commands other than reads, the declared checks and bun -e are denied.`;
+
 // The rules and their tests: with them, auto went from 13-15 to 19-5 against Claude Code Opus high, its tests most of
 // all. Naming states and keeping tests fast kept that (18-7) at 16% less time and no timeout
 // (evals/results/2026-10-29-opus-high/). Defined words and a new test file took it to 22-5; the shape of new code is
 // there because hard-csv-stream lost every panel on a per-character scan where Claude Code sliced whole runs.
-export function planPrompt(task: string, split?: Split): string {
-  return `Plan how to do the task below in this working directory. Read what you need and change nothing.
+// `probe`: the planner may run `bun -e` in a sandbox, so it tries the code as it stands before it plans: a tool call
+// where a planner at medium effort would otherwise have to reason out what the code does.
+export function planPrompt(task: string, split?: Split, opts: { probe?: boolean } = {}): string {
+  return `Plan how to do the task below in this working directory. Read what you need and change nothing.${opts.probe ? ` ${PLAN_PROBE}` : ''}
 
 A cheaper model will do the work from your plan, so make it one it can follow: the files to change and what to change in each, the order, the edge cases to handle, and how to check the result (which commands, and what they should show). Start it with the limits the task sets, in the task's words: files or tests not to change, behaviour to keep, things not to add. List each rule the task and the code's doc comments state, one line each, with the test that would show it holds: a test per rule, not only per bug, that does not depend on timing; where the code already has a version to compare against (another function that does the same work another way, the old behaviour to keep), a test that checks the two agree across many inputs and splits. Say how failures should surface so they match the code around them: thrown or rejected, and what the message carries. Name the states the code passes through (after an error, after end or close, when reused) and where two rules meet (a limit or a count against entries another rule removes), and what each should do. Where the task or a doc comment defines a word (kept, used, done), check each place the code counts or reports it against that definition. Keep the tests fast: the whole suite should finish in seconds, so bound the sizes and loops, and never wait on real time. When the task says to leave the existing tests alone, new tests go in a new test file. Give the shape of new code so it reads as well as it works: where input is large or arrives in pieces, scan whole runs with what the language provides (indexOf, slice, a regular expression) rather than one character or item per call; keep its state in as few fields as the rules need, each named for what it means; give each new type or function a doc comment that says what it keeps and what happens after an error. This is for the code the change adds; leave the code around it as it is. Keep it as short as the task allows.${split ? `\n\n${splitNote(split)}` : ''}
 

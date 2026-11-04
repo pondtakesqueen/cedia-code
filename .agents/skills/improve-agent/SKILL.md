@@ -44,7 +44,7 @@ Offline evals cannot stand in for users. Check Keep Rate, satisfaction verdicts,
 
 ## 6. Deploy, then monitor
 
-After deploy, watch the same signals. A spike in tool errors or a drop in Keep Rate means roll back or investigate. cedia's `cedia usage` surfaces cache misses, costliest tool results, and (once classified) error rates.
+After deploy, watch the same signals. A spike in tool errors or a drop in Keep Rate means roll back or investigate. `cedia usage` surfaces cache misses and costliest tool results, `cedia failures` tool errors by category, and `cedia threads keep-rate <id>` retention.
 
 ## Rules
 

@@ -16,7 +16,7 @@ Classify every failed tool call into exactly one category, then baseline and mon
 
 ## Procedure
 
-1. Read the tool results (cedia: `tool_result` events in session JSONL; `cedia usage` shows blocked counts).
+1. Read the tool results (cedia: `tool_result` events in session JSONL; `cedia failures` counts them by tool and category, and `cedia usage` shows tool errors, with `toolErrors` and `toolErrorBaselines` in its JSON).
 2. For each failed result, assign a category from the output text + exit code + status. When ambiguous, pick the one that points to the cheapest fix and note the ambiguity.
 3. Baseline: compute failure rate per (tool, model) pair. Different tools have different natural rates (search timeout is common in huge repos).
 4. Anomaly detection: flag any new harness version / model change that moves a rate beyond its baseline band. This is how regressions surface before users report them.
@@ -25,6 +25,6 @@ Classify every failed tool call into exactly one category, then baseline and mon
 ## cedia specifics
 
 - Tool results live in session logs as `{ kind: 'tool_result', callId, status, output: { text, isError, exitCode } }`.
-- `cedia usage` already reports blocked calls by rule; extend it with error categories per tool.
+- The classifier, baselines and anomaly check live in `src/core/trust/tool-errors.ts`; extend them there.
 - Tool specs support `repair` for malformed inputs — use it for `InvalidArguments` before failing.
 - Safety paths (`src/core/safety/`, sandbox) are high-risk: a human reviews changes there.

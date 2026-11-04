@@ -37,6 +37,7 @@ import { codeReview, type CodeReview } from './core/project/code-review.ts';
 import { changeGuide, DIFF_BASES, guideText, threadDiff, type ChangeGuide, type DiffBase } from './core/project/change-guide.ts';
 import { commitFiles, commitPatch, currentBranch, headCommit, prPlan, pushAndOpenPr, threadChanges, type CommitDraft, type Committed, type PrOpened } from './core/project/commit.ts';
 import { draftCommitMessage } from './core/project/draft.ts';
+import { askedReviewModel, reviewSubject, ultraReview } from './core/project/ultrareview.ts';
 import { deleteThread } from './core/project/delete.ts';
 import { type ForkResult, forkThread } from './core/project/fork.ts';
 import { workspaceSnapshots } from './core/safety/snapshot.ts';
@@ -236,6 +237,9 @@ const USAGE = `usage: cedia [options]                 the TUI, at a terminal: ea
                                             commit those files (all of them without --file), nothing else
        cedia review --thread <id> [--cwd <dir>] [--model <ref>] [--json]
                                             review what the thread changed, read-only; findings by file and line
+       cedia ultrareview [--pr <n>] [--cwd <dir>] [--model <ref>] [--json]
+                                            the uncommitted changes or a pull request, reviewed once per focus
+                                            side by side; read-only; findings by focus, file and line
        cedia explain-change --thread <id> [--base turn|head|upstream] [--cwd <dir>] [--model <ref>] [--json]
                                             a guide to what the thread changed, in the order that explains it,
                                             each step at a file and line; read-only, judges nothing
@@ -281,6 +285,7 @@ export async function main(argv: string[]): Promise<number> {
   if (argv[0] === 'mcp') return mcp(argv.slice(1));
   if (argv[0] === 'commit') return commit(argv.slice(1));
   if (argv[0] === 'review') return reviewCmd(argv.slice(1));
+  if (argv[0] === 'ultrareview') return ultrareviewCmd(argv.slice(1));
   if (argv[0] === 'explain-change') return explainChangeCmd(argv.slice(1));
   if (argv[0] === 'inline-edit') return inlineEditCmd(argv.slice(1));
   if (argv[0] === 'complete') return completeCmd(argv.slice(1));
@@ -1055,6 +1060,37 @@ async function reviewCmd(argv: string[]): Promise<number> {
     for (const f of r.findings) console.log(`FINDING: ${f.text}`);
     console.log(`VERDICT: ${r.verdict}`);
   }
+  return 0;
+}
+
+// `cedia ultrareview`: the asked review once per focus, side by side (core/project/ultrareview.ts); read-only.
+async function ultrareviewCmd(argv: string[]): Promise<number> {
+  let parsed;
+  try {
+    parsed = parseArgs({ args: argv, options: { cwd: { type: 'string' }, pr: { type: 'string' }, model: { type: 'string' }, json: { type: 'boolean' } } });
+  } catch (e) {
+    console.error(`cedia: ${(e as Error).message}`);
+    return 2;
+  }
+  const { values } = parsed;
+  const cwd = resolve(values.cwd ?? process.cwd());
+  const got = await reviewSubject(cwd, values.pr);
+  if ('error' in got) {
+    console.error(`cedia: ${got.error}`);
+    return 1;
+  }
+  const r = await ultraReview({ cwd, ...got, model: askedReviewModel(values.model) });
+  if ('error' in r) {
+    console.error(`cedia: ${r.error}`);
+    return 1;
+  }
+  if (values.json) {
+    console.log(JSON.stringify(r));
+    return 0;
+  }
+  console.log(`ultrareview · ${r.subject} · ${r.model} · ${r.findings.length} finding${r.findings.length === 1 ? '' : 's'} · $${r.costUsd.toFixed(4)}`);
+  for (const f of r.findings) console.log(`- [${f.focus}] ${f.path ? `${f.path}${f.line ? `:${f.line}` : ''}: ` : ''}${f.text}`);
+  for (const f of r.failed) console.log(`- [${f.focus}] did not finish: ${f.reason}`);
   return 0;
 }
 

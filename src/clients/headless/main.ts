@@ -314,6 +314,8 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
   // A Claude Code review probes the change with `bun -e` only where an OS sandbox can hold it, which cedia's own
   // opening shows; auto's review then runs at medium (core/config.ts, modeFlags).
   const reviewProbe = sandbox.on && roles.review?.via === 'claude-code';
+  // The planner in Claude Code probes the same way, to try the code as it stands before it plans.
+  const planProbe = sandbox.on && roles.plan?.via === 'claude-code';
   if (reviewProbe && args.reviewProbe) roles.review = loadRoles({ review: args.reviewProbe }).review;
   const policyFlags = { ...(args.permission ? { mode: args.permission } : {}), allow: args.allow ?? [], deny: args.deny ?? [], unlock: args.unlock ?? [] };
   let policy;
@@ -679,15 +681,17 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
   };
   // A Claude Code step for a role: its tools and effort. The review goes without Claude Code's git status snapshot,
   // which is taken when the process starts and would predate the change once the step starts ahead of its prompt.
+  const probes = (role: 'plan' | 'review') => (role === 'plan' ? planProbe : reviewProbe);
   const claudeCodeStep = (role: 'plan' | 'review', choice: Extract<RoleChoice, { via: 'claude-code' }>) => ({
     model: choice.model,
     // The claude-code path bypasses runPrompt, so the max-effort ceiling is applied here; the cedia path
     // is capped centrally in runPrompt (writer, spawn children, plan/review steps, escalation).
     effort: capEffort(choice.effort, loadMaxEffort()),
     cwd: args.cwd,
-    allowed: ['Read', 'Grep', 'Glob', ...(role === 'review' ? [...GIT_READS, ...(reviewProbe ? PROBES : [])] : []), ...checks.map((c) => `Bash(${c})`)],
+    allowed: ['Read', 'Grep', 'Glob', ...(role === 'review' ? GIT_READS : []), ...(probes(role) ? PROBES : []), ...checks.map((c) => `Bash(${c})`)],
     signal: ac.signal,
-    ...(role === 'review' ? { gitStatus: false, ...(reviewProbe ? { sandbox: true } : {}) } : {}),
+    ...(role === 'review' ? { gitStatus: false } : {}),
+    ...(probes(role) ? { sandbox: true } : {}),
   });
   // Claude Code steps started before their prompt is ready (the plan while the triage reads the message, the review
   // while the writer works), so its start-up is spent then; each is run once or cancelled before it sends anything.
@@ -1070,7 +1074,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
       // out before the writer starts, nor in full goal mode, whose criteria are written from the plan.
       if (planOverlap && !split && !(args.goal && args.goalMode === 'full')) {
         say('cedia: the writer reads while the plan is written\n');
-        const pending = side('plan', roles.plan, planPrompt(task));
+        const pending = side('plan', roles.plan, planPrompt(task, undefined, { probe: planProbe }));
         planning = {
           by,
           text: pending.then((p) => {
@@ -1083,7 +1087,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
           delivered: false,
         };
       }
-      const p = planning ? undefined : await side('plan', roles.plan, planPrompt(task, split));
+      const p = planning ? undefined : await side('plan', roles.plan, planPrompt(task, split, { probe: planProbe }));
       if (planning) {
         // the plan reaches the writer as a reminder
       } else if (p?.ok && p.text.trim()) {
