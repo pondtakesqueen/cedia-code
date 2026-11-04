@@ -12,6 +12,7 @@ import { fauxProvider, type FauxStep } from '../src/core/providers/faux.ts';
 import { lintSession } from '../src/core/session/lint.ts';
 import { projectKey, projectRoot, projectSlug, SessionLog } from '../src/core/session/log.ts';
 import { CORE_TOOLS } from '../src/core/tools/index.ts';
+import { writeTool } from '../src/core/tools/edit.ts';
 import { spawnNudge, spawnNudgeAt, spawnTool } from '../src/core/tools/spawn.ts';
 import { recallTool, threadTools } from '../src/core/tools/threads.ts';
 import type { EventOf, SessionEvent } from '../src/core/types.ts';
@@ -302,7 +303,7 @@ describe('handoff in the loop', () => {
   });
 
   test('the handoff note request wins over the spawn reminder in the same turn', async () => {
-    const { r, log } = await run([write, tool('c1', 'big', {}), reply('the note')], { handoffAt: 2000, spawnNudgeAt: 2000, tools: [...CORE_TOOLS, spawner, bigTool] });
+    const { r, log } = await run([write, tool('c1', 'big', {}), reply('the note')], { handoffAt: 2000, spawnNudgeAt: 2000, tools: [writeTool, spawner, bigTool] });
     expect(r.subtype).toBe('handoff');
     expect(nudges(log)).toHaveLength(0);
   });
