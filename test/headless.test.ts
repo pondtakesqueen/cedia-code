@@ -488,6 +488,9 @@ describe('cedia -p (offline, faux)', () => {
       for (const flag of ['--restricted', '--strict-mcp-config', '--disable-slash-commands']) expect(planArgs).toContain(`${flag}\n`);
       expect(planArgs).toContain('--tools\nRead,Grep,Glob,Bash\n');
       expect(planArgs).toContain('--model\nopus\n--effort\nmedium\n');
+      // With the sandbox off the planner may not probe either: no bun -e, and the prompt does not ask for it.
+      expect(planArgs).not.toContain('bun -e');
+      expect(JSON.parse(readFileSync(join(dir, 'prompt1'), 'utf8')).message.content).not.toContain('Before you plan, try the code');
       expect(readFileSync(join(dir, 'args2'), 'utf8')).toContain('Bash(git diff:*)\nBash(git log:*)\nBash(git show:*)\nBash(git status:*)\nBash(test -s f.txt)');
       // With the sandbox off the review may not probe: no bun -e, no Claude Code sandbox, and the prompt says so.
       expect(readFileSync(join(dir, 'args2'), 'utf8')).not.toContain('bun -e');
@@ -520,6 +523,22 @@ describe('cedia -p (offline, faux)', () => {
       expect(args).toContain('Bash(bun -e:*)');
       expect(JSON.parse(args[args.indexOf('--settings') + 1]!).sandbox).toMatchObject({ enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false });
       expect(JSON.parse(readFileSync(join(dir, 'prompt'), 'utf8')).message.content).toContain('Probe the change before you judge it');
+    });
+
+    test.skipIf(!process.env.CEDIA_REQUIRE_SANDBOX && !Bun.which('bwrap') && process.platform !== 'darwin')('inside the sandbox a Claude Code planner tries the code with bun -e in its own sandbox', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'cedia-plan-probe-'));
+      const bin = join(dir, 'claude');
+      writeFileSync(join(dir, 'plan'), JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'Write good to f.txt.', session_id: 'cc-1', total_cost_usd: 0.5, num_turns: 3, duration_api_ms: 1200 }));
+      writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' "$@" > ${dir}/args\ncat > ${dir}/prompt\ncat ${dir}/plan\n`, { mode: 0o755 });
+      const probing = [...base.filter((a, i) => a !== '--sandbox' && base[i - 1] !== '--sandbox'), '--sandbox', 'on'];
+      const r = cedia(writes, [...probing, '--plan', 'claude-code', '--plan-when', 'always'], undefined, { CEDIA_CLAUDE_BIN: bin });
+      expect(JSON.parse(r.out)).toMatchObject({ subtype: 'success', plan: { via: 'claude-code' } });
+      const args = readFileSync(join(dir, 'args'), 'utf8').split('\n');
+      expect(args).toContain('Bash(bun -e:*)');
+      // The planner reads; git reads stay the review's.
+      expect(args).not.toContain('Bash(git diff:*)');
+      expect(JSON.parse(args[args.indexOf('--settings') + 1]!).sandbox).toMatchObject({ enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false });
+      expect(JSON.parse(readFileSync(join(dir, 'prompt'), 'utf8')).message.content).toContain('Before you plan, try the code as it stands');
     });
 
     test('by default the writer reads while Claude Code plans, and the plan follows into its session', () => {
