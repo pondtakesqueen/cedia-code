@@ -16,6 +16,7 @@ import { REDACTED, redactSecrets } from '../safety/secrets.ts';
 import type { Snapshots } from '../safety/snapshot.ts';
 import type { SessionLog } from '../session/log.ts';
 import { evidence, ledgerEntries, matchCheck, repeatCheck, verified } from '../trust/ledger.ts';
+import { judgeEnd, pass, type EndGuard } from './guards.ts';
 import { findStuck, stuckEnd, stuckReminder } from '../trust/stuck.ts';
 import type { Verdict } from '../trust/classifier.ts';
 import { changesFromCalls, changesFromPatch, findSlop, formatFinding, slopReminder, type SlopFinding } from '../trust/slop.ts';
@@ -789,48 +790,70 @@ export async function runPrompt(opts: RunOptions, prompt: string): Promise<Headl
       deliverPlan();
       if (coming) continue;
     }
-    if (got.stop === 'max_tokens') {
-      log.append({ kind: 'reminder', as: 'user', text: CONTINUE_AFTER_LIMIT });
-      continue;
-    }
-    // A refusal ends the run as a failure, whatever the ledger holds.
-    // A classifier's refusal (one the provider explains) discards any partial text: its category says whether
-    // the prompt or the task drew it.
-    if (got.stop === 'refusal') {
-      const r = got.refusal;
-      const why = r?.category ? ` (${r.category})${r.explanation ? `: ${r.explanation}` : ''}` : '';
-      return fail({ cause: 'refusal', ...(r?.category ? { category: r.category } : {}) }, (!r && text) || `${model.ref} declined${why || ' to go on with this task'}`);
-    }
-    if (!text.trim()) {
-      if (emptyNudged) return fail({ cause: 'empty_reply' }, `${model.ref} ended its turn twice without a reply`);
-      emptyNudged = true;
-      log.append({ kind: 'reminder', as: 'user', text: EMPTY_REPLY });
-      continue;
-    }
-    // Slop guard: one reminder naming what looks like a shortcut; the model fixes it or explains it.
-    if (!slopNudged) {
-      const found = slop();
-      if (found.length) {
-        slopNudged = true;
-        log.append({ kind: 'reminder', as: 'user', text: slopReminder(found) });
-        continue;
-      }
-    }
-    // Done gate: one reminder to run a declared check, then the claim is refused.
-    if (!verified(entries(), checks)) {
-      if (!nudged) {
-        nudged = true;
-        log.append({ kind: 'reminder', as: 'user', text: unverifiedReminder(checks) });
-        escalate();
-        continue;
-      }
-      if (!opts.softChecks) return finish('error_unverified_claim', 'completed');
-    }
-    // The user's stop hooks judge the claim last, like a check the user wrote: a refusal goes back to the model.
-    const refusal = await stopHooks(opts, log, lastText, evidence(entries()).changed);
-    if (refusal) {
-      if (++stopRefused > MAX_STOP_REFUSALS) return finish('error_unverified_claim', 'completed');
-      log.append({ kind: 'reminder', as: 'user', text: stopHookReminder(refusal.hook, refusal.reason) });
+    // A claim of done passes each guard in order (core/loop/guards.ts); the first that does not pass sends its
+    // reminder for another turn, or ends the run.
+    const guards: EndGuard[] = [
+      { name: 'output-limit', judge: () => (got.stop === 'max_tokens' ? { kind: 'remind', text: CONTINUE_AFTER_LIMIT } : pass) },
+      // A refusal ends the run as a failure, whatever the ledger holds.
+      // A classifier's refusal (one the provider explains) discards any partial text: its category says whether
+      // the prompt or the task drew it.
+      {
+        name: 'refusal',
+        judge: () => {
+          if (got.stop !== 'refusal') return pass;
+          const r = got.refusal;
+          const why = r?.category ? ` (${r.category})${r.explanation ? `: ${r.explanation}` : ''}` : '';
+          return { kind: 'stop', end: () => fail({ cause: 'refusal', ...(r?.category ? { category: r.category } : {}) }, (!r && text) || `${model.ref} declined${why || ' to go on with this task'}`) };
+        },
+      },
+      {
+        name: 'empty-reply',
+        judge: () => {
+          if (text.trim()) return pass;
+          if (emptyNudged) return { kind: 'stop', end: () => fail({ cause: 'empty_reply' }, `${model.ref} ended its turn twice without a reply`) };
+          emptyNudged = true;
+          return { kind: 'remind', text: EMPTY_REPLY };
+        },
+      },
+      // Slop guard: one reminder naming what looks like a shortcut; the model fixes it or explains it.
+      {
+        name: 'slop',
+        judge: () => {
+          if (slopNudged) return pass;
+          const found = slop();
+          if (!found.length) return pass;
+          slopNudged = true;
+          return { kind: 'remind', text: slopReminder(found) };
+        },
+      },
+      // Done gate: one reminder to run a declared check, then the claim is refused.
+      {
+        name: 'done-gate',
+        judge: () => {
+          if (verified(entries(), checks)) return pass;
+          if (!nudged) {
+            nudged = true;
+            return { kind: 'remind', text: unverifiedReminder(checks), after: escalate };
+          }
+          return opts.softChecks ? pass : { kind: 'stop', end: () => finish('error_unverified_claim', 'completed') };
+        },
+      },
+      // The user's stop hooks judge the claim last, like a check the user wrote: a refusal goes back to the model.
+      {
+        name: 'stop-hooks',
+        judge: async () => {
+          const refusal = await stopHooks(opts, log, lastText, evidence(entries()).changed);
+          if (!refusal) return pass;
+          if (++stopRefused > MAX_STOP_REFUSALS) return { kind: 'stop', end: () => finish('error_unverified_claim', 'completed') };
+          return { kind: 'remind', text: stopHookReminder(refusal.hook, refusal.reason) };
+        },
+      },
+    ];
+    const ended = await judgeEnd(guards);
+    if (ended?.verdict.kind === 'stop') return ended.verdict.end();
+    if (ended?.verdict.kind === 'remind') {
+      log.append({ kind: 'reminder', as: 'user', text: ended.verdict.text });
+      ended.verdict.after?.();
       continue;
     }
     return finish('success', 'completed');
