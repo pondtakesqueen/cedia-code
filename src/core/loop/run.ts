@@ -16,10 +16,11 @@ import { REDACTED, redactSecrets } from '../safety/secrets.ts';
 import type { Snapshots } from '../safety/snapshot.ts';
 import type { SessionLog } from '../session/log.ts';
 import { evidence, ledgerEntries, matchCheck, repeatCheck, verified } from '../trust/ledger.ts';
-import { judgeEnd, pass, type EndGuard } from './guards.ts';
+import { endGuards, judgeEnd, type TurnEnd } from './guards.ts';
+export { CONTINUE_AFTER_LIMIT, EMPTY_REPLY, MAX_STOP_REFUSALS, stopHookReminder, unverifiedReminder } from './guards.ts';
 import { findStuck, stuckEnd, stuckReminder } from '../trust/stuck.ts';
 import type { Verdict } from '../trust/classifier.ts';
-import { changesFromCalls, changesFromPatch, findSlop, formatFinding, slopReminder, type SlopFinding } from '../trust/slop.ts';
+import { changesFromCalls, changesFromPatch, findSlop, formatFinding, type SlopFinding } from '../trust/slop.ts';
 import { effectOf, resolveCall, toolDefs, type ToolSpec } from '../tools/registry.ts';
 import { isSpawnNudge, spawnNudge } from '../tools/spawn.ts';
 import { shownInstructions } from '../project/instructions.ts';
@@ -203,12 +204,6 @@ export function keepWarm(provider: Provider, req: WireRequest, requestId: EventI
   };
 }
 
-export const CONTINUE_AFTER_LIMIT = 'Your previous reply was cut off by the output limit. Continue exactly where it stopped.';
-
-// A reply with no text and no tool call (thinking only, or nothing at all) ends no task: an earlier turn's text
-// would otherwise stand as the result.
-export const EMPTY_REPLY = 'Your last reply had no text and no tool call. Go on with the task, or reply with what you found or did.';
-
 // A call that would change something, made before the plan it waited for arrived.
 export const PLAN_FIRST = 'not run: the plan arrived before this call ran. It follows; make the call again if the plan still calls for it.';
 
@@ -218,9 +213,6 @@ export function escalationTarget(model: ModelSpec, start: Effort | undefined, to
   if (!to || !start || !model.caps.midConversationEffort || !model.caps.effortLevels.includes(to)) return undefined;
   return EFFORTS.indexOf(to) > EFFORTS.indexOf(start) ? to : undefined;
 }
-
-export const unverifiedReminder = (checks: string[]) =>
-  `cedia has no record of a declared check passing since your last change, so the task is not done yet. A check counts only when the whole bash command is ${checks.map((c) => `\`${c}\``).join(' or ')} (a leading \`cd\` to the working directory is fine; pipes, \`;\` or other commands are not). Run it that way now, fix what fails, then report.`;
 
 // The provider refused a request after taking this session's earlier ones: what changed is the history (a
 // thinking signature it no longer accepts, a tool call it cannot read back, a context past its window), and the
@@ -373,8 +365,7 @@ export async function runPrompt(opts: RunOptions, prompt: string): Promise<Headl
   // Inherited writes sit at 0, the user prompt's slot, so any check in this run comes after them.
   const inherited = [...(opts.continues?.changed ?? []), ...(opts.inherited ?? [])].map((path) => ({ kind: 'write' as const, at: 0, tool: 'parent', path }));
   const entries = () => [...inherited, ...ledgerEntries(log.events.slice(runStart), checks, opts.cwd)];
-  let nudged = false;
-  let emptyNudged = false;
+  const end = endGuards();
   // The stuck guard judges the calls since the run began, or since its reminder: one reminder, then the run ends.
   let stuckFrom = -1;
   let stuckNudged = false;
@@ -435,9 +426,6 @@ export async function runPrompt(opts: RunOptions, prompt: string): Promise<Headl
   // The slop guard reads this run's changes: the patch between its first and latest snapshot, or the edit and
   // write calls when snapshots are off.
   const slopOn = !opts.permission?.unlock?.includes('slop-check');
-  let slopNudged = false;
-  // Claims the user's stop hooks refused; past MAX_STOP_REFUSALS the run ends unverified.
-  let stopRefused = 0;
   const slop = (): SlopFinding[] => {
     if (!slopOn) return [];
     const run = log.events.slice(runStart);
@@ -650,7 +638,7 @@ export async function runPrompt(opts: RunOptions, prompt: string): Promise<Headl
     // A call that repeats an earlier call's id is not run: the wire pairs results by id, so only one can answer.
     const calls = all.filter((c, i) => all.findIndex((d) => callIdOf(d) === callIdOf(c)) === i);
     const shared = new Set(all.filter((c) => !calls.includes(c)).map(callIdOf));
-    if (calls.length || text.trim()) emptyNudged = false;
+    if (calls.length || text.trim()) end.activity();
     const overBudget = opts.maxBudgetUsd !== undefined && (opts.meter?.usd ?? cost) >= opts.maxBudgetUsd;
 
     if (handoff === 1 || handoff === 2) {
@@ -781,68 +769,30 @@ export async function runPrompt(opts: RunOptions, prompt: string): Promise<Headl
     }
     // A claim of done passes each guard in order (core/loop/guards.ts); the first that does not pass sends its
     // reminder for another turn, or ends the run.
-    const guards: EndGuard[] = [
-      { name: 'output-limit', judge: () => (got.stop === 'max_tokens' ? { kind: 'remind', text: CONTINUE_AFTER_LIMIT } : pass) },
-      // A refusal ends the run as a failure, whatever the ledger holds.
+    const turn: TurnEnd = {
+      stop: got.stop,
+      ...(got.refusal ? { refusal: got.refusal } : {}),
+      text,
+      slop,
+      verified: () => verified(entries(), checks),
+      checks,
+      softChecks: !!opts.softChecks,
+      stopHook: () => stopHooks(opts, log, lastText, evidence(entries()).changed),
+    };
+    const ended = await judgeEnd(end.guards(turn));
+    if (ended?.verdict.kind === 'stop') {
+      const stop = ended.verdict.stop;
+      if (stop.as === 'unverified') return finish('error_unverified_claim', 'completed');
+      if (stop.as === 'empty-reply') return fail({ cause: 'empty_reply' }, `${model.ref} ended its turn twice without a reply`);
       // A classifier's refusal (one the provider explains) discards any partial text: its category says whether
       // the prompt or the task drew it.
-      {
-        name: 'refusal',
-        judge: () => {
-          if (got.stop !== 'refusal') return pass;
-          const r = got.refusal;
-          const why = r?.category ? ` (${r.category})${r.explanation ? `: ${r.explanation}` : ''}` : '';
-          return { kind: 'stop', end: () => fail({ cause: 'refusal', ...(r?.category ? { category: r.category } : {}) }, (!r && text) || `${model.ref} declined${why || ' to go on with this task'}`) };
-        },
-      },
-      {
-        name: 'empty-reply',
-        judge: () => {
-          if (text.trim()) return pass;
-          if (emptyNudged) return { kind: 'stop', end: () => fail({ cause: 'empty_reply' }, `${model.ref} ended its turn twice without a reply`) };
-          emptyNudged = true;
-          return { kind: 'remind', text: EMPTY_REPLY };
-        },
-      },
-      // Slop guard: one reminder naming what looks like a shortcut; the model fixes it or explains it.
-      {
-        name: 'slop',
-        judge: () => {
-          if (slopNudged) return pass;
-          const found = slop();
-          if (!found.length) return pass;
-          slopNudged = true;
-          return { kind: 'remind', text: slopReminder(found) };
-        },
-      },
-      // Done gate: one reminder to run a declared check, then the claim is refused.
-      {
-        name: 'done-gate',
-        judge: () => {
-          if (verified(entries(), checks)) return pass;
-          if (!nudged) {
-            nudged = true;
-            return { kind: 'remind', text: unverifiedReminder(checks), after: escalate };
-          }
-          return opts.softChecks ? pass : { kind: 'stop', end: () => finish('error_unverified_claim', 'completed') };
-        },
-      },
-      // The user's stop hooks judge the claim last, like a check the user wrote: a refusal goes back to the model.
-      {
-        name: 'stop-hooks',
-        judge: async () => {
-          const refusal = await stopHooks(opts, log, lastText, evidence(entries()).changed);
-          if (!refusal) return pass;
-          if (++stopRefused > MAX_STOP_REFUSALS) return { kind: 'stop', end: () => finish('error_unverified_claim', 'completed') };
-          return { kind: 'remind', text: stopHookReminder(refusal.hook, refusal.reason) };
-        },
-      },
-    ];
-    const ended = await judgeEnd(guards);
-    if (ended?.verdict.kind === 'stop') return ended.verdict.end();
+      const r = stop.refusal;
+      const why = r?.category ? ` (${r.category})${r.explanation ? `: ${r.explanation}` : ''}` : '';
+      return fail({ cause: 'refusal', ...(r?.category ? { category: r.category } : {}) }, (!r && text) || `${model.ref} declined${why || ' to go on with this task'}`);
+    }
     if (ended?.verdict.kind === 'remind') {
       log.append({ kind: 'reminder', as: 'user', text: ended.verdict.text });
-      ended.verdict.after?.();
+      if (ended.verdict.escalate) escalate();
       continue;
     }
     return finish('success', 'completed');
@@ -1060,11 +1010,6 @@ export function nearCheck(command: string, checks: string[], cwd?: string): stri
 }
 export const nearCheckNote = (check: string) =>
   `[cedia: this command holds the declared check \`${check}\` but is not just it, so it does not count as the check: the done gate needs that command's own exit code. When you verify, run \`${check}\` exactly, on its own.]`;
-
-export const MAX_STOP_REFUSALS = 2;
-
-export const stopHookReminder = (hook: string, reason: string) =>
-  `cedia: your claim that the task is done was refused by the user's stop hook ${hook}: ${reason}\nFix what it names, run the checks again, then reply.`;
 
 async function stopHooks(opts: RunOptions, log: SessionLog, result: string, changed: string[]): Promise<{ hook: string; reason: string } | undefined> {
   for (const [i, h] of (opts.hooks?.stop ?? []).entries()) {
