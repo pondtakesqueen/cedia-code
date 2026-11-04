@@ -45,6 +45,9 @@ export type Settings = {
   // Whether writer sessions of a thread get the todo tool, a list of steps kept as the thread's progress (default
   // false). The desktop turns it on. User settings only.
   todo?: boolean;
+  // Whether writer sessions get Job, to run a command in the background that outlives the session (default
+  // false; core/tools/jobs.ts). User settings only.
+  jobs?: boolean;
   // Creator mode: whether the writer gets the plugin tool, to install a plugin it wrote in the working directory
   // (core/tools/plugin.ts; default false). User settings only: a repo must not let a session write ~/.cedia.
   creator?: boolean;
@@ -105,6 +108,7 @@ const SETTINGS_KEYS: Record<keyof Settings, readonly string[] | 'any'> = {
   lsp: 'any',
   ask: 'any',
   todo: 'any',
+  jobs: 'any',
   creator: 'any',
   profiles: 'any',
   handoffAt: 'any',
@@ -304,6 +308,12 @@ export function loadAsk(flag?: string): AskMode {
 export function loadCreator(flag?: string): boolean {
   if (flag !== undefined && flag !== 'on' && flag !== 'off') throw new Error(`--creator must be on or off: ${flag}`);
   return flag ? flag === 'on' : (readSettings(join(cediaHome(), 'settings.json')).creator ?? false);
+}
+
+// jobs: flag > user settings > off.
+export function loadJobs(flag?: string): boolean {
+  if (flag !== undefined && flag !== 'on' && flag !== 'off') throw new Error(`--jobs must be on or off: ${flag}`);
+  return flag ? flag === 'on' : (readSettings(join(cediaHome(), 'settings.json')).jobs ?? false);
 }
 
 // todo: flag > user settings > off.

@@ -126,6 +126,8 @@ const USAGE = `usage: cedia [options]                 the TUI, at a terminal: ea
                                the choice in the recap; a -p run counts as away (default: settings ask, off)
       --todo <on|off>          give the writer a todo list, kept in the thread as its progress (default: settings
                                todo, off)
+      --jobs <on|off>          give the writer Job, to run a long command in the background that keeps going after
+                               the run ends; its output and exit code stay on disk (default: settings jobs, off)
       --creator <on|off>       creator mode: give the writer the plugin tool, to install a plugin it wrote in the
                                working directory and use its skills in the same run (default: settings creator, off)
       --browser <endpoint>     give the writer the browser tool on a Chromium you started, by its DevTools endpoint
@@ -328,6 +330,7 @@ export async function main(argv: string[]): Promise<number> {
       triage: { type: 'string' },
       ask: { type: 'string' },
       todo: { type: 'string' },
+      jobs: { type: 'string' },
       creator: { type: 'string' },
       'consolidate-memory': { type: 'string' },
       'auto-dream': { type: 'string' },
@@ -401,6 +404,7 @@ export async function main(argv: string[]): Promise<number> {
     ...(values.triage ? { triage: values.triage } : {}),
     ...(values.ask ? { ask: values.ask } : {}),
     ...(values.todo ? { todo: values.todo } : {}),
+    ...(values.jobs ? { jobs: values.jobs } : {}),
     ...(values.creator ? { creator: values.creator } : {}),
     ...(values.browser ? { browser: values.browser } : {}),
     ...(values['browser-sites'] !== undefined ? { browserSites: values['browser-sites'] } : {}),
