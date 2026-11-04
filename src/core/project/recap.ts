@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { readEventsLenient } from '../session/usage.ts';
 import { sessionPath } from '../session/log.ts';
+import { ASK_AWAY, ASK_TOOL } from '../tools/ask.ts';
 import type { HeadlessResult, Question, ResultSubtype } from '../types.ts';
 import type { Thread, ThreadState } from './threads.ts';
 
@@ -29,18 +30,27 @@ export type AwayRecap = {
   // Messages other threads left since.
   messages: { from: string; at: string; text: string }[];
   question?: Question;
+  // The questions ask_user did not send because the owner was away (`--ask auto`): the writer decided them.
+  decided?: string[];
 };
 
 // Each run's result, from the writer sessions' logs: the last one written between its start and the next run's.
-function runResults(t: Thread, cwd: string, home?: string): { at: string; result: HeadlessResult }[] {
-  const out: { at: string; result: HeadlessResult }[] = [];
+// Each ask_user question the writer decided itself, with when: the call's result says the owner was away.
+function runResults(t: Thread, cwd: string, home?: string): { results: { at: string; result: HeadlessResult }[]; decided: { at: string; question: string }[] } {
+  const results: { at: string; result: HeadlessResult }[] = [];
+  const decided: { at: string; question: string }[] = [];
   for (const s of t.sessions) {
     if (s.role !== 'code' || s.rewound) continue;
     const path = s.path ?? sessionPath(cwd, s.sessionId, home);
     if (!existsSync(path)) continue;
-    for (const e of readEventsLenient(readFileSync(path, 'utf8'))) if (e.kind === 'result') out.push({ at: e.at, result: e.result });
+    const asks = new Map<string, string>();
+    for (const e of readEventsLenient(readFileSync(path, 'utf8'))) {
+      if (e.kind === 'result') results.push({ at: e.at, result: e.result });
+      else if (e.kind === 'tool_intent' && e.tool === ASK_TOOL) asks.set(e.callId, String(e.input.question ?? '').trim());
+      else if (e.kind === 'tool_result' && asks.has(e.callId) && e.output.text.startsWith(ASK_AWAY)) decided.push({ at: e.at, question: asks.get(e.callId)! });
+    }
   }
-  return out.sort((a, b) => a.at.localeCompare(b.at));
+  return { results: results.sort((a, b) => a.at.localeCompare(b.at)), decided: decided.sort((a, b) => a.at.localeCompare(b.at)) };
 }
 
 const firstLine = (s: string, n = 160) => {
@@ -50,7 +60,8 @@ const firstLine = (s: string, n = 160) => {
 
 export function awayRecap(t: Thread, since: Date, opts: { cwd: string; home?: string } = { cwd: process.cwd() }): AwayRecap {
   const from = since.toISOString();
-  const results = runResults(t, opts.cwd, opts.home);
+  const { results, decided: allDecided } = runResults(t, opts.cwd, opts.home);
+  const decided = allDecided.filter((d) => d.at >= from).map((d) => firstLine(d.question));
   const runs: RecapRun[] = [];
   const changed = new Set<string>();
   const checks = new Map<string, boolean>();
@@ -93,6 +104,7 @@ export function awayRecap(t: Thread, since: Date, opts: { cwd: string; home?: st
     ...(todo ? { todo } : {}),
     messages: t.messages.filter((m) => m.from !== 'user' && m.at >= from).map((m) => ({ from: m.from, at: m.at, text: firstLine(m.text, 120) })),
     ...(t.question ? { question: { question: t.question.question, ...(t.question.options ? { options: t.question.options } : {}) } } : {}),
+    ...(decided.length ? { decided } : {}),
   };
 }
 
@@ -136,6 +148,7 @@ export function formatRecap(r: AwayRecap, heading = 'recap'): string {
   if (r.unverified.length) lines.push(`  unverified: ${r.unverified.join('; ')}`);
   if (r.subthreads) lines.push(`  ${r.subthreads} sub-thread${r.subthreads === 1 ? '' : 's'}`);
   if (r.todo) lines.push(`  todo ${r.todo.done}/${r.todo.total}${r.todo.doing ? `, now: ${r.todo.doing}` : ''}`);
+  for (const d of r.decided ?? []) lines.push(`  decided without you: ${d}`);
   for (const m of r.messages) lines.push(`  message from ${m.from}: ${m.text}`);
   if (r.question) lines.push(`  asks: ${r.question.question}`, ...(r.question.options ?? []).map((o, i) => `    ${i + 1}. ${o}`));
   return lines.join('\n');

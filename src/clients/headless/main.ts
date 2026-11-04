@@ -28,7 +28,7 @@ import { runTurn } from '../../core/project/undo.ts';
 import { inboxReminder, MAX_RESULT, threadsDir, ThreadStore, type SessionWhy, type Thread } from '../../core/project/threads.ts';
 import { spawnNudgeAt, spawnPool, spawnReport, spawnTool, subtaskPrompt, type SpawnKind, type SpawnOutcome, type Spawner } from '../../core/tools/spawn.ts';
 import { recallTool, threadTools, type EarlierSession } from '../../core/tools/threads.ts';
-import { answerPrompt, askTool } from '../../core/tools/ask.ts';
+import { answerPrompt, askTool, askToolFor } from '../../core/tools/ask.ts';
 import { todoTool } from '../../core/tools/todo.ts';
 import { pluginTool } from '../../core/tools/plugin.ts';
 import { teamTool } from '../../core/tools/team.ts';
@@ -98,8 +98,11 @@ export type HeadlessArgs = {
   spawn?: string;
   // Language servers for diagnostics after edits: on (the default) or off.
   lsp?: string;
-  // "on" gives the writer ask_user, to end the run with a question for the owner (core/tools/ask.ts).
+  // "on" gives the writer ask_user, to end the run with a question for the owner (core/tools/ask.ts); "auto" asks
+  // only while `present` says the owner is there, and otherwise has the writer decide and go on.
   ask?: string;
+  // Whether the owner is at the client now, read when ask_user runs under `ask: auto`. Absent: away.
+  present?: () => boolean;
   // "on" gives the writer the todo tool, whose list a client draws as the thread's progress (core/tools/todo.ts).
   todo?: string;
   // "on" gives the writer the plugin tool: creator mode, a plugin it wrote installed in the same run
@@ -300,7 +303,9 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
   const spawnMode = loadSpawn(args.spawn);
   const spawnOn = spawnMode !== 'off';
   const lspSetting = loadLsp(args.lsp);
-  const askOn = loadAsk(args.ask);
+  const askMode = loadAsk(args.ask);
+  // auto with no client to say otherwise (a plain `cedia -p`): nobody is at the keyboard.
+  const asker = askMode === 'auto' ? askToolFor(args.present ?? (() => false)) : askTool;
   const todoOn = loadTodo(args.todo);
   const creatorOn = loadCreator(args.creator);
   const promptSuggestionsOn = loadPromptSuggestions(args.promptSuggestions);
@@ -611,7 +616,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
     const mcpRead = [...mcpTools.filter((t) => t.effect === 'read'), ...callOf(deferred.filter((t) => t.effect === 'read'))];
     // A resumed session that had the browser keeps the tool when this run has none, and a call says so.
     const browserTools = browser ? [browser.tool] : header?.tools.some((d) => d.name === BROWSER_TOOL) ? [browserStub] : [];
-    const extra = [...(spawnOn ? [spawnHere] : []), ...((askOn || policy.plan) && store && threadId ? [askTool] : []), ...(todoOn && store && threadId ? [todoTool(store, threadId, runId)] : []), ...(store && threadId ? [teamTool(new TeamStore(), threadId)] : []), ...(profile?.openThread && store && threadId ? [openThreadTool(store, threadId, opened, projectRoot(args.cwd), workspaceRoots())] : []), ...(profile?.schedule && store && threadId ? [scheduleTool(new ScheduleStore(schedulesPath(cediaHome(), projectKey(args.cwd))), threadId)] : []), ...(earlier.some((s) => s.id !== log.id) ? [recall] : []), ...(store && threadId && others ? threadTools(store, threadId) : []), ...(remember ? [remember] : []), ...(withSkill ? [skill] : []), ...(pluginT ? [pluginT] : []), webFetch, ...browserTools, ...mcpTools];
+    const extra = [...(spawnOn ? [spawnHere] : []), ...((askMode !== 'off' || policy.plan) && store && threadId ? [policy.plan ? askTool : asker] : []), ...(todoOn && store && threadId ? [todoTool(store, threadId, runId)] : []), ...(store && threadId ? [teamTool(new TeamStore(), threadId)] : []), ...(profile?.openThread && store && threadId ? [openThreadTool(store, threadId, opened, projectRoot(args.cwd), workspaceRoots())] : []), ...(profile?.schedule && store && threadId ? [scheduleTool(new ScheduleStore(schedulesPath(cediaHome(), projectKey(args.cwd))), threadId)] : []), ...(earlier.some((s) => s.id !== log.id) ? [recall] : []), ...(store && threadId && others ? threadTools(store, threadId) : []), ...(remember ? [remember] : []), ...(withSkill ? [skill] : []), ...(pluginT ? [pluginT] : []), webFetch, ...browserTools, ...mcpTools];
     // The advisor and the classifier answer in one reply, with no tools, in a session of their own.
     const helper = kind === 'helper';
     let tools = profileTools(kind, {

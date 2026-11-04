@@ -39,8 +39,9 @@ export type Settings = {
   // a repo must not pick a command cedia runs.
   lsp?: boolean | Record<string, { command: string[]; extensions: string[] }>;
   // Whether writer sessions of a thread get ask_user, to end a run with a question for the owner (default false: a
-  // headless run has nobody to answer). The desktop turns it on. User settings only.
-  ask?: boolean;
+  // headless run has nobody to answer). The desktop turns it on. "auto": ask only while the owner is present, as the
+  // client reports it, and otherwise decide and go on (core/tools/ask.ts). User settings only.
+  ask?: boolean | 'auto';
   // Whether writer sessions of a thread get the todo tool, a list of steps kept as the thread's progress (default
   // false). The desktop turns it on. User settings only.
   todo?: boolean;
@@ -290,10 +291,13 @@ export function loadLsp(flag?: string): LspSetting | undefined {
   return s;
 }
 
-// ask_user: flag > user settings > off.
-export function loadAsk(flag?: string): boolean {
-  if (flag !== undefined && flag !== 'on' && flag !== 'off') throw new Error(`--ask must be on or off: ${flag}`);
-  return flag ? flag === 'on' : (readSettings(join(cediaHome(), 'settings.json')).ask ?? false);
+// ask_user: flag > user settings > off. auto asks only while the client says the owner is present.
+export type AskMode = 'on' | 'off' | 'auto';
+export function loadAsk(flag?: string): AskMode {
+  if (flag !== undefined && flag !== 'on' && flag !== 'off' && flag !== 'auto') throw new Error(`--ask must be on, off or auto: ${flag}`);
+  if (flag) return flag;
+  const s = readSettings(join(cediaHome(), 'settings.json')).ask;
+  return s === 'auto' ? 'auto' : s ? 'on' : 'off';
 }
 
 // creator: flag > user settings > off.

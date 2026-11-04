@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { contextBar, contextBreakdown, formatContext, writerSessionOf } from '../src/core/context/breakdown.ts';
 import { awayRecap, formatRecap, lastRunStart, recapSince, spanText } from '../src/core/project/recap.ts';
 import { threadsDir, ThreadStore } from '../src/core/project/threads.ts';
-import { AWAY_MS, awayText, presentIn, recapWhen } from '../src/clients/tui-ink/away.ts';
+import { AWAY_MS, awayText, ownerPresent, presentIn, recapWhen } from '../src/clients/tui-ink/away.ts';
 import type { HeadlessResult, SessionEvent, Usage } from '../src/core/types.ts';
 
 const BIN = join(import.meta.dir, '..', 'bin', 'cedia');
@@ -168,6 +168,9 @@ describe('away recap', () => {
     expect(recapWhen(0, AWAY_MS, 'unknown')).toBe('now');
     expect(recapWhen(0, AWAY_MS, 'focused')).toBe('now');
     expect(recapWhen(0, AWAY_MS, 'blurred')).toBe('on-return');
+    // ask_user under `ask: auto` asks on the same line: here until AWAY_MS have passed.
+    expect(ownerPresent(0, AWAY_MS - 1)).toBe(true);
+    expect(ownerPresent(0, AWAY_MS)).toBe(false);
     const { home, cwd, store, id } = project();
     expect(awayText(store, { thread: id, since: Date.parse(at(120)) }, cwd, home)).toStartWith('while you were away (18m): 1 run');
     // Nothing ran in the span: no recap.

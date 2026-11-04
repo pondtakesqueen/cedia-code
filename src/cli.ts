@@ -120,9 +120,10 @@ const USAGE = `usage: cedia [options]                 the TUI, at a terminal: ea
                                Default 5m for -p, 1h in the TUI (writes cost 2x input instead of 1.25x)
       --lsp <on|off>           after each edit, add the file's errors from a language server when one is installed
                                (typescript-language-server, pyright-langserver, gopls; more in settings "lsp"). Default on
-      --ask <on|off>           give the writer ask_user, to end the run with one question for you when only you can
-                               decide; the thread waits as 'asking' and your answer is its next prompt
-                               (default: settings ask, off)
+      --ask <on|off|auto>      give the writer ask_user, to end the run with one question for you when only you can
+                               decide; the thread waits as 'asking' and your answer is its next prompt. auto asks
+                               only while you are at the TUI, and otherwise has the writer decide, go on and list
+                               the choice in the recap; a -p run counts as away (default: settings ask, off)
       --todo <on|off>          give the writer a todo list, kept in the thread as its progress (default: settings
                                todo, off)
       --creator <on|off>       creator mode: give the writer the plugin tool, to install a plugin it wrote in the

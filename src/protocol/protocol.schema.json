@@ -321,6 +321,12 @@
         },
         "question": {
           "$ref": "#/definitions/Question"
+        },
+        "decided": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "required": [
