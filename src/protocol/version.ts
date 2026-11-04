@@ -23,6 +23,7 @@ export type Capability =
   | 'worktree.newest-wins' // a worktree's merge back takes lockfiles and generated files whole from the side written last
   | 'spawn.best-of-n' // spawn{approaches}: several work sub-threads try a task, and the one that passes most checks is kept
   | 'todo' // --todo: the todo tool and the 'todo' thread event, a thread's progress
+  | 'creator' // --creator: the plugin tool, a plugin the writer wrote installed and usable in the same run
   | 'profiles' // --profile, profiles in settings, the profile in a thread's open event
   | 'open_thread' // the coordinator profile's open_thread: threads opened 'queued' with `by`, for a client to run
   | 'schedules' // cedia schedules, the schedule tool for profiles with schedule, Schedule and ScheduleEvent
@@ -59,7 +60,7 @@ export type VersionInfo = { name: 'cedia'; version: string; protocol: string; ca
 export const PROTOCOL = hash(schemaText as unknown as string);
 
 export function versionInfo(): VersionInfo {
-  const capabilities: Capability[] = ['stream-json', 'threads', 'threads.send', 'threads.unsend', 'threads.rate', 'evidence.check-thread', 'spawn', 'handoff', 'plan', 'review', 'ask', 'todo', 'profiles', 'open_thread', 'schedules', 'worktree.newest-wins', 'spawn.best-of-n', 'models', 'permissions', 'commands', 'threads.fork', 'usage', 'threads.restore-json', 'images', 'browser', 'browser.sites', 'cache-ttl', 'threads.rename', 'threads.delete', 'mcp.manage', 'commit', 'pr', 'threads.side', 'daemon', 'daemon.desktop-lock', 'threads.send-images', 'inline-edit', 'video', 'media-route', 'code-review', 'complete', 'context', 'threads.recap'];
+  const capabilities: Capability[] = ['stream-json', 'threads', 'threads.send', 'threads.unsend', 'threads.rate', 'evidence.check-thread', 'spawn', 'handoff', 'plan', 'review', 'ask', 'todo', 'creator', 'profiles', 'open_thread', 'schedules', 'worktree.newest-wins', 'spawn.best-of-n', 'models', 'permissions', 'commands', 'threads.fork', 'usage', 'threads.restore-json', 'images', 'browser', 'browser.sites', 'cache-ttl', 'threads.rename', 'threads.delete', 'mcp.manage', 'commit', 'pr', 'threads.side', 'daemon', 'daemon.desktop-lock', 'threads.send-images', 'inline-edit', 'video', 'media-route', 'code-review', 'complete', 'context', 'threads.recap'];
   if (processKeychain()) capabilities.push('keychain');
   return { name: 'cedia', version: VERSION, protocol: PROTOCOL, capabilities };
 }

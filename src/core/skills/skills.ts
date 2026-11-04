@@ -132,10 +132,10 @@ function readSkill(dir: string, source: Skill['source'], plugin?: { name: string
   }
 }
 
-// An enabled plugin's skills, then its commands, each only from inside the plugin's folder.
-function pluginSkills(home: string): Skill[] {
+// An enabled plugin's skills, then its commands, each only from inside the plugin's folder. `only` keeps one plugin's.
+function pluginSkills(home: string, only?: string): Skill[] {
   const found: Skill[] = [];
-  for (const p of enabledPlugins(home)) {
+  for (const p of enabledPlugins(home).filter((x) => only === undefined || x.name === only)) {
     const root = real(p.installPath);
     if (!root) continue;
     for (const d of subdirs(join(root, 'skills'))) {
@@ -157,6 +157,20 @@ function pluginSkills(home: string): Skill[] {
     }
   }
   return found;
+}
+
+// Creator mode (core/tools/plugin.ts): after the session installs or removes a plugin, its skills in the session's
+// list are replaced by what is installed now, in place, so the skill tool built on that list loads them in the same
+// session. The first turn's `<skills>` frame stays as it was (cache rule: message 0 never changes); the tool's result
+// is where the model learns the new names. Returns the plugin's skills as they are now.
+export function refreshPluginSkills(skills: Skill[], home: string, plugin: string): Skill[] {
+  for (let i = skills.length - 1; i >= 0; i--) if (skills[i]!.plugin === plugin) skills.splice(i, 1);
+  const taken = new Set(skills.map((s) => s.name));
+  const now = pluginSkills(home, plugin).filter((s) => !taken.has(s.name));
+  // Before cedia's own skills, as loadSkills orders them.
+  const at = skills.findIndex((s) => s.source === 'builtin');
+  skills.splice(at < 0 ? skills.length : at, 0, ...now);
+  return now;
 }
 
 const subdirs = (dir: string): string[] => {

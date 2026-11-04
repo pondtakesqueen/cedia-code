@@ -390,6 +390,7 @@
         "worktree.newest-wins",
         "spawn.best-of-n",
         "todo",
+        "creator",
         "profiles",
         "open_thread",
         "schedules",
