@@ -83,7 +83,9 @@ type Msg = {
   thinking?: { text: string; ms?: number };
 };
 
-const INK_COMMANDS: { name: string; description: string }[] = [
+// `opens`: the command opens a picker or a view with no argument, so accepting it from autocomplete runs it
+// at once instead of waiting for another Enter.
+const INK_COMMANDS: { name: string; description: string; opens?: true }[] = [
   { name: 'help', description: 'these commands and keys' },
   { name: 'clear', description: 'clear the chat view' },
   { name: 'quit', description: 'leave' },
@@ -92,7 +94,7 @@ const INK_COMMANDS: { name: string; description: string }[] = [
   { name: 'status', description: 'the status line' },
   { name: 'transcript', description: 'show the full transcript' },
   { name: 'search', description: 'search the chat transcript' },
-  { name: 'actions', description: 'message actions menu' },
+  { name: 'actions', description: 'message actions menu', opens: true },
   { name: 'new', description: 'start a new thread' },
   { name: 'diff', description: 'working tree changes' },
   { name: 'undo', description: 'put back the files the last turn changed' },
@@ -109,29 +111,29 @@ const INK_COMMANDS: { name: string; description: string }[] = [
   { name: 'mcp', description: 'MCP servers configured' },
   { name: 'fork', description: 'fork a thread' },
   { name: 'thread', description: 'go on with a thread' },
-  { name: 'model', description: 'the model the next turn runs on' },
+  { name: 'model', description: 'the model the next turn runs on', opens: true },
   { name: 'goal', description: 'keep each turn going until a judge finds this holds' },
-  { name: 'palette', description: 'command palette' },
+  { name: 'palette', description: 'command palette', opens: true },
   { name: 'settings', description: 'show the current settings' },
   { name: 'config', description: 'show settings.json' },
   { name: 'rename', description: 'rename this thread' },
   { name: 'resume', description: 'go on with a thread' },
-  { name: 'branch', description: 'git branches' },
+  { name: 'branch', description: 'git branches', opens: true },
   { name: 'copy', description: 'copy the last reply' },
-  { name: 'tasks', description: 'alias for /agents' },
-  { name: 'agents', description: 'watch this thread\'s sub-threads, even mid-turn (← → between them)' },
+  { name: 'tasks', description: 'alias for /agents', opens: true },
+  { name: 'agents', description: 'watch this thread\'s sub-threads, even mid-turn (← → between them)', opens: true },
   { name: 'compact', description: 'show handoff/compaction status' },
   { name: 'fast', description: 'toggle fast mode' },
   { name: 'export', description: 'export this thread to a file' },
   { name: 'btw', description: 'ask a side question' },
-  { name: 'theme', description: 'the current theme' },
-  { name: 'color', description: 'alias for /theme' },
+  { name: 'theme', description: 'the current theme', opens: true },
+  { name: 'color', description: 'alias for /theme', opens: true },
   { name: 'doctor', description: 'versions, settings, MCP, sandbox' },
-  { name: 'permission', description: 'permission mode' },
+  { name: 'permission', description: 'permission mode', opens: true },
   { name: 'vim', description: 'toggle vim mode' },
   { name: 'hooks', description: 'hooks configured' },
   { name: 'effort', description: 'show or set starting effort' },
-  { name: 'output-style', description: 'output style' },
+  { name: 'output-style', description: 'output style', opens: true },
   { name: 'suggest', description: 'suggest a next prompt' },
   { name: 'trust', description: 'accept trust' },
   { name: 'onboarding', description: 'onboarding status' },
@@ -335,6 +337,13 @@ function normKey(id: string): string {
   return parts.length ? `${parts.join('+')}+${name}` : name;
 }
 
+// The items a picker shows: all of them, or for a searchable one those whose value or label holds the query.
+export function pickerItems<T extends { value: string; label: string }>(picker: { items: T[]; searchable?: boolean }, query: string): T[] {
+  if (!picker.searchable || !query) return picker.items;
+  const q = query.toLowerCase();
+  return picker.items.filter((it) => `${it.value} ${it.label}`.toLowerCase().includes(q));
+}
+
 export function App({ args }: { args: TuiArgs }): React.ReactElement {
   const { exit, suspendTerminal } = useApp();
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -437,8 +446,9 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
   const [historySearch, setHistorySearch] = useState<{ open: boolean; query: string; selected: number }>({ open: false, query: '', selected: 0 });
   const [transcriptSearch, setTranscriptSearch] = useState<{ open: boolean; query: string; selected: number }>({ open: false, query: '', selected: 0 });
   const [messageSelector, setMessageSelector] = useState<{ open: boolean; selected: number }>({ open: false, selected: 0 });
-  const [picker, setPicker] = useState<{ title: string; items: { value: string; label: string }[]; onPick: (v: string) => void } | null>(null);
+  const [picker, setPicker] = useState<{ title: string; items: { value: string; label: string }[]; onPick: (v: string) => void; searchable?: boolean } | null>(null);
   const [pickerSelected, setPickerSelected] = useState(0);
+  const [pickerQuery, setPickerQuery] = useState('');
   // The sub-thread view (subthreads.ts): the sub-threads it steps through and which one shows. It reads the store
   // again each second while open, since sub-threads run beside the turn.
   const [subView, setSubView] = useState<{ ids: string[]; at: number } | null>(null);
@@ -607,7 +617,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
     return buildAutoItems(cmds, skills, autoQuery, boostOf);
   }, [autoQuery, skillsList, picks]);
   // Reset autocomplete selection whenever the query changes (string dep: no loop).
-  useEffect(() => { setAutoSelected(0); setAutoDismissed(false); }, [autoQuery]);
+  useEffect(() => { setAutoSelected(0); setAutoDismissed(false); }, [autoQuery, input]);
   useEffect(() => { setConfigSelected(0); }, [settingsQuery, settingsTab]);
   // Read during render so bumping it forces a re-render (used by Tab re-open).
   const autoOpen = autoQuery !== null && mentionQuery === null && autoItems.length > 0
@@ -917,15 +927,19 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
           // The modes first: each keeps the writer and picks the steps around it (core/config.ts, modeFlags).
           const modes = ml.modes.map((m) => ({ value: m.name, label: `  ${m.name}  ${m.label}` }));
           const items = [...modes, ...ml.models.map((m) => ({ value: m.ref, label: `${m.available ? ' ' : '-'} ${m.ref}  ${m.label}` }))];
-          setPicker({ title: 'models', items, onPick: (v) => {
+          setPickerSelected(0);
+          setPickerQuery('');
+          setPicker({ title: 'Models', items, searchable: true, onPick: (v) => {
             if (isMode(v)) {
               try { modeFlags(v, {}); } catch (e) { push({ role: 'system', text: (e as Error).message }); return; }
               setModel(v); push({ role: 'system', text: `the next turn runs in ${v} mode on ${roles.code.ref}` }); setInput(''); inputRef.current = '';
+              setPickerQuery('');
               return;
             }
             const picked = ml.models.find((m) => m.ref === v);
             if (picked && !picked.available) { push({ role: "system", text: `${v} is unavailable: ${picked.reason ?? 'no key'}` }); return; }
             setModel(v); push({ role: "system", text: `the next turn runs on ${v}` }); setInput(''); inputRef.current = '';
+            setPickerQuery('');
           } });
            openDialog('picker');
         } catch (e) { say('error: ' + (e as Error).message); }
@@ -1340,6 +1354,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       else push({ role: 'system', text: 'invalid selection' });
       setPicker(null);
        closeDialog('picker');
+      setPickerQuery('');
       setInput('');
       return;
     }
@@ -1794,7 +1809,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
   };
   const closeOverlay = (which: LiveContext) => {
     if (which === 'Confirmation') { setPermissionDialog(null); return; }
-    if (which === 'Select') { closeDialog('picker'); setPicker(null); setPickerSelected(0); return; }
+    if (which === 'Select') { closeDialog('picker'); setPicker(null); setPickerSelected(0); setPickerQuery(''); return; }
     if (which === 'Task') { setSubView(null); return; }
     if (which === 'Settings') { closeSettingsStep(); return; }
     if (which === 'MessageSelector') {
@@ -1904,7 +1919,20 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         if (autoCmd === 'selectDown') { setAutoSelected((s) => (s >= autoItems.length - 1 ? 0 : s + 1)); return; }
         if (autoCmd === 'accept') {
           const item = autoItems[sel];
-          if (item) { notePick(item.value); setInput(`/${item.value} `); setAutoDismissed(true); }
+          if (item) {
+            notePick(item.value);
+            setAutoDismissed(true);
+            if (INK_COMMANDS.some((c) => c.name === item.value && c.opens)) {
+              const line = `/${item.value}`;
+              setInput('');
+              inputRef.current = '';
+              push({ role: 'user', text: line });
+              handleCommand(item.value);
+              return;
+            }
+            setInput(`/${item.value} `);
+            inputRef.current = `/${item.value} `;
+          }
           return;
         }
         return;
@@ -1932,14 +1960,21 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         return;
       }
       if (ctx === 'Select' && picker) {
-        if (overlayCmd === 'close') { closeDialog('picker'); setPicker(null); setPickerSelected(0); return; }
+        if (overlayCmd === 'close') { closeDialog('picker'); setPicker(null); setPickerSelected(0); setPickerQuery(''); return; }
+        if (picker.searchable && (key.backspace || key.delete)) { setPickerQuery((q) => q.slice(0, -1)); setPickerSelected(0); return; }
+        if (picker.searchable && input && !key.ctrl && !key.meta && !key.return && input.length === 1 && input >= ' ' && !key.tab && !key.upArrow && !key.downArrow && !key.leftArrow && !key.rightArrow && !key.pageUp && !key.pageDown && !key.home && !key.end) {
+          setPickerQuery((q) => q + input);
+          setPickerSelected(0);
+          return;
+        }
+        const filtered = pickerItems(picker, pickerQuery);
         if (overlayCmd === 'selectUp') { setPickerSelected((s) => Math.max(0, s - 1)); return; }
-        if (overlayCmd === 'selectDown') { setPickerSelected((s) => Math.min(picker.items.length - 1, s + 1)); return; }
+        if (overlayCmd === 'selectDown') { setPickerSelected((s) => Math.max(0, Math.min(filtered.length - 1, s + 1))); return; }
         if (overlayCmd === 'accept') {
           const before = inputRef.current;
-          const item = picker.items[pickerSelected];
+          const item = filtered[Math.min(pickerSelected, filtered.length - 1)];
           if (item) { picker.onPick(item.value); }
-          closeDialog('picker'); setPicker(null); setPickerSelected(0);
+          closeDialog('picker'); setPicker(null); setPickerSelected(0); setPickerQuery('');
           if (inputRef.current === before) { setInput(''); inputRef.current = ''; }
           return;
         }
@@ -2163,7 +2198,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
     }
     if (key.tab && !running && input.trim().startsWith('/')) {
       setAutoDismissed(false);
-      return;
+      // Don't return - let normal key handling proceed; autocomplete will show if items exist
     }
     if (key.tab && suggestion) { setInput(suggestion); setSuggestion(null); return; }
     // alt+enter / shift+enter put a newline in the prompt (vim-input.tsx); they never submit.
@@ -2410,20 +2445,24 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         ) : null}
         {focusedDialog === 'picker' && picker ? (
           (() => {
-            const pStart = Math.max(0, Math.min(pickerSelected - overlayBudget + 2, Math.max(0, picker.items.length - overlayBudget)));
-            const pVisible = picker.items.slice(pStart, pStart + overlayBudget);
+            const list = pickerItems(picker, pickerQuery);
+            const sel = Math.min(pickerSelected, Math.max(0, list.length - 1));
+            const pStart = Math.max(0, Math.min(sel - overlayBudget + 2, Math.max(0, list.length - overlayBudget)));
+            const pVisible = list.slice(pStart, pStart + overlayBudget);
             return (
           <Box flexDirection="column" borderStyle={screenReader ? undefined : "single"} borderColor={screenReader ? undefined : T.borderActive} paddingX={1}>
-            <Text bold={screenReader ? false : true} color={screenReader ? undefined : T.primary}>{picker.title}</Text>
+            <Text bold={screenReader ? false : true} color={screenReader ? undefined : T.primary}>{picker.title}{picker.searchable ? `  ${pickerQuery ? 'search: ' + pickerQuery : 'type to search'}` : ''}</Text>
             {pStart > 0 ? <Text dimColor={!screenReader}>…{pStart} more above</Text> : null}
             {pVisible.map((it, i) => {
               const gi = pStart + i;
+              const isSel = gi === sel;
               return (
-              <Text key={gi} color={screenReader ? undefined : (gi === pickerSelected ? T.primary : undefined)} bold={screenReader ? false : (gi === pickerSelected)}>{selectedPrefix(gi === pickerSelected, screenReader)}{gi + 1}. {it.label}</Text>
+              <Text key={gi} color={screenReader ? undefined : (isSel ? T.primary : undefined)} bold={screenReader ? false : isSel}>{selectedPrefix(isSel, screenReader)}{picker.searchable ? '' : `${gi + 1}. `}{it.label}</Text>
               );
             })}
-            {pStart + pVisible.length < picker.items.length ? <Text dimColor={!screenReader}>…{picker.items.length - pStart - pVisible.length} more below</Text> : null}
-            <Text dimColor={!screenReader}>↑/↓ navigate · Enter select · Esc cancel</Text>
+            {list.length === 0 ? <Text dimColor={!screenReader}>no matches</Text> : null}
+            {pStart + pVisible.length < list.length ? <Text dimColor={!screenReader}>…{list.length - pStart - pVisible.length} more below</Text> : null}
+            <Text dimColor={!screenReader}>{picker.searchable ? 'type to filter · ' : ''}↑/↓ navigate · Enter select · Esc cancel</Text>
           </Box>
             );
           })()
