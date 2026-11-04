@@ -89,3 +89,19 @@ export function resumeChoice(events: SessionEvent[], model: ModelSpec, freshToke
   const freshUsd = coldUsd(model, freshTokens, now);
   return { cold, stale, idleMs, contextTokens, resumeUsd, freshUsd, fresh: (cold || stale) && contextTokens >= COLD_RESUME_MIN && resumeUsd > 2 * freshUsd };
 }
+
+// The least context a session must reach before it may hand off or compact, from its first reply. A session that
+// starts from a summary starts large by design (the kept turns, and the turns that ran while the summary was
+// written: 40k to 63k on Haiku at a 90k handoff point), so doubling would carry it past the handoff point; it must
+// have grown by the share a compaction keeps instead. Otherwise what must double is the part a handoff can
+// shrink: the system prompt and tool definitions come back whole in the next session, and with a big MCP server
+// they were most of the first reply (46k of it on Haiku, 41k of that tools), so doubling the whole of it put the
+// handoff past the 90k point, a turn short of the 100k price line.
+export function handoffFloor(first: { context: number; fixed: number; fromSummary: boolean; keepTokens: number }): number {
+  return first.fromSummary ? first.context + first.keepTokens : first.context + Math.max(0, first.context - first.fixed);
+}
+
+// Whether a point (`at` tokens) is reached: the context is there and past the floor, and a session that picks up
+// from a stopped one has changed a file of its own first (else it would hand off before doing anything).
+export const handoffDue = (at: number, s: { size: number; floor: number; continues: boolean; changedHere: () => boolean }): boolean =>
+  s.size >= at && s.size >= s.floor && (!s.continues || s.changedHere());
