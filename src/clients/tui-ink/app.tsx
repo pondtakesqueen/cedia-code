@@ -22,7 +22,7 @@ import { providerFor } from '../../core/providers/index.ts';
 import { resolveModel } from '../../core/providers/catalog.ts';
 import { systemFor } from '../../core/prompts.ts';
 import { CORE_TOOLS } from '../../core/tools/index.ts';
-import { askedReviewPrompt, fixPrompt, parseVerdict, type ReviewSubject } from '../../core/trust/review.ts';
+import { askedReviewPrompt, fixPrompt, parseVerdict } from '../../core/trust/review.ts';
 import { decode, type CoreMessage } from '../../protocol/index.ts';
 import type { TuiArgs } from './args.ts';
 import type { JsonObject, SessionEvent } from '../../core/types.ts';
@@ -47,10 +47,11 @@ import { TeamStore } from '../../core/project/teams.ts';
 import { voiceInput } from '../../core/project/voice.ts';
 import { acceptTrust, completedNames, isComplete, loadOnboarding, markStep, ONBOARDING_STEPS, reconcileOnboarding, saveOnboarding } from './onboarding.ts';
 import { workingDiff } from '../../core/project/git.ts';
+import { askedReviewModel, FOCUSES, reviewSubject, subjectTitle, ultraReview } from '../../core/project/ultrareview.ts';
 import { MemoryStore, memoryPath } from '../../core/project/memory.ts';
 import { loadSkills } from '../../core/skills/skills.ts';
 import { listMcp } from '../../core/mcp/manage.ts';
-import { threadChanges, commitFiles, prBlocked, currentBranch, defaultBranch, pushAndOpenPr, pullRequest } from '../../core/project/commit.ts';
+import { threadChanges, commitFiles, prBlocked, currentBranch, defaultBranch, pushAndOpenPr } from '../../core/project/commit.ts';
 import { draftCommitMessage } from '../../core/project/draft.ts';
 import { workspaceSnapshots } from '../../core/safety/snapshot.ts';
 import { allowRuleFor, applyAllowRules } from '../../core/safety/suggest.ts';
@@ -100,6 +101,7 @@ const INK_COMMANDS: { name: string; description: string }[] = [
   { name: 'commit', description: 'commit the files this thread changed' },
   { name: 'pr', description: 'push and open a pull request' },
   { name: 'review', description: 'review the uncommitted changes' },
+  { name: 'ultrareview', description: 'review the changes or a pull request once per focus, side by side; Esc stops it' },
   { name: 'plan', description: 'send this prompt to the planner first' },
   { name: 'quick', description: 'send this prompt straight to the writer' },
   { name: 'memory', description: 'project memory' },
@@ -620,7 +622,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         const groups: [string, string[]][] = [
           ['thread', ['/new', '/thread', '/resume', '/rename', '/fork', '/rewind', '/undo', '/redo', '/diff']],
           ['run', ['/plan', '/quick', '/model', '/goal', '/effort', '/permission']],
-          ['project', ['/commit', '/pr', '/review', '/memory', '/skills', '/mcp']],
+          ['project', ['/commit', '/pr', '/review', '/ultrareview', '/memory', '/skills', '/mcp']],
           ['view', ['/clear', '/transcript', '/search', '/settings', '/doctor', '/theme', '/palette', '/actions', '/copy', '/export', '/compact', '/agents', '/tasks', '/branch', '/status', '/cost', '/context']],
           ['other', ['/help', '/quit', '/vim', '/hooks', '/btw', '/suggest', '/trust', '/onboarding', '/statusline', '/output-style', '/config', '/notify']],
         ];
@@ -781,28 +783,50 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         } };
         return;
       }
+      case 'ultrareview': {
+        // The asked review once per focus, side by side (core/project/ultrareview.ts, as `cedia ultrareview`); Esc stops it.
+        busyRef.current = true;
+        const stop = new AbortController();
+        stopRef.current = stop;
+        setRunning(true);
+        void (async () => {
+          try {
+            const got = await reviewSubject(args.cwd, rest[0], stop.signal);
+            if ('error' in got) { say(got.error); return; }
+            const reviewModel = askedReviewModel(model && !isMode(model) ? model : undefined);
+            say(`ultrareviewing ${subjectTitle(got.subject)} with ${reviewModel.ref}, ${FOCUSES.length} focuses side by side…`);
+            setActivity('ultrareviewing');
+            const r = await ultraReview({
+              cwd: args.cwd,
+              ...got,
+              model: reviewModel,
+              signal: stop.signal,
+              policy: { allow: args.allow, deny: args.deny, unlock: args.unlock },
+              privacy: args.privacy,
+              onEvent: (_focus, e) => { if (e.kind === 'tool_intent' || e.kind === 'tool_result' || e.kind === 'permission') applyToolEvent(e); },
+            });
+            if ('error' in r) { say(r.error, 'red'); return; }
+            setSpent((s) => s + r.costUsd);
+            say(`ultrareview done · ${r.findings.length} finding${r.findings.length === 1 ? '' : 's'} · $${r.costUsd.toFixed(4)}`);
+            for (const f of r.findings) push({ role: 'assistant', text: `[${f.focus}] ${f.path ? `${f.path}${f.line ? `:${f.line}` : ''}: ` : ''}${f.text}` });
+            for (const f of r.failed) say(`[${f.focus}] did not finish: ${f.reason}`, 'red');
+          } finally {
+            busyRef.current = false;
+            setRunning(false);
+            setActivity('');
+          }
+        })();
+        return;
+      }
       case 'review': {
         busyRef.current = true;
         void (async () => {
           try {
-          let subject: ReviewSubject;
-          let patch: string;
-          const prNum = rest[0];
-          if (prNum) {
-            const got = await pullRequest(args.cwd, prNum.replace(/^#/, ''), undefined, new AbortController().signal);
-            if ('error' in got) { say(got.error); return; }
-            subject = { kind: 'pr', number: prNum.replace(/^#/, ''), title: got.title, body: got.body };
-            patch = got.patch;
-          } else {
-            const w = workingDiff(args.cwd);
-            if (!w) { say('not a git repository'); return; }
-            if (!w.patch && !w.untracked.length) { say('no changes to review'); return; }
-            subject = { kind: 'changes', untracked: w.untracked };
-            patch = w.patch;
-          }
-          const roles = loadRoles(model && !isMode(model) ? { code: model } : {});
-          const reviewModel = roles.review?.via === 'cedia' ? roles.review.model : resolveModel(model && !isMode(model) ? model : loadRoles({}).code.ref);
-          say(`reviewing ${subject.kind === 'pr' ? `pull request #${(subject as { number: string }).number}` : 'the uncommitted changes'} with ${reviewModel.ref}…`);
+          const got = await reviewSubject(args.cwd, rest[0]);
+          if ('error' in got) { say(got.error); return; }
+          const { subject, patch } = got;
+          const reviewModel = askedReviewModel(model && !isMode(model) ? model : undefined);
+          say(`reviewing ${subjectTitle(subject)} with ${reviewModel.ref}…`);
           const id = crypto.randomUUID();
           const log = SessionLog.create({ id, path: sessionPath(args.cwd, id) });
           log.listeners.push((e) => {
