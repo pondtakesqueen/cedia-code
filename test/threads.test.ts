@@ -15,6 +15,8 @@ import { CORE_TOOLS } from '../src/core/tools/index.ts';
 import { writeTool } from '../src/core/tools/edit.ts';
 import { spawnNudge, spawnNudgeAt, spawnTool } from '../src/core/tools/spawn.ts';
 import { recallTool, threadTools } from '../src/core/tools/threads.ts';
+import { ASK_AWAY, askTool, askToolFor } from '../src/core/tools/ask.ts';
+import { awayRecap, formatRecap } from '../src/core/project/recap.ts';
 import type { EventOf, SessionEvent } from '../src/core/types.ts';
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'cedia-threads-'));
@@ -540,6 +542,39 @@ describe('cedia threads (offline, faux)', () => {
     expect(t.question).toBeUndefined();
   });
 
+  test('--ask auto with the owner away: ask_user decides instead of waiting, the run goes on, and the recap lists the choice', () => {
+    const dir = tmp();
+    const q = { question: 'Keep the v1 API or break it for v2? I recommend v2.', options: ['v2', 'keep v1'] };
+    const r = cedia(dir, [tool('a1', 'ask_user', q), call('c1', 'echo good > f.txt'), call('c2', 'grep -q good f.txt'), reply('done with v2; decided without you: v2')], ['-p', 'make f.txt say good', ...base, '--ask', 'auto']);
+    expect(r.code).toBe(0);
+    const done = JSON.parse(r.out);
+    expect(done).toMatchObject({ subtype: 'success' });
+    const log = sessionsOf(dir).find((l) => l.id === done.sessionId)!;
+    const result = log.events.find((e): e is EventOf<'tool_result'> => e.kind === 'tool_result' && e.callId === 'a1')!;
+    expect(result.output).toMatchObject({ isError: true });
+    expect(result.output.text).toStartWith(ASK_AWAY);
+    expect(lintSession(log.events)).toEqual([]);
+    const t = storeOf(dir).read(done.thread);
+    expect(t.state).toBe('done');
+    expect(t.question).toBeUndefined();
+    const recap = awayRecap(t, new Date(0), { cwd: dir, home: join(dir, 'home') });
+    expect(recap.decided).toEqual([q.question]);
+    expect(formatRecap(recap)).toContain(`decided without you: ${q.question}`);
+  });
+
+  test('ask_user under --ask auto asks when the owner is present and decides when they are away', async () => {
+    let here = true;
+    const spec = askToolFor(() => here);
+    expect(spec.description).toContain('If the owner is away');
+    expect(askTool.description).not.toContain('If the owner is away');
+    const q = { question: 'Which one?' };
+    expect(await spec.run(q, {} as never)).toMatchObject({ isError: false });
+    here = false;
+    const away = await spec.run(q, {} as never);
+    expect(away.isError).toBe(true);
+    expect(away.text).toStartWith(ASK_AWAY);
+  });
+
   test('--permission plan: read-only with ask_user, the run records its mode, and a run under another mode is told', () => {
     const dir = tmp();
     const q = { question: 'Plan: write good to f.txt, then grep it. Go ahead?' };
@@ -581,7 +616,7 @@ describe('cedia threads (offline, faux)', () => {
     expect(head(sessionsOf(dir).find((l) => l.id === off.sessionId)!.events).tools.map((t) => t.name)).not.toContain('ask_user');
     const bad = JSON.parse(cedia(tmp(), [tool('a1', 'ask_user', { question: 'pick', options: ['only one'] }), reply('went on')], ['-p', 'x', ...base, '--check', 'true', '--ask', 'on']).out);
     expect(bad).toMatchObject({ subtype: 'success', result: 'went on' });
-    expect(cedia(tmp(), [], ['-p', 'x', '--ask', 'maybe']).err).toContain('--ask must be on or off');
+    expect(cedia(tmp(), [], ['-p', 'x', '--ask', 'maybe']).err).toContain('--ask must be on, off or auto');
   });
 
   test('--todo on: the writer keeps a todo list, which the thread holds as its progress, even read-only', () => {

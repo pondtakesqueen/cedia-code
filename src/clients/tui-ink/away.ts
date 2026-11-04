@@ -16,6 +16,11 @@ export function presentIn(data: string): boolean {
   return data.replace(/\x1b\[O/g, '').length > 0;
 }
 
+/** Whether the owner counts as here for ask_user under `ask: auto`: a sign of presence in the last AWAY_MS. */
+export function ownerPresent(lastSeen: number, now: number): boolean {
+  return now - lastSeen < AWAY_MS;
+}
+
 /** What to do with a recap when the turns end: show it now, hold it for the owner's return, or none. */
 export function recapWhen(lastSeen: number, now: number, focus: Focus): 'now' | 'on-return' | undefined {
   if (now - lastSeen < AWAY_MS) return undefined;

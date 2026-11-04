@@ -47,8 +47,9 @@ export const READ_ONLY_POLICY: Policy = { mode: 'read-only', allow: [], deny: []
 export type Decision = { decision: 'allow' | 'deny'; rule: string; reason?: string };
 
 // Tools that run their `command` input in a shell: each is held to bash's deny list, guards and rules.
-const SHELL_TOOLS = new Set(['bash', 'Monitor']);
-const shellCommand = (spec: ToolSpec, input: JsonObject) => (SHELL_TOOLS.has(spec.name) ? String(input.command ?? '') : undefined);
+// Job runs one only when it starts one (core/tools/jobs.ts).
+const SHELL_TOOLS = new Set(['bash', 'Monitor', 'Job']);
+const shellCommand = (spec: ToolSpec, input: JsonObject) => (SHELL_TOOLS.has(spec.name) && (spec.name !== 'Job' || input.action === 'start') ? String(input.command ?? '') : undefined);
 // The names a rule may give a call: its own, and `bash` for every shell tool, so a `bash(…)` rule covers them all.
 const ruleTools = (name: string) => (SHELL_TOOLS.has(name) && name !== 'bash' ? [name, 'bash'] : [name]);
 
