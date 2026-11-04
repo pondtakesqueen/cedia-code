@@ -10,6 +10,7 @@ import { daemonPid, daemonStart, daemonStop, isAlive, listBgSessions, recordStar
 import { desktopLockHolder } from './desktop-lock.ts';
 import { schedulesPath, ScheduleStore } from './schedules.ts';
 import { threadsDir, ThreadStore } from './threads.ts';
+import { watchThreads, type WatchdogFinding, type WatchdogOpts } from './watchdog.ts';
 
 export type DaemonTick = {
   at: string;
@@ -18,6 +19,9 @@ export type DaemonTick = {
   started: { bg: string; thread: string }[];
   fired: { schedule: string; thread: string; bg: string }[];
   running: number;
+  // What the watchdog found and wrote (core/project/watchdog.ts): runs whose process is gone, runs gone quiet,
+  // queued threads whose run keeps dying before it starts.
+  watchdog: WatchdogFinding[];
   // The desktop's daemon held its lock, so this pass did nothing: its pid.
   yielded?: number;
 };
@@ -29,13 +33,15 @@ export type DaemonDeps = {
   maxRuns: number;
   // Start a detached child; returns its pid. Production spawns cedia itself (spawnDetached); tests use a fake.
   spawn: (argv: string[]) => number;
+  // The watchdog's clock, stall threshold and liveness check; tests set them.
+  watchdog?: Omit<WatchdogOpts, 'deadStarts'>;
 };
 
 // pump() is the whole daemon: pure except for the stores, the managed cache, and spawn, so tests run it
 // with a fake spawner.
 export async function pumpDaemon(deps: DaemonDeps): Promise<DaemonTick> {
   const { home, slug, cwd, maxRuns } = deps;
-  const tick: DaemonTick = { at: new Date().toISOString(), reaped: [], started: [], fired: [], running: 0 };
+  const tick: DaemonTick = { at: new Date().toISOString(), reaped: [], started: [], fired: [], running: 0, watchdog: [] };
   // Where the desktop's daemon runs, it runs the queued threads and the schedules: a pass then starts nothing, and
   // reaps nothing either, since the runs may be the desktop's to record.
   const desktop = desktopLockHolder(home);
@@ -48,6 +54,9 @@ export async function pumpDaemon(deps: DaemonDeps): Promise<DaemonTick> {
       tick.reaped.push(s.id);
     }
   }
+  // Before anything starts: a thread the watchdog marks failed is no longer queued or running.
+  const ended = (thread: string) => listBgSessions(home, slug).filter((s) => s.thread === thread && s.stopped).length;
+  tick.watchdog = watchThreads(threads, { ...deps.watchdog, deadStarts: ended });
   const live = () => listBgSessions(home, slug).filter((s) => s.alive && !s.stopped);
   const busy = new Set(live().map((s) => s.thread));
   const start = (prompt: string, thread: string) => {
