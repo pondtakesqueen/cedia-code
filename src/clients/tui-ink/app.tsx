@@ -17,7 +17,6 @@ import { StatusBar } from './status-bar.tsx';
 import { runHeadless } from '../headless/main.ts';
 
 import { resolveModel } from '../../core/providers/catalog.ts';
-import { askedReviewPrompt, fixPrompt, parseVerdict } from '../../core/trust/review.ts';
 import { decode, type CoreMessage } from '../../protocol/index.ts';
 import type { TuiArgs } from './args.ts';
 import type { JsonObject, SessionEvent } from '../../core/types.ts';
@@ -42,8 +41,8 @@ import { acceptTrust, completedNames, isComplete, loadOnboarding, markStep, ONBO
 import { workingDiff } from '../../core/project/git.ts';
 import { FOCUSES, reviewSubject, subjectTitle, ultraReview } from '../../core/project/ultrareview.ts';
 import { sideModel, threadWriter } from '../../core/side-model.ts';
-import { runSide } from '../../core/loop/side.ts';
 import { helpGroups, INK_COMMANDS } from './commands.ts';
+import { reviewCommand, type CommandCtx } from './command-review.ts';
 import { MemoryStore, memoryPath } from '../../core/project/memory.ts';
 import { loadSkills } from '../../core/skills/skills.ts';
 import { listMcp } from '../../core/mcp/manage.ts';
@@ -562,6 +561,21 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
     && !focusedDialog && !settingsOpen && !permissionDialog && !picker && !transcriptSearch.open
     && !autoDismissed;
 
+  // What a command moved out of handleCommand sees of the TUI (command-review.ts).
+  const commandCtx = (): CommandCtx => ({
+    cwd: args.cwd,
+    ...(model ? { model } : {}),
+    ...(thread ? { thread } : {}),
+    store,
+    policy: { allow: args.allow ?? [], deny: args.deny ?? [], unlock: args.unlock ?? [] },
+    ...(args.privacy ? { privacy: args.privacy } : {}),
+    say: (text, tone) => push({ role: 'system', text, ...(tone ? { tone } : {}) }),
+    reply: (text) => push({ role: 'assistant', text }),
+    toolEvent: applyToolEvent,
+    spend: (usd) => setSpent((v) => v + usd),
+    confirm: (what, yes) => { pendingRef.current = { what, yes: () => yes() }; },
+    send: (prompt) => submit(prompt, undefined),
+  });
   const handleCommand = useCallback((line: string) => {
     const [name = '', ...rest] = line.trim().split(/\s+/);
     const say = (t: string, tone?: 'red') => push({ role: 'system', text: t, ...(tone ? { tone } : {}) });
@@ -760,35 +774,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       }
       case 'review': {
         busyRef.current = true;
-        void (async () => {
-          try {
-          const got = await reviewSubject(args.cwd, rest[0]);
-          if ('error' in got) { say(got.error); return; }
-          const { subject, patch } = got;
-          const reviewModel = sideModel('review', { picked: model, ...(thread ? { threadWriter: threadWriter(store, thread) } : {}) });
-          say(`reviewing ${subjectTitle(subject)} with ${reviewModel.ref}…`);
-          const r = await runSide({
-            cwd: args.cwd,
-            model: reviewModel,
-            role: 'review',
-            access: { kind: 'read-only', policy: { allow: args.allow ?? [], deny: args.deny ?? [], unlock: args.unlock ?? [] } },
-            ...(args.privacy ? { privacy: args.privacy } : {}),
-            maxTurns: 40,
-            prompt: askedReviewPrompt(subject, patch),
-            onEvent: (e) => {
-              if (e.kind === 'assistant') for (const b of (e as { blocks?: { type: string; text?: string }[] }).blocks ?? []) if (b.type === 'text' && b.text?.trim()) push({ role: 'assistant', text: (b.text as string) });
-              if (e.kind === 'tool_intent' || e.kind === 'tool_result' || e.kind === 'permission') applyToolEvent(e);
-            },
-          });
-          setSpent((s) => s + r.costUsd);
-          say(`review ${r.subtype === 'success' ? 'done' : r.subtype} · ${r.numTurns} turn${r.numTurns === 1 ? '' : 's'} · $${r.costUsd.toFixed(4)}`);
-          if (r.subtype !== 'success') { if (r.result.trim()) say(r.result.trim(), 'red'); return; }
-          const { verdict, findings } = parseVerdict(r.result);
-          if (verdict !== 'changes' || subject.kind !== 'changes' || !findings) return;
-          say(`send these findings to ${thread ? "this thread's writer" : 'a new thread'} to fix? y to send; n, or anything else you type, cancels`);
-          pendingRef.current = { what: 'sending the findings', yes: (signal) => submit(fixPrompt(reviewModel.ref, findings), undefined) };
-          } finally { busyRef.current = false; }
-        })();
+        void reviewCommand(commandCtx(), rest[0]).finally(() => { busyRef.current = false; });
         return;
       }
       case 'undo': {
