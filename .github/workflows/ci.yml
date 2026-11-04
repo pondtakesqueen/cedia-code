@@ -19,7 +19,7 @@ jobs:
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
           cache: true
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
@@ -38,20 +38,25 @@ jobs:
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
           cache: true
       - name: Sandbox dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
+          # Skip the man-db index rebuild that apt runs after installing; CI never reads man pages.
+          sudo rm -f /var/lib/man-db/auto-update
           sudo apt-get update -q
-          sudo apt-get install -y -q bubblewrap socat ripgrep ffmpeg
+          sudo apt-get install -y -q --no-install-recommends bubblewrap socat ripgrep ffmpeg
           # Ubuntu 24.04 strips capabilities from unprivileged user namespaces, which bubblewrap needs.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Sandbox dependencies (macOS)
         if: runner.os == 'macOS'
         run: brew install ripgrep
       - run: bun install --frozen-lockfile
-      - run: bun test
+      # One worker per core: the suite is mostly waiting on child processes, so files in parallel cut it from ~4
+      # minutes to ~1. Bun 1.4.2's spawnSync could spin forever on a child that had exited (sandbox.test.ts and
+      # threads.test.ts, in a third or more of runs), which 1.4.4 does not.
+      - run: bun test --parallel
         env:
           CEDIA_REQUIRE_SANDBOX: '1'
 
@@ -65,7 +70,7 @@ jobs:
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
           cache: true
       - run: bun install --frozen-lockfile
       - run: bun run build:release
