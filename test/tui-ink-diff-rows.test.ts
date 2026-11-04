@@ -76,7 +76,23 @@ describe('edit diffs as rows', () => {
   test('hunks are set apart, and rows past the limit become a count of changed lines', () => {
     const a = hunkOf('a', 'b', 1).hunk;
     const b = hunkOf('c', 'd', 9).hunk;
-    expect(plain(diffRows([a, b], 80, 'ts', 2).lines)).toEqual(['  1 - a', '  1 + b', '  ⋯', '  9 - c', '  9 + d']);
+    expect(plain(diffRows([a, b], 80, 'ts', 2).lines)).toEqual(['  1 - a', '  1 + b', '  ⋯ 7 lines', '  9 - c', '  9 + d']);
     expect(diffRows([a, b], 80, 'ts', 2, 3)).toMatchObject({ hidden: 2 });
+  });
+});
+
+describe('an edit diff with the file around it', () => {
+  test('the unchanged lines above and below come from the file, and hunks say how far apart they are', async () => {
+    const { withFileContext, hunkOf, diffRows } = await import('../src/clients/tui-ink/diff-rows.ts');
+    const file = Array.from({ length: 30 }, (_, i) => (i === 4 ? 'five!' : i === 24 ? 'twenty-five!' : `line ${i + 1}`)).join('\n') + '\n';
+    const a = hunkOf('line 5', 'five!', 5).hunk;
+    const b = hunkOf('line 25', 'twenty-five!', 25).hunk;
+    const [ha, hb] = withFileContext([a, b], file);
+    expect(ha!.map((l) => `${l.sign}${l.new ?? ''}`)).toEqual([' 3', ' 4', '-', '+5', ' 6', ' 7']);
+    expect(ha![0]!.text).toBe('line 3');
+    const text = diffRows([ha!, hb!], 80, '', 0, 40).lines.map((l) => l.spans.map((s) => s.text).join('').trimEnd());
+    expect(text).toContain('⋯ 15 lines');
+    // Numbers that do not match the file leave the hunk as it was.
+    expect(withFileContext([a], 'other\n')[0]).toEqual(a);
   });
 });

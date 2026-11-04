@@ -147,6 +147,8 @@ export type HeadlessArgs = {
   allowDomains?: string[];
   // For a client that owns the terminal (the TUI): where cedia's own notes go instead of stderr, and a stop.
   note?: (text: string) => void;
+  // The permission the run took once its policy and sandbox were settled: `auto` becomes workspace or read-only.
+  onPermission?: (permission: RunPermission) => void;
   signal?: AbortSignal;
   // Keep going until a separate judge finds this condition holds (core/trust/goal.ts), judged by goalJudge (a
   // model ref; default the writer's model, in a fresh read-only session).
@@ -345,6 +347,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
   if (!sandbox.on && policy.mode === 'read-only' && !args.permission && !process.env.CEDIA_PERMISSION)
     say('cedia: the sandbox is off, so this session is read-only. Use --permission workspace to allow writes without it.\n');
   const permission: RunPermission = policy.plan ? 'plan' : policy.mode;
+  args.onPermission?.(permission);
   const snapshots = workspaceSnapshots(args.cwd, cediaHome(), sandbox.placeholders);
   // Language servers start at the first edit they cover, run as bash does (when the policy lets bash run them), and
   // stop with the run.

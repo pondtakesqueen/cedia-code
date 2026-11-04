@@ -56,7 +56,9 @@ export function StatusBar(props: {
         <Text wrap="truncate" color={T.textMuted}>{hint}</Text>
       ) : running && activity ? (
         <Text wrap="truncate">
-          <Text color={T.accent}>{spinner ?? '●'} </Text>
+          {/* The mode stays in sight while a turn runs: it is what the turn's calls are held to. */}
+          <Text backgroundColor={modeColor} color={T.background} bold>{` ${mode} `}</Text>
+          <Text color={T.accent}> {spinner ?? '●'} </Text>
           <Text color={T.textMuted}>{activity}</Text>
           <Text color={T.textMuted}>{elapsedMs !== undefined && elapsedMs >= 1000 ? ` · ${(elapsedMs / 1000).toFixed(1)}s` : ''} · </Text>
           <Text color={T.textFaint}>esc to stop</Text>

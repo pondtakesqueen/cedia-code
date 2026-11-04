@@ -1,5 +1,6 @@
 import type { MdStyle } from './markdown.tsx';
-import { diffRows, hunkOf, langOf, type Hunk } from './diff-rows.ts';
+import { diffRows, hunkOf, langOf, withFileContext, type Hunk } from './diff-rows.ts';
+import { wrapWords } from './wrap.ts';
 
 // The transcript rows a turn adds besides the reply itself: one per tool call, the thinking marker and the line
 // that ends a turn. A row is styled spans per line; its text (the spans joined) is exactly what shows, so the
@@ -73,6 +74,8 @@ export function editDiff(input: unknown, output: string): { added: number; remov
 }
 
 const BASH_LINES = 3;
+// What an expanded row shows (alt+e) before the rest is a count.
+export const EXPANDED_LINES = 200;
 
 export function resultRow(
   tool: string,
@@ -80,6 +83,10 @@ export function resultRow(
   output: { text: string; isError?: boolean; exitCode?: number },
   ms: number | undefined,
   width: number,
+  // An edit's file as it is after the call, for the unchanged lines around its hunks.
+  file?: string,
+  // Expanded (alt+e): a command's output and an edit's diff up to EXPANDED_LINES rows instead of a few.
+  expanded = false,
 ): RowLine[] {
   const first: RowSpan[] = head(tool, input, width);
   const detail: RowLine[] = [];
@@ -108,9 +115,11 @@ export function resultRow(
     const d = editDiff(input, text);
     sum.push({ text: `+${d.added}`, style: 'ok' }, { text: ' ', style: 'muted' }, { text: `−${d.removed}`, style: 'err' });
     const path = String((input as { path?: unknown })?.path ?? '');
-    const rows = diffRows(d.hunks, width, langOf(path), 3);
+    const rows = diffRows(file !== undefined ? withFileContext(d.hunks, file) : d.hunks, width, langOf(path), 3, expanded ? EXPANDED_LINES : undefined);
     detail.push(...rows.lines);
-    if (rows.hidden) detail.push({ spans: [{ text: `     … ${rows.hidden} more line${rows.hidden === 1 ? '' : 's'} · /diff`, style: 'faint' }] });
+    if (rows.hidden) detail.push({ spans: [{ text: `     … ${rows.hidden} more line${rows.hidden === 1 ? '' : 's'} · ${expanded ? '/diff' : 'alt+e'}`, style: 'faint' }] });
+  } else if (tool === 'todo' && todoSteps(input).length) {
+    return todoRow(input, width);
   } else if (tool === 'write') {
     const content = String((input as { content?: unknown })?.content ?? '');
     const n = content.replace(/\n$/, '').split('\n').length;
@@ -120,8 +129,9 @@ export function resultRow(
     // The bash tool closes its output with "[exit N]" and marks stderr; the row already says how it ended.
     const shown = nonEmpty.filter((l) => !/^\[exit -?\d+/.test(l) && l !== '[stderr]' && l !== '(no output)');
     // The first lines show under the call, as a terminal would; the rest is a count.
-    shown.slice(0, BASH_LINES).forEach((l, i) => (i === 0 ? sub(l) : more(l)));
-    if (shown.length > BASH_LINES) more(`… +${shown.length - BASH_LINES} lines`, 'faint');
+    const keep = expanded ? EXPANDED_LINES : BASH_LINES;
+    shown.slice(0, keep).forEach((l, i) => (i === 0 ? sub(l) : more(l)));
+    if (shown.length > keep) more(`… +${shown.length - keep} lines${expanded ? '' : ' · alt+e'}`, 'faint');
   } else if (nonEmpty.length > 1) {
     sum.push({ text: `${nonEmpty.length} lines`, style: 'muted' });
   } else if (nonEmpty.length === 1) {
@@ -132,11 +142,47 @@ export function resultRow(
   return [{ spans: first }, ...detail];
 }
 
-export function deniedRow(tool: string, input: unknown, rule: string, reason: string | undefined, width: number): RowLine[] {
+// The todo tool's steps as a checklist, the marks the sub-thread view uses (subthreads.ts): done, doing, to do.
+export type TodoStep = { text: string; state: 'pending' | 'doing' | 'done' };
+const STEP: Record<TodoStep['state'], [string, RowStyle]> = { done: ['✓', 'ok'], doing: ['◐', 'accent'], pending: ['○', 'faint'] };
+
+export function todoSteps(input: unknown): TodoStep[] {
+  const items = (input as { items?: unknown })?.items;
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((i) => ({ text: String((i as { text?: unknown })?.text ?? '').replace(/\s+/g, ' ').trim(), state: (i as { state?: unknown })?.state }))
+    .filter((i): i is TodoStep => !!i.text && (i.state === 'pending' || i.state === 'doing' || i.state === 'done'));
+}
+
+export function todoLines(steps: TodoStep[], width: number, indent = '    '): RowLine[] {
+  return steps.map((st) => ({
+    spans: [
+      { text: indent, style: 'faint' as const },
+      { text: STEP[st.state][0], style: STEP[st.state][1] },
+      { text: ` ${clip(st.text, Math.max(10, width - indent.length - 2))}`, style: st.state === 'done' ? 'muted' as const : 'text' as const },
+    ],
+  }));
+}
+
+/** A todo call: its progress on the line, its steps under it. */
+export function todoRow(input: unknown, width: number): RowLine[] {
+  const steps = todoSteps(input);
+  const done = steps.filter((s) => s.state === 'done').length;
   return [
-    { spans: [...head(tool, input, width), { text: ' · ', style: 'faint' }, { text: 'blocked', style: 'err' }] },
-    { spans: [{ text: '  └ ', style: 'faint' }, { text: clip(`${rule}${reason ? `: ${reason}` : ''}`, Math.max(10, width - 6)), style: 'muted' }] },
+    { spans: [{ text: '●', style: 'status' }, { text: ' ', style: 'text' }, { text: 'Todo', style: 'name' }, { text: ' · ', style: 'faint' }, { text: `${done}/${steps.length} done`, style: 'muted' }] },
+    ...todoLines(steps, width),
   ];
+}
+
+/**
+ * A call the policy stopped. The rule and its reason show in full (wrapped, not cut: it is why nothing happened);
+ * a call stopped by the same rule as the row before it says so in a word instead of repeating it.
+ */
+export function deniedRow(tool: string, input: unknown, rule: string, reason: string | undefined, width: number, same = false): RowLine[] {
+  const top: RowLine = { spans: [...head(tool, input, width), { text: ' · ', style: 'faint' }, { text: 'blocked', style: 'err' }, ...(same ? [{ text: ' (same rule)', style: 'faint' as const }] : [])] };
+  if (same) return [top];
+  const why = wrapWords(`${rule}${reason ? `: ${reason}` : ''}`, Math.max(10, width - 6));
+  return [top, ...why.map((w, i) => ({ spans: [{ text: i === 0 ? '  └ ' : '    ', style: 'faint' as const }, { text: w, style: 'muted' as const }] }))];
 }
 
 export function thinkingRow(text: string, ms: number | undefined, expanded: boolean): RowLine[] {

@@ -176,7 +176,13 @@ export function diffRows(hunks: Hunk[], width: number, lang: string, indent: num
     return [...head(l, which === 'old' ? l.old : l.new), ...codeSpans(expand(l.text), lang, half - gutter, bandOf(l.sign), word, wordOf(l.sign), !last || l.sign !== ' ')];
   };
   hunks.forEach((hunk, h) => {
-    if (h > 0) rows.push({ line: { spans: [pad, { text: '⋯', style: 'faint' }] }, changed: 0 });
+    if (h > 0) {
+      // How far apart the two hunks are, when their numbers say.
+      const end = lastNew(hunks[h - 1]!);
+      const start = hunk.find((l) => l.new !== undefined)?.new;
+      const gap = end !== undefined && start !== undefined ? start - end - 1 : undefined;
+      rows.push({ line: { spans: [pad, { text: gap && gap > 0 ? `⋯ ${gap} line${gap === 1 ? '' : 's'}` : '⋯', style: 'faint' }] }, changed: 0 });
+    }
     for (const b of blocks(hunk)) {
       if (b.ctx) {
         if (layout === 'split') rows.push({ line: { spans: [pad, ...side(b.ctx, 'old', undefined, false), { text: SEP, style: 'faint' }, ...side(b.ctx, 'new', undefined, true)] }, changed: 0 });
@@ -204,3 +210,39 @@ export function diffRows(hunks: Hunk[], width: number, lang: string, indent: num
   return { lines: shown.map((r) => r.line), hidden, layout };
 }
 
+
+const lastNew = (hunk: Hunk): number | undefined => [...hunk].reverse().find((l) => l.new !== undefined)?.new;
+
+/**
+ * Hunks with the file's own lines around them, up to CONTEXT on each side, for an edit whose old and new text
+ * shared fewer than that. `file` is the file after the edit; numbers are its lines, which an edit's hunks carry.
+ * A hunk with no numbers, or lines that are not where its numbers say, is left as it is.
+ */
+export function withFileContext(hunks: Hunk[], file: string): Hunk[] {
+  const lines = file.replace(/\r\n/g, '\n').split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  return hunks.map((hunk) => {
+    const first = hunk.find((l) => l.new !== undefined);
+    const last = lastNew(hunk);
+    if (!first || last === undefined || lines[first.new! - 1] !== first.text) return hunk;
+    let lead = 0;
+    while (lead < hunk.length && hunk[lead]!.sign === ' ') lead++;
+    let trail = 0;
+    while (trail < hunk.length - lead && hunk[hunk.length - 1 - trail]!.sign === ' ') trail++;
+    const top = hunk[0]!;
+    const before: Hunk = [];
+    for (let k = 1; k <= CONTEXT - lead; k++) {
+      const n = (top.new ?? first.new!) - k;
+      if (n < 1) break;
+      before.unshift({ sign: ' ', new: n, ...(top.old !== undefined ? { old: top.old - k } : {}), text: lines[n - 1]! });
+    }
+    const lastOld = [...hunk].reverse().find((l) => l.old !== undefined)?.old;
+    const after: Hunk = [];
+    for (let k = 1; k <= CONTEXT - trail; k++) {
+      const n = last + k;
+      if (n > lines.length) break;
+      after.push({ sign: ' ', new: n, ...(lastOld !== undefined ? { old: lastOld + k } : {}), text: lines[n - 1]! });
+    }
+    return [...before, ...hunk, ...after];
+  });
+}

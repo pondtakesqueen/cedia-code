@@ -122,7 +122,7 @@ export function mdLines(src: string): MdLine[] {
     const f = FENCE.exec(ln);
     if (f) {
       fence = { mark: f[1]!, lang: f[2] ?? '' };
-      if (fence.lang) out.push([{ text: '┃ ', style: 'faint' }, { text: fence.lang, style: 'muted' }]);
+      if (fence.lang) out.push([{ text: '┏ ', style: 'faint' }, { text: fence.lang, style: 'muted' }]);
       continue;
     }
     if (!ln.trim()) { blank(); continue; }
@@ -202,7 +202,33 @@ export function clipRange(count: number, clip: { drop: number; tail?: number } |
 }
 
 // One rendered line; the same line object (Markdown memoizes them on the text) skips its render.
+// A quote's or a code block's rule, and a list item's indent and mark, hang: a line that wraps keeps them to its
+// left (the rule repeats down the side, the item's text lines up under its first word).
+const RULES: Record<string, 'single' | 'bold'> = { '│ ': 'single', '┃ ': 'bold' };
+function hangOf(line: MdLine): number {
+  if (line.length > 1 && line[0]!.style === 'faint' && RULES[line[0]!.text]) return 1;
+  if (line.length > 2 && /^ +$/.test(line[0]!.text) && (line[1]!.style === 'bullet' || line[1]!.style === 'muted')) return 2;
+  return 0;
+}
+
 const LineView = React.memo(function LineView({ line, T }: { line: ReturnType<typeof mdLines>[number]; T: ThemeTokens }) {
+  const hang = hangOf(line);
+  const body = (spans: MdLine) => spans.map((s, j) => <Text key={j} {...spanProps(s.style, T)}>{s.text}</Text>);
+  if (hang === 1) {
+    return (
+      <Box borderStyle={RULES[line[0]!.text]} borderTop={false} borderRight={false} borderBottom={false} borderLeftColor={T.textFaint} paddingLeft={1}>
+        <Text wrap="wrap" color={T.text}>{body(line.slice(1))}</Text>
+      </Box>
+    );
+  }
+  if (hang === 2) {
+    return (
+      <Box>
+        <Text color={T.text}>{body(line.slice(0, 2))}</Text>
+        <Box flexGrow={1} flexShrink={1}><Text wrap="wrap" color={T.text}>{body(line.slice(2))}</Text></Box>
+      </Box>
+    );
+  }
   return (
     <Text wrap="wrap" color={T.text}>
       {line.length ? line.map((s, j) => <Text key={j} {...spanProps(s.style, T)}>{s.text}</Text>) : ' '}
