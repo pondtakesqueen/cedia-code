@@ -10,7 +10,7 @@ import { acceptTrust } from '../src/clients/tui-ink/onboarding.ts';
 import type { TuiArgs } from '../src/clients/tui-ink/args.ts';
 import { inkRenderOptions } from '../src/clients/tui-ink/render-options.ts';
 import { ThreadStore, threadsDir } from '../src/core/project/threads.ts';
-import { wordmark } from '../src/clients/tui-ink/splash.ts';
+import { mark } from '../src/clients/tui-ink/splash.ts';
 import { projectKey } from '../src/core/session/log.ts';
 
 const strip = (s: string) =>
@@ -620,12 +620,12 @@ describe('ink TUI interaction (fake terminal, faux model)', () => {
     }
   }, 30000);
 
-  test('the first screen shows the wordmark; a prompt replaces it and sits in a panel of its own', async () => {
+  test('the first screen shows the mark; a prompt replaces it and sits in a panel of its own', async () => {
     const h = start({ script: [{ blocks: [{ type: 'text', text: 'hi there' }] }] });
     try {
       await Bun.sleep(500);
       const first = h.frame();
-      expect(first).toContain(wordmark()[1]!);
+      expect(first).toContain(mark()[4]!.trim());
       expect(first).toContain('! shell');
       h.drain();
       h.write('hello');
@@ -633,8 +633,8 @@ describe('ink TUI interaction (fake terminal, faux model)', () => {
       h.write('\r');
       for (let i = 0; i < 40 && !h.frame().includes('✓ Done'); i++) await Bun.sleep(250);
       // The newest frame: it starts at the one-line header that takes the splash's place.
-      const f = h.frame().slice(h.frame().lastIndexOf('◆ cedia ·'));
-      expect(f).not.toContain(wordmark()[1]!);
+      const f = h.frame().slice(h.frame().lastIndexOf('● cedia ·'));
+      expect(f).not.toContain(mark()[4]!.trim());
       // The prompt: its bar on a row of padding, its text, and padding again; the reply two columns in, under it.
       expect(f).toMatch(/ ▌ *\n ▌ hello *\n ▌ *\n\n {3}hi there/);
     } finally {
@@ -656,7 +656,7 @@ describe('ink TUI interaction (fake terminal, faux model)', () => {
       h.write('\x1b[<64;10;10M');
       await Bun.sleep(400);
       const f = h.frame();
-      const screen = f.slice(f.lastIndexOf('◆ cedia ·')).split('\n');
+      const screen = f.slice(f.lastIndexOf('● cedia ·')).split('\n');
       expect(screen[1]).toMatch(/more above/);
       // Three rows went below the screen: the last row of the reply, not the one before it.
       const shown = screen.join('\n');
@@ -684,7 +684,7 @@ describe('ink TUI interaction (fake terminal, faux model)', () => {
       }
       await Bun.sleep(400);
       const f = h.frame();
-      const screen = f.slice(f.lastIndexOf('◆ cedia ·'));
+      const screen = f.slice(f.lastIndexOf('● cedia ·'));
       expect(screen).toMatch(/row 0\b/);
       expect(screen).toMatch(/one/);
       expect(screen).not.toMatch(/more above/);

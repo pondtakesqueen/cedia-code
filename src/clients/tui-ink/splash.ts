@@ -1,52 +1,60 @@
-// The first screen, before any message: the wordmark in block pixels, centered with the model, the place and the
-// keys under it. Each glyph is 8 pixel rows (2 for the ascender of d and the dot of i, 6 for the body); two pixel
-// rows share a terminal row through the half blocks, so the word is 4 rows tall. Corners are cut, so the letters
-// read round at this size; the dot of the i ('*') takes the brand color and the rest the text color.
-const GLYPHS: Record<string, string[]> = {
-  c: ['      ', '      ', ' #####', '##    ', '##    ', '##    ', '##    ', ' #####'],
-  e: ['      ', '      ', ' #### ', '##  ##', '######', '##    ', '##    ', ' #####'],
-  d: ['    ##', '    ##', ' #####', '##  ##', '##  ##', '##  ##', '##  ##', ' #####'],
-  i: ['**', '  ', '##', '##', '##', '##', '##', '##'],
-  a: ['      ', '      ', ' #### ', '    ##', ' #####', '##  ##', '##  ##', ' #####'],
-};
+// The first screen, before any message: the mark beside the name, the model and the place, with the keys under
+// them. The mark is the owner's (cedian's brand/mark, script/brand/icon.py): seeds set at the golden angle, as a
+// sunflower sets them, the outer seeds larger, the first one in the brand color. Here each seed is one character
+// on a grid twice as wide as it is tall, as a terminal cell is, sized by the seed's radius.
+const GOLDEN = (137.508 * Math.PI) / 180;
+const LAYOUT = { count: 34, spread: 7.1, inner: 2.2, outer: 5.2, first: 1.35 };
 
-/** A run of the wordmark's characters in one color: the letters, or the dot of the i. */
-export type MarkRun = { text: string; dot?: boolean };
+type Seed = { x: number; y: number; r: number; first: boolean };
 
-/** The word in half blocks, one list of runs per terminal row; each row's runs join to the same width. */
-export function wordmarkRuns(word = 'cedia'): MarkRun[][] {
-  const glyphs = [...word].map((ch) => GLYPHS[ch]).filter((g): g is string[] => !!g);
-  const rows: MarkRun[][] = [];
-  for (let r = 0; r < 8; r += 2) {
-    const runs: MarkRun[] = [];
-    const put = (text: string, dot: boolean) => {
-      const last = runs.at(-1);
-      if (last && !!last.dot === dot) last.text += text;
-      else runs.push(dot ? { text, dot } : { text });
-    };
-    glyphs.forEach((g, gi) => {
-      if (gi) put('  ', false);
-      for (let x = 0; x < g[r]!.length; x++) {
-        const top = g[r]![x]!;
-        const bottom = g[r + 1]![x]!;
-        const ch = top !== ' ' ? (bottom !== ' ' ? '█' : '▀') : bottom !== ' ' ? '▄' : ' ';
-        put(ch, top === '*' || bottom === '*');
-      }
-    });
-    rows.push(runs);
+/** The seeds on a 100-unit square centered on 50, 50, outermost first (the same sums as the brand's script). */
+export function seeds(): Seed[] {
+  const out: Seed[] = [];
+  for (let i = LAYOUT.count; i >= 1; i--) {
+    const a = i * GOLDEN;
+    const d = LAYOUT.spread * Math.sqrt(i);
+    const r = LAYOUT.inner + (LAYOUT.outer - LAYOUT.inner) * Math.sqrt(i / LAYOUT.count);
+    out.push({ x: 50 + d * Math.cos(a), y: 50 + d * Math.sin(a), r: i === 1 ? r * LAYOUT.first : r, first: i === 1 });
   }
-  return rows;
+  return out;
 }
 
-/** The word in half blocks, one string per terminal row, all the same width. */
-export function wordmark(word = 'cedia'): string[] {
-  return wordmarkRuns(word).map((runs) => runs.map((r) => r.text).join(''));
+// 22 by 9 is the smallest grid where no two seeds share a cell (they touch side by side once).
+export const MARK_WIDTH = 22;
+export const MARK_HEIGHT = 9;
+
+/** A run of the mark's characters in one color: the seeds, or the first seed. */
+export type MarkRun = { text: string; first?: boolean };
+
+/** The mark, one list of runs per terminal row; each row's runs join to MARK_WIDTH characters. */
+export function markRuns(width = MARK_WIDTH, height = MARK_HEIGHT): MarkRun[][] {
+  const grid: { ch: string; first: boolean }[][] = Array.from({ length: height }, () => Array.from({ length: width }, () => ({ ch: ' ', first: false })));
+  for (const s of seeds()) {
+    const x = Math.round(((s.x - 2) / 96) * (width - 1));
+    const y = Math.round(((s.y - 2) / 96) * (height - 1));
+    grid[y]![x] = { ch: s.first || s.r >= 4.4 ? '●' : s.r >= 3.4 ? '•' : '·', first: s.first };
+  }
+  return grid.map((row) => {
+    const runs: MarkRun[] = [];
+    for (const c of row) {
+      const last = runs.at(-1);
+      if (last && !!last.first === c.first) last.text += c.ch;
+      else runs.push(c.first ? { text: c.ch, first: true } : { text: c.ch });
+    }
+    return runs;
+  });
 }
 
-export const WORDMARK_WIDTH = wordmark()[0]!.length;
-// The splash needs the word, three lines under it and room around them; a smaller terminal keeps the plain header.
+/** The mark as plain strings, one per terminal row. */
+export function mark(): string[] {
+  return markRuns().map((runs) => runs.map((r) => r.text).join(''));
+}
+
+// The splash needs the mark, the lines beside or under it and room around them; a smaller terminal keeps the
+// plain header. Narrower than SPLASH_SIDE_COLUMNS, the lines go under the mark.
 export const SPLASH_MIN_ROWS = 20;
 export const SPLASH_MIN_COLUMNS = 44;
+export const SPLASH_SIDE_COLUMNS = 72;
 
 export function showSplash(rows: number, columns: number, screenReader: boolean): boolean {
   return !screenReader && rows >= SPLASH_MIN_ROWS && columns >= SPLASH_MIN_COLUMNS;

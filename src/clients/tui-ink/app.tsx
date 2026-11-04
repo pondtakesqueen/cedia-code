@@ -33,7 +33,7 @@ import { cancelStep, messageFullySelected, offsetForIndex, rowMapFromWalk, selec
 import { createHeightCache, heightCacheKey, visibleWindow } from './visible-window.ts';
 import { assignRecycleSlots, messageSlotKey, type RecycleSlot } from './virtual-list.ts';
 import { onTerminalResume } from './terminal-resume.ts';
-import { showSplash, wordmarkRuns } from './splash.ts';
+import { MARK_WIDTH, SPLASH_SIDE_COLUMNS, markRuns, showSplash } from './splash.ts';
 import { SUBTHREAD_HINT, childThreads, recentCalls, subthreadLines } from './subthreads.ts';
 import { runOwnerShell, shellCommand, shellEnd, shellNote, type ShellRun } from './shell.ts';
 import { FOCUS_OFF, FOCUS_ON, NOTIFY_MODES, channelFor, focusFrom, notifyModeFrom, notifySequence, shouldNotify, turnNotice, type Focus } from './notify.ts';
@@ -2269,7 +2269,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       {splash ? null : displayMessages.length === 0 ? (
         <Box flexDirection="column" flexShrink={0} paddingX={1} marginTop={screenReader ? 0 : 1}>
           <Text>
-            <Text color={screenReader ? undefined : T.primary} bold={!screenReader}>{screenReader ? 'cedia' : '◆ cedia'}</Text>
+            <Text color={screenReader ? undefined : T.primary} bold={!screenReader}>{screenReader ? 'cedia' : '● cedia'}</Text>
             <Text color={screenReader ? undefined : T.textMuted}>  {versionInfo().version}</Text>
           </Text>
           <Text wrap="truncate">
@@ -2290,7 +2290,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       ) : (
         <Box paddingX={1} flexShrink={0}>
           <Text wrap="truncate" color={screenReader ? undefined : T.textMuted}>
-            <Text color={screenReader ? undefined : T.primary}>{screenReader ? '' : '◆ '}</Text>
+            <Text color={screenReader ? undefined : T.primary}>{screenReader ? '' : '● '}</Text>
             {(() => {
               const lead = `cedia · ${effModel?.label ?? model ?? 'auto'}${branch ? (screenReader ? ` · branch ${branch}` : ` · ⎇ ${branch}`) : ''}`;
               // The path goes last and gives way first: it takes what the line has left.
@@ -2307,15 +2307,34 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       <Box flexDirection="column" flexGrow={1} overflow="hidden" justifyContent={splash ? 'center' : 'flex-end'} alignItems={splash ? 'center' : undefined} paddingX={1}>
           {splash ? (
             <>
-              {wordmarkRuns().map((runs, i) => (
-                <Text key={i}>{runs.map((r, j) => <Text key={j} color={r.dot ? T.primary : T.heading}>{r.text}</Text>)}</Text>
-              ))}
-              <Text> </Text>
-              <Text wrap="truncate">
-                <Text color={T.text}>{effModel?.label ?? model ?? 'auto'}</Text>
-                {branch ? <Text color={T.thinking}>{` · ⎇ ${branch}`}</Text> : null}
-              </Text>
-              <Text wrap="truncate" color={T.textMuted}>{fitPath(shortCwd(args.cwd), Math.max(10, columns - 16))}<Text color={T.textFaint}>{`  ${versionInfo().version}`}</Text></Text>
+              {(() => {
+                // The mark, with the name, the model and the place beside it; on a narrower screen, under it.
+                const side = columns >= SPLASH_SIDE_COLUMNS;
+                const room = Math.max(10, side ? columns - MARK_WIDTH - 10 : columns - 6);
+                const facts = (
+                  <Box flexDirection="column" alignItems={side ? 'flex-start' : 'center'} marginLeft={side ? 4 : 0} marginTop={side ? 0 : 1}>
+                    <Text>
+                      <Text color={T.heading} bold>cedia</Text>
+                      <Text color={T.textFaint}>{`  ${versionInfo().version}`}</Text>
+                    </Text>
+                    <Text wrap="truncate">
+                      <Text color={T.text}>{effModel?.label ?? model ?? 'auto'}</Text>
+                      {branch ? <Text color={T.textMuted}>{` · ⎇ ${branch}`}</Text> : null}
+                    </Text>
+                    <Text wrap="truncate" color={T.textMuted}>{fitPath(shortCwd(args.cwd), room)}</Text>
+                  </Box>
+                );
+                return (
+                  <Box flexDirection={side ? 'row' : 'column'} alignItems="center">
+                    <Box flexDirection="column" flexShrink={0}>
+                      {markRuns().map((runs, i) => (
+                        <Text key={i}>{runs.map((r, j) => <Text key={j} color={r.first ? T.primary : T.text}>{r.text}</Text>)}</Text>
+                      ))}
+                    </Box>
+                    {facts}
+                  </Box>
+                );
+              })()}
               <Text> </Text>
               <Text wrap="truncate">
                 {KEY_HINTS.map(([k, v], i) => (

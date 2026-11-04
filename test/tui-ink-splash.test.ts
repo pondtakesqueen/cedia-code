@@ -1,19 +1,19 @@
 import { describe, expect, test } from 'bun:test';
-import { SPLASH_MIN_COLUMNS, SPLASH_MIN_ROWS, WORDMARK_WIDTH, showSplash, wordmark, wordmarkRuns } from '../src/clients/tui-ink/splash.ts';
+import { MARK_HEIGHT, MARK_WIDTH, SPLASH_MIN_COLUMNS, SPLASH_MIN_ROWS, mark, markRuns, seeds, showSplash } from '../src/clients/tui-ink/splash.ts';
 
 describe('the first screen (splash.ts)', () => {
-  test('the wordmark is four rows of half blocks, all one width', () => {
-    const rows = wordmark();
-    expect(rows).toHaveLength(4);
+  test('the mark is every seed of the brand, one character each, on a grid of one width', () => {
+    const rows = mark();
+    expect(rows).toHaveLength(MARK_HEIGHT);
     for (const r of rows) {
-      expect(r.length).toBe(WORDMARK_WIDTH);
-      expect(r).toMatch(/^[█▀▄ ]+$/);
+      expect(r.length).toBe(MARK_WIDTH);
+      expect(r).toMatch(/^[●•· ]+$/);
     }
-    // The d's ascender and the i's dot stand above the rest of the word.
-    expect(rows[0]!.trim()).toBe('██  ▀▀');
-    // Only the dot takes the brand color.
-    expect(wordmarkRuns()[0]!.filter((r) => r.dot).map((r) => r.text)).toEqual(['▀▀']);
-    expect(WORDMARK_WIDTH).toBeLessThan(SPLASH_MIN_COLUMNS);
+    // No two seeds share a cell.
+    expect(rows.join('').replace(/ /g, '').length).toBe(seeds().length);
+    // Only the first seed takes the brand color.
+    expect(markRuns().flat().filter((r) => r.first).map((r) => r.text)).toEqual(['●']);
+    expect(MARK_WIDTH).toBeLessThan(SPLASH_MIN_COLUMNS);
   });
 
   test('a screen reader, a short or a narrow terminal keep the plain header', () => {
