@@ -108,7 +108,7 @@ Cleanup deletes `/tmp/cedia-verify-$CEDIA_VERIFY_ID` and nothing else. Runs are 
 
 Cross-repo checks read cedian from the sibling directory of this checkout. The directory name is `cedian`. When this repo is `/workspace`, that path is `/cedian`.
 
-`.cursor/install.sh` clones `https://github.com/pongsathonkheereekaew/cedian.git` into that directory. `.cursor/environment.json` lists `github.com/pongsathonkheereekaew/cedian` in `repositoryDependencies`. That entry adds cedian to the GitHub token for the environment. The entry does not clone the repo.
+`.cursor/install.sh` clones `https://github.com/pondtakesqueen/cedian.git` into that directory. `.cursor/environment.json` lists `github.com/pondtakesqueen/cedian` in `repositoryDependencies`. That entry adds cedian to the GitHub token for the environment. The entry does not clone the repo.
 
 If the sibling directory has no `.git` directory, say the checkout is missing. Skip the cross-repo check. A failed clone does not fail install.
 
