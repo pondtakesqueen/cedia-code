@@ -684,6 +684,37 @@ describe('spawn effort (offline, faux)', () => {
     for (const l of logs) expect(lintSession(l)).toEqual([]);
   });
 
+  // The spawn schema says a sub-thread with no effort runs at its model's own: the writer's --effort is not
+  // passed down (a max writer made every work sub-thread max too). subthreadEffort in settings sets one.
+  const subEfforts = (kind: 'explore' | 'work', env: Record<string, string> = {}) => {
+    const spawnCall = { blocks: [{ type: 'tool_use', id: 's1', name: 'spawn', input: { task: 'find the thing', kind } }] };
+    const args = ['-p', 'find the thing, write it to f.txt, and check it', '--output-format', 'json', '--permission', 'workspace', '--sandbox', 'off', '--check', 'test -s f.txt', '--swarm', 'faux/fallback', '--effort', 'high'];
+    const r = cedia([spawnCall, { ...reply('found it'), when: 'find the thing' }, call('w1', 'echo ok > f.txt'), call('w2', 'test -s f.txt'), reply('done')], args, undefined, env);
+    expect(JSON.parse(r.out)).toMatchObject({ subtype: 'success' });
+    const home = env.CEDIA_HOME ?? r.home;
+    const root = join(home, 'sessions');
+    const [project] = readdirSync(root);
+    const logs = readdirSync(join(root, project!)).map((f) => SessionLog.load(join(root, project!, f)).events);
+    const efforts = (l: SessionEvent[]) => [...new Set(l.filter((e) => e.kind === 'request').map((q) => (q as { effort?: string }).effort))];
+    const child = logs.find((l) => l.some((e) => e.kind === 'user' && (e as { text: string }).text.includes('You are a sub-thread')))!;
+    const writer = logs.find((l) => l !== child && l.some((e) => e.kind === 'user' && (e as { text: string }).text.startsWith('find the thing, write')))!;
+    expect(child).toBeDefined();
+    for (const l of logs) expect(lintSession(l)).toEqual([]);
+    return { child: efforts(child), writer: efforts(writer) };
+  };
+  for (const kind of ['explore', 'work'] as const) {
+    test(`a ${kind} sub-thread spawned with no effort does not take the writer's --effort`, () => {
+      const e = subEfforts(kind);
+      expect(e.writer).toEqual(['high']);
+      expect(e.child).toEqual([undefined]);
+    });
+  }
+  test('subthreadEffort in settings sets the effort of a sub-thread spawned with none', () => {
+    const home = mkdtempSync(join(tmpdir(), 'cedia-subeffort-'));
+    writeFileSync(join(home, 'settings.json'), JSON.stringify({ subthreadEffort: 'low' }));
+    expect(subEfforts('work', { CEDIA_HOME: home }).child).toEqual(['low']);
+  });
+
   test('a sub-thread takes the handoff window the spawn call names, and the run goes on', () => {
     const spawnCall = { blocks: [{ type: 'tool_use', id: 's1', name: 'spawn', input: { task: 'find the thing', kind: 'explore', handoffAt: 100_000 } }] };
     const args = ['-p', 'find the thing, write it to f.txt, and check it', '--output-format', 'json', '--permission', 'workspace', '--sandbox', 'off', '--check', 'test -s f.txt', '--swarm', 'faux/fallback'];

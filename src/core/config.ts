@@ -84,6 +84,9 @@ export type Settings = {
   // levels above it resolve down to it. Flags choose under it, never over. User settings only
   // (or CEDIA_MAX_EFFORT).
   maxEffort?: Effort;
+  // The effort a sub-thread spawned with none runs at (or CEDIA_SUBTHREAD_EFFORT). Unset, it runs at its model's
+  // own default, never at the writer's --effort.
+  subthreadEffort?: Effort;
   // The terminal UI's colors: "dark" (the default) or "light". cedia's run never reads it; /theme writes it.
   theme?: 'dark' | 'light';
   // How the terminal UI tells the owner a turn ended while its terminal was in the background: "auto" (the
@@ -123,6 +126,7 @@ const SETTINGS_KEYS: Record<keyof Settings, readonly string[] | 'any'> = {
   promptSuggestions: 'any',
   localModels: 'any',
   maxEffort: 'any',
+  subthreadEffort: 'any',
   theme: 'any',
   notify: 'any',
 };
@@ -268,6 +272,15 @@ export function loadMaxEffort(env: Record<string, string | undefined> = process.
   if (raw === undefined) return undefined;
   if (typeof raw !== 'string' || !(EFFORTS as string[]).includes(raw))
     throw new Error(`maxEffort must be one of ${EFFORTS.join(', ')}: ${JSON.stringify(raw)}`);
+  return raw as Effort;
+}
+
+// The effort a sub-thread spawned with none runs at: user settings, or CEDIA_SUBTHREAD_EFFORT. Unset, its model's own.
+export function loadSubthreadEffort(env: Record<string, string | undefined> = process.env): Effort | undefined {
+  const raw = env.CEDIA_SUBTHREAD_EFFORT ?? readSettings(join(cediaHome(), 'settings.json')).subthreadEffort;
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'string' || !(EFFORTS as string[]).includes(raw))
+    throw new Error(`subthreadEffort must be one of ${EFFORTS.join(', ')}: ${JSON.stringify(raw)}`);
   return raw as Effort;
 }
 

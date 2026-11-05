@@ -10,7 +10,7 @@ import { providerFor } from '../../core/providers/index.ts';
 import { projectKey, projectRoot, projectSlug, SessionLog, sessionExists, sessionPath, workspaceRoots } from '../../core/session/log.ts';
 import { DAILY_SPEND_WARN_USD, daySpendUsd } from '../../core/session/select.ts';
 import { dayOf } from '../../core/session/usage.ts';
-import { cediaHome, sharedSkillDirs, detectChecks, loadChecks, loadContext, loadFallback, loadMedia, loadHandoff, loadHandoffAt, loadHooks, loadMcp, loadMaxEffort, capEffort, loadPolicy, loadPrivacy, loadQuotaWait, loadRoles, loadSandbox, loadSpawn, loadAsk, loadJobs, loadTodo, loadCreator, loadProfiles, loadLsp, loadPlanWhen, loadPlanOverlap, loadPromptSuggestions, isMode, modeFlags, type Mode, type RoleChoice } from '../../core/config.ts';
+import { cediaHome, sharedSkillDirs, detectChecks, loadChecks, loadContext, loadFallback, loadMedia, loadHandoff, loadHandoffAt, loadHooks, loadMcp, loadMaxEffort, loadSubthreadEffort, capEffort, loadPolicy, loadPrivacy, loadQuotaWait, loadRoles, loadSandbox, loadSpawn, loadAsk, loadJobs, loadTodo, loadCreator, loadProfiles, loadLsp, loadPlanWhen, loadPlanOverlap, loadPromptSuggestions, isMode, modeFlags, type Mode, type RoleChoice } from '../../core/config.ts';
 import { attachedNote, blobDir, STORED_IMAGE, storedImage, type ImageRef } from '../../core/images.ts';
 import { storeAttachment } from '../../core/video.ts';
 import { claimThread } from '../../core/project/busy.ts';
@@ -314,6 +314,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
   const creatorOn = loadCreator(args.creator);
   const promptSuggestionsOn = loadPromptSuggestions(args.promptSuggestions);
   const planWhen = loadPlanWhen(args.planWhen);
+  const subthreadEffort = loadSubthreadEffort();
   const planOverlap = loadPlanOverlap(args.planOverlap);
   const cacheTtl = args.cacheTtl ?? '5m';
   warnDaySpend(args.cwd, cediaHome(), say);
@@ -698,7 +699,9 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
         ...(quotaWaitMs !== undefined && !helper
           ? { quotaWaitMs: quotaWaitMs - quotaWaited, onQuotaWait: (ms: number) => ((quotaWaited += ms), say(`cedia: ${m.ref} is out of quota; waiting ${Math.ceil(ms / 60_000)} min for it to come back\n`)) }
           : {}),
-        ...(opts.effort ? { effort: opts.effort } : helper ? (m.defaultEffort ? { effort: 'low' as Effort } : {}) : args.effort ?? m.defaultEffort ? { effort: args.effort ?? m.defaultEffort } : {}),
+        // A sub-thread spawned with no effort runs at its model's own, as the spawn schema says: the writer's
+        // --effort is the writer's (a max writer made every work sub-thread max). subthreadEffort comes as opts.effort.
+        ...(opts.effort ? { effort: opts.effort } : helper ? (m.defaultEffort ? { effort: 'low' as Effort } : {}) : child ? (m.defaultEffort ? { effort: m.defaultEffort } : {}) : args.effort ?? m.defaultEffort ? { effort: args.effort ?? m.defaultEffort } : {}),
         ...(args['context-management'] ? { contextManagement: { edits: args['context-management'].split(',').map((e) => ({ type: e.trim() })) } } : {}),
         ...(args.streamingTools ? { streamingTools: true } : {}),
         ...(escalate && !reviewer ? { escalate } : {}),
@@ -901,7 +904,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
       if (store && sub) store.append(sub, { kind: 'session', sessionId: log.id, model: m.ref, role: kind === 'explore' ? 'explore' : 'code', why, ...(log.path ? { path: log.path } : {}) });
       mine.push({ id: log.id, events: () => log.events });
       const child = { ...(sub ? { thread: sub } : {}), ...(kind === 'work' && handoffsHere < MAX_HANDOFFS ? { handoff: true } : {}), ...(part ? { part: true as const } : {}), ...(mine.length > 1 ? { recall: recallMine } : {}), ...(place ? { place } : {}) };
-      const r = await run(m, log, prompt, { ...opts, ...(kind === 'explore' ? { role: 'explore' as const } : {}), ...(effort ? { effort } : {}), ...(window !== undefined ? { handoffAt: window } : {}), child });
+      const r = await run(m, log, prompt, { ...opts, ...(kind === 'explore' ? { role: 'explore' as const } : {}), ...((effort ?? subthreadEffort) ? { effort: effort ?? subthreadEffort } : {}), ...(window !== undefined ? { handoffAt: window } : {}), child });
       cost += r.costUsd;
       spawned.peakContext = Math.max(spawned.peakContext, r.peakContext ?? 0);
       return { log, r };
