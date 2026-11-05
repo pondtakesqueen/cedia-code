@@ -12,4 +12,4 @@
 
 ## Eval gate
 
-<!-- For a change to a prompt, a default, the loop, a tool or the trust layer: the `bun evals/gate.ts` report. Otherwise: not needed. -->
+<!-- For a change to a prompt, a default, the loop, a tool or the trust layer: the `bun evals/gate.ts` report (CI checks for it). Otherwise: "Not needed" and why. -->
