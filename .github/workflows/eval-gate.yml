@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # The base commit, for the list of changed files.
           fetch-depth: 0
@@ -57,7 +57,7 @@ jobs:
             echo "::error::Add an OPENCODE_API_KEY repository secret to run the gate here, or run bun evals/gate.ts locally."
             exit 1
           fi
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # The real-* tasks are built from this repository's history.
           fetch-depth: 0
@@ -96,7 +96,7 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$code"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: eval-gate
