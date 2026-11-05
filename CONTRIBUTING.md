@@ -12,7 +12,7 @@ This repository is proprietary (see `LICENSE`): talk to the owner before writing
 ## Before you merge
 
 - `bun run typecheck` and `bun test` green.
-- A change to a prompt, a default, the loop, a tool, or the trust layer runs the eval gate first (`bun evals/gate.ts`; `evals/gate/README.md`) and puts its report in the PR description. The `eval-gate` check reruns it on the pull request; a red check blocks the merge until the failing rows are read. A change meant to move the numbers runs `--update-baseline` in the same PR and says why.
+- A change to a prompt, a default, the loop, a tool, or the trust layer runs the eval gate first (`bun evals/gate.ts`; `evals/gate/README.md`) and puts its report in the PR description. The `eval-gate` report check fails until the PR's "Eval gate" section holds the report, or "Not needed" and why. A change meant to move the numbers runs `--update-baseline` in the same PR and says why.
 - Protocol types changed? Regenerate with `bun scripts/protocol-schema.ts`. Run output changed? Re-record with `bun scripts/session-fixtures.ts` (`test/fixtures.test.ts` fails when either is stale).
 
 ## Clean room

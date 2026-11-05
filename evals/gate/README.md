@@ -13,9 +13,9 @@ Exit 0: no model got worse. 1: a model regressed. 3: no comparison could be made
 
 ## In CI
 
-`.github/workflows/eval-gate.yml` runs the regression suite on a pull request (not a draft) that touches what the model sees or how a run is scored: the prompts, roles, loop, tools, trust, safety, context, session, memory, skills and providers under `src/core`, the headless client, `src/cli.ts`, `evals/`, and the lockfile. It also runs both suites on main every Monday, to catch a model or provider that changed while the code did not, and it can be started by hand (Actions, eval-gate, Run workflow) with a suite and `--only`.
+The gate runs where a key and a quota are: your machine or a Claude session. On a pull request, `.github/workflows/eval-gate.yml` only checks that it ran (`evals/gate-report.ts`, no model, no secret): a PR that changes what the model sees or how a run is scored (the prompts, roles, config, loop, tools, trust, safety, context, session, memory, skills and providers under `src/core`, the headless client, `src/cli.ts`, `evals/` scripts and tasks, the lockfile) fails the `report` check until its "Eval gate" section holds the gate's report (a model's `PASS`, `REGRESSED` or `INCONCLUSIVE` line, or the result file's path) or "Not needed" with the reason. Editing the description reruns the check.
 
-Exit 1 fails the check. Exit 3 is a warning: it says nothing about the change (an OpenCode Go quota, provider errors, a missing baseline). The report is in the job summary, and the result rows and log are an artifact for `--compare`. CI never runs `--update-baseline`. It needs the `OPENCODE_API_KEY` repository secret; without it the job skips with a warning. A local run is still how you get the report into the PR description before the check has finished.
+The gate itself can run in Actions by hand (eval-gate, Run workflow, with a suite and `--only`) once an `OPENCODE_API_KEY` repository secret exists. It never runs `--update-baseline`.
 
 ## What it runs
 
