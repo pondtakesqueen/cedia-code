@@ -40,7 +40,7 @@ export type Capability =
   | 'cache-ttl' // --cache-ttl 5m|1h: how long the writer's cached prompt lasts on the Anthropic wire
   | 'threads.rename' // cedia threads rename <id> <title>: a 'title' thread event, the latest one the thread's title
   | 'threads.delete' // cedia threads delete <id> [--force] [--json] (DeleteResult): the thread, its sub-threads and their logs
-  | 'settings.edit' // cedia settings get|set <key> <value>|unset <key> --json (EditableSettings): roles, fallback, media, efforts, onQuota, planWhen, planOverlap
+  | 'settings.edit' // cedia settings get|set <key> <value>|unset <key> --json (EditableSettings): roles, fallback, media, efforts, quota, planning, privacy, context, spawn, handoff, lsp, switches, sandbox and permission lists
   | 'mcp.manage' // cedia mcp list|check --json (McpList, McpCheck), add and remove: the user's MCP servers
   | 'commit' // cedia commit --thread <id> [--message <m> [--file <f>]...] --json (CommitDraft, Committed): the thread's files
   | 'pr' // cedia pr [--check] --json (PrPlan, PrOpened): push the branch and open its pull request through gh
