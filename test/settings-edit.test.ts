@@ -22,12 +22,12 @@ const file = (dir: string) => JSON.parse(readFileSync(join(dir, 'settings.json')
 
 describe('cedia settings get|set|unset', () => {
   test('get names the editable keys and their defaults, never the rest of the file', () => {
-    home({ roles: { plan: 'opus@high' }, mcpServers: { x: { command: 'x', env: { TOKEN: 'secret' } } }, media: 'none' });
+    home({ roles: { plan: 'opus@high' }, mcpServers: { x: { command: 'x', env: { TOKEN: 'tok-9f3a' } } }, media: 'none' });
     const e = getEditable();
     expect(e.roles).toEqual({ plan: 'opus@high' });
     expect(e.media).toBe('none');
     expect(e.defaults.code).toBe('opencode-go/claude-haiku-5-5');
-    expect(JSON.stringify(e)).not.toContain('secret');
+    expect(JSON.stringify(e)).not.toContain('tok-9f3a');
   });
 
   test('set writes the key a run then reads, keeping the other keys and their order', () => {
@@ -78,5 +78,46 @@ describe('cedia settings get|set|unset', () => {
     expect(bad.status).toBe(1);
     expect(bad.stderr).toContain('subthreadEffort');
     expect(cli('set', 'media').status).toBe(2);
+  });
+
+  test('switches, lists and the rest store as a run reads them', () => {
+    const dir = home({ autoDream: true, lsp: { x: { command: ['x'], extensions: ['.x'] } } });
+    setEditable('spawn', 'worktree');
+    setEditable('jobs', 'on');
+    setEditable('handoffAt', '150000');
+    setEditable('consolidateMemory', 'off');
+    setEditable('permissions.allow', 'bash(git status*)\n\n  edit  ');
+    setEditable('sandbox.allowedDomains', 'api.example.com\n*.npmjs.org');
+    setEditable('context', 'I write in Thai\nKeep commits small');
+    const s = file(dir);
+    expect(s.spawn).toBe('worktree');
+    expect(s.jobs).toBe(true);
+    expect(s.handoffAt).toBe(150000);
+    expect(s.consolidateMemory).toBe(false);
+    expect(s.autoDream).toBeUndefined();
+    expect(s.permissions).toEqual({ allow: ['bash(git status*)', 'edit'] });
+    expect(s.sandbox).toEqual({ allowedDomains: ['api.example.com', '*.npmjs.org'] });
+    const e = getEditable();
+    expect(e.lsp).toBe('custom');
+    expect(e.consolidateMemory).toBe('off');
+    expect(e.context).toBe('I write in Thai\nKeep commits small');
+    expect(e.choices.outputStyles).toContain('default');
+    expect(() => setEditable('lsp', 'off')).toThrow('its own servers');
+    setEditable('permissions.allow', '  \n');
+    expect(file(dir).permissions).toBeUndefined();
+  });
+
+  test('a list entry a run would refuse names the entry', () => {
+    const dir = home();
+    expect(() => setEditable('permissions.unlock', 'force-push\nall-of-them')).toThrow('"all-of-them" is not a guard');
+    expect(() => setEditable('permissions.deny', 'rm -rf /')).toThrow('is not a rule');
+    expect(() => setEditable('sandbox.allowedDomains', 'https://x.com')).toThrow('is not a host');
+    expect(() => setEditable('sandbox.mode', 'maybe')).toThrow('sandbox.mode');
+    expect(() => setEditable('outputStyle', 'pirate')).toThrow('no output style');
+    expect(() => setEditable('privacy', 'public')).toThrow('privacy');
+    expect(() => setEditable('handoffAt', '10')).toThrow('handoffAt');
+    expect(() => setEditable('spawn', 'yes')).toThrow('spawn');
+    expect(() => setEditable('hooks', '{}')).toThrow('not a setting this command edits');
+    expect(() => file(dir)).toThrow();
   });
 });
