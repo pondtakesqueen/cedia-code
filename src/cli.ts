@@ -32,6 +32,7 @@ import { commandList, loadSkills } from './core/skills/skills.ts';
 import { restoredText, restoreTurn, threadTurn } from './core/project/undo.ts';
 import { rewindThread, rewoundText, runLines, type RewindResult } from './core/project/rewind.ts';
 import { addMcp, checkMcp, listMcp, removeMcp, type McpCheckTool } from './core/mcp/manage.ts';
+import { getEditable, setEditable } from './core/settings-edit.ts';
 import type { McpToolRule } from './core/mcp/client.ts';
 import { codeReview, type CodeReview } from './core/project/code-review.ts';
 import { changeGuide, DIFF_BASES, guideText, threadDiff, type ChangeGuide, type DiffBase } from './core/project/change-guide.ts';
@@ -1394,10 +1395,27 @@ function doctor(argv: string[]): number {
 function settings(argv: string[]): number {
   let parsed;
   try {
-    parsed = parseArgs({ args: argv, options: { source: { type: 'string', default: 'user' }, json: { type: 'boolean' }, cwd: { type: 'string' } } });
+    parsed = parseArgs({ args: argv, allowPositionals: true, options: { source: { type: 'string', default: 'user' }, json: { type: 'boolean' }, cwd: { type: 'string' } } });
   } catch (e) {
     console.error(`cedia: ${(e as Error).message}`);
     return 2;
+  }
+  const [cmd, ...rest] = parsed.positionals;
+  // get|set|unset: the model settings a client's settings page edits (core/settings-edit.ts).
+  if (cmd !== undefined) {
+    const ok = (cmd === 'get' && rest.length === 0) || (cmd === 'set' && rest.length === 2) || (cmd === 'unset' && rest.length === 1);
+    if (!ok) {
+      console.error('usage: cedia settings [get | set <key> <value> | unset <key>] [--json]');
+      return 2;
+    }
+    try {
+      const after = cmd === 'get' ? getEditable() : setEditable(rest[0]!, cmd === 'set' ? rest[1] : undefined);
+      console.log(parsed.values.json ? JSON.stringify(after) : JSON.stringify(after, null, 2));
+      return 0;
+    } catch (e) {
+      console.error(`cedia: ${(e as Error).message}`);
+      return 1;
+    }
   }
   // The managed tiers are gone; a client that still asks for --source user gets what it asked for.
   if (parsed.values.source !== 'user') {
