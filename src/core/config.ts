@@ -1,6 +1,6 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { MCP_TOOL_RULES, type McpServerConfig, type McpToolRule } from './mcp/client.ts';
 import { GUARDS, PERMISSION_SETTINGS, type Guard, type PermissionSetting, type Policy } from './safety/policy.ts';
 import { DEFAULT_DOMAINS, SANDBOX_SETTINGS, type SandboxSetting } from './safety/sandbox.ts';
@@ -167,6 +167,16 @@ export function readSettings(path: string): Settings {
   } catch (e) {
     throw new Error(`${path}: ${(e as Error).message}`);
   }
+}
+
+// Written whole through a temporary file, so a reader never sees half of it, and checked first, so cedia never
+// writes a file it would refuse to read.
+export function writeSettings(settings: Settings, path: string): void {
+  checkSettings(settings);
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(settings, null, 2) + '\n');
+  renameSync(tmp, path);
 }
 
 const union = <T>(...lists: (T[] | undefined)[]) => [...new Set(lists.flatMap((l) => l ?? []))];

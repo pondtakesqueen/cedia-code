@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { cediaHome, checkMcpServer, checkSettings } from '../config.ts';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { cediaHome, checkMcpServer, checkSettings, writeSettings, type Settings } from '../config.ts';
 import { McpClient, type McpToolRule } from './client.ts';
 
 // `cedia mcp`: the user's MCP servers (`mcpServers` in ~/.cedia/settings.json) for a client's settings page, which
@@ -46,14 +46,7 @@ function readRaw(path = settingsPath()): Record<string, unknown> {
   }
 }
 
-// Written whole through a temporary file, so a reader never sees half of it.
-function writeRaw(settings: Record<string, unknown>, path = settingsPath()) {
-  checkSettings(settings);
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify(settings, null, 2) + '\n');
-  renameSync(tmp, path);
-}
+const writeRaw = (settings: Record<string, unknown>, path = settingsPath()) => writeSettings(settings as Settings, path);
 
 const servers = (s: Record<string, unknown>) => (s.mcpServers ?? {}) as Record<string, unknown>;
 
