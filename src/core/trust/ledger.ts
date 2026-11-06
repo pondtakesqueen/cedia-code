@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { checkReadOnly } from '../tools/bash.ts';
+import { checkReadOnly } from '../safety/shell.ts';
 import type { EventOf, Evidence, SessionEvent } from '../types.ts';
 
 // The evidence ledger is derived from the log alone, so it says what happened, not what the model claims.

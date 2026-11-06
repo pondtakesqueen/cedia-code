@@ -2,7 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { bashTool, checkReadOnly } from '../src/core/tools/bash.ts';
+import { bashTool } from '../src/core/tools/bash.ts';
+import { checkReadOnly } from '../src/core/safety/shell.ts';
 
 describe('read-only bash policy', () => {
   const allowed = [

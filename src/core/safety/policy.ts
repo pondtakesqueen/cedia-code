@@ -1,11 +1,10 @@
 import { homedir } from 'node:os';
 import { relative } from 'node:path';
-import { checkReadOnly, redirectsOutput } from '../tools/bash.ts';
 import { effectOf, type ToolSpec } from '../tools/registry.ts';
 import { inside, realPrefix, toolPath } from '../fs-safety.ts';
 import type { JsonObject } from '../types.ts';
 import { REDACTED } from './secrets.ts';
-import { simpleCommands } from './shell.ts';
+import { checkReadOnly, redirectsOutput, simpleCommands } from './shell.ts';
 import { hooksDir, sandboxGuarded } from './sandbox.ts';
 
 // read-only: reads and read-only commands run; writes and other commands need an allow rule.

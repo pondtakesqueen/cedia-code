@@ -1,6 +1,16 @@
 // Best-effort shell reading for the permission policy. It is not a shell parser: it splits a command
 // into simple commands so a rule can look at each one's argv. The sandbox is the real boundary.
 
+// What a backslash and the character after it leave in a word, as bash reads them: outside quotes the character
+// itself (a backslash-newline joins two lines and leaves nothing); inside double quotes it escapes only $ ` " \
+// and a newline, and is kept before anything else. Every word split in cedia goes through this, so the read-only
+// check and the policy cannot read one word two ways.
+export function unescape(next: string, inDouble: boolean): string {
+  if (next === '\n') return '';
+  if (!inDouble) return next;
+  return '$`"\\'.includes(next) ? next : `\\${next}`;
+}
+
 const SEPARATORS = new Set([';', '\n', '&', '|', '(', ')', '`']);
 // Commands that run the rest of their argv as another command. `value` lists the flags whose next word is
 // their value (`nice -n 5 make` runs make, not 5); `positional` counts operands before the command (`timeout 5 make`).
@@ -47,13 +57,14 @@ export function simpleCommands(command: string): string[][] | null {
     const ch = command[i]!;
     if (quote) {
       if (ch === quote) quote = null;
-      else if (ch === '\\' && quote === '"' && i + 1 < command.length) cur += command[++i];
+      else if (ch === '\\' && quote === '"' && i + 1 < command.length) cur += unescape(command[++i]!, true);
       else cur += ch;
     } else if (ch === '"' || ch === "'") {
       quote = ch;
       has = true;
     } else if (ch === '\\' && i + 1 < command.length) {
-      cur += command[++i];
+      cur += unescape(command[++i]!, false);
+      has = true;
     } else if (ch === '&' && (command[i - 1] === '>' || command[i + 1] === '>')) {
       cur += ch; // 2>&1 and &> are redirections, not background jobs
     } else if (ch === '<' && command[i + 1] === '<' && command[i + 2] !== '<') {
@@ -220,5 +231,186 @@ function sinkLiterals(text: string): string[][] {
     }
     if (closed && s) out.push(...(simpleCommands(s) ?? []));
   }
+  return out;
+}
+
+// A command counts as read-only when every command in its pipeline, && chain or ; list is on this list (or is a
+// `cd`) and nothing writes, substitutes or redirects. Read-only commands run in parallel and in read-only sessions;
+// anything else is an `exec` call that the permission policy decides.
+
+const READ_ONLY = new Set([
+  'ls', 'cat', 'head', 'tail', 'wc', 'grep', 'rg', 'find', 'pwd', 'echo', 'sort', 'uniq', 'cut', 'tr',
+  'file', 'stat', 'du', 'which', 'date', 'uname', 'basename', 'dirname', 'realpath', 'tree', 'diff', 'sed', 'awk', 'jq', 'git', 'true',
+  'nl', 'od',
+]);
+const GIT_READ = new Set(['status', 'log', 'diff', 'show', 'branch', 'rev-parse', 'ls-files', 'blame', 'remote', 'describe', 'shortlog', 'grep']);
+// Flags that write a file or run another program (a preprocessor, a pager, a compressor, a diff driver).
+const FORBIDDEN_FLAGS: Record<string, RegExp> = {
+  find: /^-(exec|execdir|delete|ok|okdir|fprint|fprint0|fprintf|fls)$/,
+  // Short flags may come bundled (`-ni`), so a letter anywhere in the bundle counts.
+  sed: /^(-[A-Za-z]*[if]|--in-place|--file)/,
+  awk: /^(-i|-f|-E|-l|--include|--file|--exec|--load)/,
+  sort: /^(-[A-Za-z]*o|--output|--compress-program)/,
+  rg: /^--pre(=|$)/,
+  date: /^(-s|--set)/,
+  tree: /^-[A-Za-z]*[oR]/,
+  file: /^(-[A-Za-z]*C|--compile)/,
+  git: /^(-c|--exec-path|--output|-O|--open-files-in-pager|--ext-diff|--textconv)/,
+};
+
+export type Verdict = { ok: true } | { ok: false; reason: string };
+
+export function splitWords(segment: string): string[] | null {
+  const words: string[] = [];
+  let cur = '';
+  let quote: '"' | "'" | null = null;
+  let has = false;
+  for (let i = 0; i < segment.length; i++) {
+    const ch = segment[i]!;
+    if (quote) {
+      // In double quotes a backslash escapes only $ ` " \ and a newline; elsewhere bash keeps it.
+      if (ch === '\\' && quote === '"' && i + 1 < segment.length) cur += unescape(segment[++i]!, true);
+      else if (ch === quote) quote = null;
+      else cur += ch;
+    } else if (ch === '\\' && i + 1 < segment.length) {
+      // Outside quotes it takes away the next character's meaning: `\-i` is -i, `\'` a plain quote.
+      cur += unescape(segment[++i]!, false);
+      has = true;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+      has = true;
+    } else if (/\s/.test(ch)) {
+      if (cur || has) words.push(cur);
+      cur = '';
+      has = false;
+    } else cur += ch;
+  }
+  if (quote) return null;
+  if (cur || has) words.push(cur);
+  return words;
+}
+
+// Strips quoted text, escaped characters (an escaped quote opens no string) and the two harmless redirections
+// (2>&1, 2>/dev/null), leaving the operators bash acts on. An unclosed quote is left as written.
+function unquoted(command: string): string {
+  let out = '';
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i]!;
+    if (ch === '\\') {
+      out += '_';
+      i++;
+    } else if (ch === "'" || ch === '"') {
+      let j = i + 1;
+      while (j < command.length && command[j] !== ch) j += ch === '"' && command[j] === '\\' ? 2 : 1;
+      if (j >= command.length) return out + command.slice(i);
+      out += '""';
+      i = j;
+    } else out += ch;
+  }
+  return out;
+}
+const bareOf = (command: string) =>
+  unquoted(command)
+    .replace(/(^|\s)\d?>&\d(?=[\s;|&]|$)/g, ' ')
+    .replace(/(^|\s)2>\s*\/dev\/null(?=[\s;|&]|$)/g, ' ');
+
+// True when the command writes a file through `>`, `>>` or `&>`, which the split argv no longer shows.
+export const redirectsOutput = (command: string): boolean => />/.test(bareOf(command));
+
+// The words of each command the read-only check judges, split as it splits them (test/shell-agree.test.ts holds
+// it to simpleCommands on plain commands). Null when the quotes do not close.
+export function readOnlyCommands(command: string): string[][] | null {
+  const segments = splitTopLevel(command);
+  if (!segments) return null;
+  const out: string[][] = [];
+  for (const seg of segments) {
+    const words = splitWords(seg.trim());
+    if (!words) return null;
+    if (words.length) out.push(words);
+  }
+  return out;
+}
+
+export function checkReadOnly(command: string): Verdict {
+  if (/`|\$\(|<\(|>\(/.test(command)) return { ok: false, reason: 'command substitution is not allowed' };
+  // Look for operators outside quotes, so `grep "a>b"` is fine.
+  const bare = bareOf(command);
+  if (/[<>]/.test(bare) || bare.replace(/&&/g, '').includes('&')) return { ok: false, reason: 'redirection and background jobs are not allowed' };
+  const original = splitTopLevel(command);
+  if (!original) return { ok: false, reason: 'unbalanced quotes' };
+  for (const seg of original) {
+    const words = splitWords(seg.trim());
+    if (!words?.length) return { ok: false, reason: 'empty command' };
+    const [cmd, ...args] = words;
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(cmd!)) return { ok: false, reason: 'environment assignments are not allowed' };
+    // `cd <dir> && cat x` only reads: models lead most commands with a cd to the working directory. The policy reads
+    // the paths after it from the directory it names, so only a plain directory is taken.
+    if (cmd === 'cd') {
+      if (args.length > 1 || args.some((a) => a.startsWith('-') || a.includes('$'))) return { ok: false, reason: 'cd takes one plain directory here' };
+      continue;
+    }
+    if (!READ_ONLY.has(cmd!)) return { ok: false, reason: `"${cmd}" is not on the read-only list` };
+    const bad = FORBIDDEN_FLAGS[cmd!];
+    if (bad && args.some((a) => bad.test(a))) return { ok: false, reason: `"${cmd}" with that flag can write` };
+    if (cmd === 'git') {
+      // `git -C <dir> status`: the word after -C is a directory, not the subcommand.
+      let i = 0;
+      while (i < args.length && args[i]!.startsWith('-')) i += args[i] === '-C' ? 2 : 1;
+      const sub = args[i];
+      if (!sub || !GIT_READ.has(sub)) return { ok: false, reason: `git ${sub ?? ''} is not read-only` };
+      if (sub === 'branch' && args.some((a) => /^-(d|D|m|M|c|C|f)$|^--(delete|move|copy|force|set-upstream)/.test(a))) return { ok: false, reason: 'git branch with that flag writes' };
+      if (sub === 'remote' && args.some((a) => /^(add|remove|rm|rename|set-url|prune|update)$/.test(a))) return { ok: false, reason: 'git remote with that subcommand writes' };
+    }
+    // Any pipe but `||` runs a command, whatever names it (`print | cmd`), and any `>` after a print may redirect it.
+    if (cmd === 'awk' && args.some((a) => /system\s*\(|\bprintf?\b[^;{}]*>|(^|[^|])\|(?!\|)/.test(a))) return { ok: false, reason: 'awk program can write or run commands' };
+    // uniq writes its output to a second file name.
+    if (cmd === 'uniq' && args.filter((a) => !a.startsWith('-')).length > 1) return { ok: false, reason: 'uniq with an output file writes' };
+    if (cmd === 'sed' && args.some((a) => /(^|;)\s*[0-9,$]*\s*[wWe]\b|\/[wW]\s/.test(a) || sedSubstituteRuns(a))) return { ok: false, reason: 'sed script can write or run commands' };
+  }
+  return { ok: true };
+}
+
+// An `s` command with the e flag runs its result as a command, and with w writes a file, whatever the delimiter
+// (`s|a|b|gw out`).
+const sedSubstituteRuns = (script: string) =>
+  [...script.matchAll(/s([^\s\w\\])(?:\\.|(?!\1).)*\1(?:\\.|(?!\1).)*\1([A-Za-z0-9]*)/g)].some((m) => /[ewW]/.test(m[2]!));
+
+// Splits on |, ||, &&, ; and newlines outside quotes. A ; or newline that ends the command, or follows another,
+// leaves no empty command behind.
+function splitTopLevel(command: string): string[] | null {
+  const out: string[] = [];
+  let cur = '';
+  let quote: string | null = null;
+  let soft = false;
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i]!;
+    if (quote) {
+      if (ch === '\\' && quote === '"') {
+        cur += ch + (command[++i] ?? '');
+        continue;
+      }
+      if (ch === quote) quote = null;
+      cur += ch;
+    } else if (ch === '\\') {
+      cur += ch + (command[++i] ?? '');
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+      cur += ch;
+    } else if ((ch === '|' || ch === '&') && (command[i + 1] === ch || ch === '|')) {
+      out.push(cur);
+      cur = '';
+      soft = false;
+      if (command[i + 1] === ch) i++;
+    } else if (ch === ';' || ch === '\n') {
+      if (cur.trim() || !soft) out.push(cur);
+      cur = '';
+      soft = true;
+    } else {
+      cur += ch;
+      if (ch.trim()) soft = false;
+    }
+  }
+  if (quote) return null;
+  if (cur.trim() || !soft) out.push(cur);
   return out;
 }
