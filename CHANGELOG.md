@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Security: a repository's `.cedia/settings.json` checks and the detected test command no longer become commands plan, review and explore sessions may run; only the owner's checks (`--check`, `~/.cedia/settings.json`) do, each as the exact command. Before, a repo check of `*` let a read-only run's explore sub-thread run any command.
+- Security: a call decided before an earlier call of the same reply ran is decided again once a writing call has run, so a symlink made by bash in that reply no longer carries a write out of the workspace (or into `.git/hooks`) or a read into a credential store.
+- Security: the policy and the file tools read a path the same way (`~` is home), so `~/../../.ssh/config` is no longer judged as one path and opened as another.
+- Security: grep is denied when a credential store lies under the directory it searches, and the model's glob can no longer bring back files named like credentials.
+- Security: the browser refuses a host name that resolves to a private address unless the user named it, as web_fetch does.
 - Creator mode (`--creator on`, `creator` in settings; off by default): the writer gets the `plugin` tool, installs a plugin it wrote in the working directory (Claude Code layout) and loads its skills in the same run without touching the cached prefix; it cannot replace or remove the user's own plugins, and the plugin's MCP servers and hooks do not start. `/make-plugin` is the procedure (capability `creator`).
 - `--browser-sites <hosts|none>`: the only hosts the browser tool opens besides loopback, whatever the sandbox or allow rules say, so the desktop's per-project site allowlist is the agent's too (capability `browser.sites`).
 - Skills honor `disable-model-invocation: true`: such a skill is a `/` command only, left out of the first turn's skill list and counted apart from its cap of 50, so pstack (`cedia marketplace add cursor github:cursor/plugins`, `cedia plugin install pstack@cursor`) adds one listed skill rather than 58. A bare name such as `/statechart` finds the one plugin skill named `<plugin>:statechart`; `cedia skills` marks the `/`-only ones.

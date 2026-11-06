@@ -1,8 +1,7 @@
 import { readFileSync, statSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
 import { sniffImage, storeImage } from '../images.ts';
 import { fileHead, sniffVideo, videoFrames, videoNote } from '../video.ts';
-import { clip, MAX_OUTPUT_CHARS, type ToolSpec } from './registry.ts';
+import { clip, MAX_OUTPUT_CHARS, toolPath, type ToolSpec } from './registry.ts';
 
 const MAX_LINES = 2000;
 
@@ -26,7 +25,7 @@ export const readTool: ToolSpec = {
   async run(input, ctx) {
     const path = String(input.path ?? '');
     if (!path) return { text: 'path is required', isError: true };
-    const full = isAbsolute(path) ? path : resolve(ctx.cwd, path);
+    const full = toolPath(path, ctx.cwd);
     let bytes: Buffer;
     try {
       if (statSync(full).isDirectory()) return { text: `${path} is a directory`, isError: true };

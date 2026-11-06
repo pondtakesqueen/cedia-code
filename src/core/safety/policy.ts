@@ -2,7 +2,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { checkReadOnly, redirectsOutput } from '../tools/bash.ts';
-import { effectOf, type ToolSpec } from '../tools/registry.ts';
+import { effectOf, toolPath, type ToolSpec } from '../tools/registry.ts';
 import type { JsonObject } from '../types.ts';
 import { REDACTED } from './secrets.ts';
 import { simpleCommands } from './shell.ts';
@@ -79,7 +79,9 @@ export function decide(policy: Policy, spec: ToolSpec, input: JsonObject, cwd: s
     }
   }
   if (!unlocked('secret-path') && policy.secrets?.length) {
-    const named = command !== undefined ? secretInCommand(command, commands!, policy.secrets, cwd) : path !== undefined ? secretUnder(path, policy.secrets, cwd) : undefined;
+    const named = command !== undefined ? secretInCommand(command, commands!, policy.secrets, cwd) : path !== undefined ? secretUnder(path, policy.secrets, cwd, cwd, spec.readsTree === true) : undefined;
+    if (named && spec.readsTree && path !== undefined && secretUnder(path, policy.secrets, cwd) === undefined)
+      return deny('deny-list:secret-path', `${named} holds credentials and lies under ${path}; search a narrower path that does not hold it`);
     if (named) return deny('deny-list:secret-path', `${named} holds credentials; cedia keeps it away from the model. Ask the user to run it`);
   }
   if (effect !== 'read' && JSON.stringify(input).includes(REDACTED))
@@ -159,7 +161,7 @@ function matches(rule: string, tool: string, commands: string[][] | null | undef
     return commands.length > 0 && commands.every((argv) => re.test(line(argv)) || (argv[0] !== 'cd' && checkReadOnly(line(argv)).ok));
   }
   if (path === undefined) return false;
-  const full = resolve(cwd, path);
+  const full = toolPath(path, cwd);
   return re.test(path) || re.test(full) || re.test(relative(cwd, full));
 }
 
@@ -220,7 +222,7 @@ function glob(pattern: string): RegExp {
 
 export function insideWorkspace(path: string, cwd: string): boolean {
   const root = real(cwd);
-  const full = real(resolve(cwd, expandHome(path)));
+  const full = real(toolPath(path, cwd));
   const rel = relative(root, full);
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
@@ -247,7 +249,7 @@ export function real(path: string, realpath: (p: string) => string = realpathSyn
 // .git (hooks and config run code later, outside any sandbox), a hooks directory set by core.hooksPath (.husky)
 // and .cedia (cedia's rules and checks).
 export function protectedPath(path: string, cwd: string): boolean {
-  const full = real(resolve(cwd, expandHome(path)));
+  const full = real(toolPath(path, cwd));
   if (/^(\.git|\.cedia)(\/|$)/.test(relative(real(cwd), full))) return true;
   const hooks = hooksDir(cwd);
   return hooks !== undefined && within(full, real(hooks));
@@ -256,12 +258,13 @@ export function protectedPath(path: string, cwd: string): boolean {
 // The first secret store `path` falls under, if any. A store that holds the working directory is skipped, so
 // a session run inside cedia's own home can still read its files.
 // `from` is the directory a relative path is read from: the working directory, or where a `cd` before it went.
-function secretUnder(path: string, secrets: string[], cwd: string, from = cwd): string | undefined {
-  const full = real(resolve(from, expandHome(path)));
+// `tree`: the tool reads everything under the path (grep), so a store inside it counts as well.
+function secretUnder(path: string, secrets: string[], cwd: string, from = cwd, tree = false): string | undefined {
+  const full = real(toolPath(path, from));
   const root = real(cwd);
   return secrets.find((s) => {
     const store = real(s);
-    return !within(root, store) && within(full, store);
+    return !within(root, store) && (within(full, store) || (tree && within(store, full)));
   });
 }
 

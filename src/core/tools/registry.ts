@@ -1,4 +1,13 @@
+import { homedir } from 'node:os';
+import { isAbsolute, resolve } from 'node:path';
 import type { JsonObject, ToolDef, ToolEffect, ToolOutput } from '../types.ts';
+
+// The file a path a tool was given names: `~` is the home directory, a relative path is read from `cwd`. The
+// policy judges paths with this and the file tools open them with it, so the two can never mean different files.
+export function toolPath(path: string, cwd: string): string {
+  const expanded = path === '~' || path.startsWith('~/') ? homedir() + path.slice(1) : path;
+  return isAbsolute(expanded) ? expanded : resolve(cwd, expanded);
+}
 
 // `wrap` puts a shell command inside the OS sandbox when one is on. `spill` writes a whole output too long for
 // the result to a file (redacted like a result) and returns its path, or undefined when it could not.
@@ -21,6 +30,8 @@ export type ToolSpec = ToolDef & {
   // The path a call reads or writes, so the policy can keep writes inside the working directory and reads out of
   // credential stores.
   pathOf?(input: JsonObject): string | undefined;
+  // The tool reads everything under pathOf (grep): a credential store inside that directory is kept away too.
+  readsTree?: true;
   replay: 'safe' | 'unsafe';
   // A writing call that does its work away from the working directory (a work sub-thread in its own worktree)
   // and writes it only through `ctx.write`: it runs in parallel with the calls beside it, as reads do. The policy

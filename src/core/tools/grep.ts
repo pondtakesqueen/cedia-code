@@ -1,5 +1,5 @@
-import { isAbsolute, relative, resolve } from 'node:path';
-import { clip, MAX_SHELL_OUTPUT_CHARS, type ToolSpec } from './registry.ts';
+import { relative } from 'node:path';
+import { clip, MAX_SHELL_OUTPUT_CHARS, toolPath, type ToolSpec } from './registry.ts';
 
 // Search file contents with ripgrep, which skips what .gitignore and .ignore list (build output, dependencies,
 // worktrees), so a question about a large repository does not read gigabytes it never needed: on a 2.8 GB tree a
@@ -32,12 +32,13 @@ export const grepTool: ToolSpec = {
   },
   effect: 'read',
   pathOf: (input) => (typeof input.path === 'string' ? input.path : '.'),
+  readsTree: true,
   replay: 'safe',
   async run(input, ctx) {
     const pattern = typeof input.pattern === 'string' ? input.pattern : '';
     if (!pattern) return { text: 'pattern is required', isError: true };
     const where = typeof input.path === 'string' && input.path ? input.path : '.';
-    const full = isAbsolute(where) ? where : resolve(ctx.cwd, where);
+    const full = toolPath(where, ctx.cwd);
     const target = relative(ctx.cwd, full) || '.';
     const glob = typeof input.glob === 'string' && input.glob ? input.glob : undefined;
     const icase = input.ignore_case === true;
@@ -45,7 +46,8 @@ export const grepTool: ToolSpec = {
     const rg = rgPath();
     let argv: string[];
     if (rg) {
-      argv = [rg, '--no-config', '--color', 'never', '--no-heading', '--line-number', '--max-columns', String(MAX_COLUMNS), '--max-columns-preview', '--hidden', '--glob', '!.git', ...SECRET_GLOBS.flatMap((g) => ['--glob', `!${g}`]), ...(icase ? ['-i'] : []), ...(files ? ['-l'] : []), ...(glob ? ['--glob', glob] : []), '-e', pattern, ...(target === '.' ? [] : ['--', target])];
+      // The later --glob wins in ripgrep, so cedia's exclusions come after the model's glob.
+      argv = [rg, '--no-config', '--color', 'never', '--no-heading', '--line-number', '--max-columns', String(MAX_COLUMNS), '--max-columns-preview', '--hidden', ...(icase ? ['-i'] : []), ...(files ? ['-l'] : []), ...(glob ? ['--glob', glob] : []), '--glob', '!.git', ...SECRET_GLOBS.flatMap((g) => ['--glob', `!${g}`]), '-e', pattern, ...(target === '.' ? [] : ['--', target])];
     } else {
       const inRepo = Bun.spawnSync(['git', 'rev-parse', '--is-inside-work-tree'], { cwd: ctx.cwd, stdout: 'pipe', stderr: 'ignore' }).stdout.toString().trim() === 'true';
       if (!inRepo) return { text: 'ripgrep (rg) is not installed and this is not a git repository: search with grep in bash', isError: true };

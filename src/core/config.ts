@@ -527,11 +527,19 @@ export function loadPlanOverlap(flag?: string): boolean {
   return v === 'on';
 }
 
-// Declared checks for the done gate. Declaring a check grants nothing, so a repo may declare its own.
+// Declared checks for the done gate. Declaring a check grants nothing, so a repo may declare its own: only the
+// owner's checks (loadOwnerChecks) become commands a read-only session may run.
 export function loadChecks(cwd: string, flags: string[] = []): string[] {
   const user = readSettings(join(cediaHome(), 'settings.json')).checks ?? [];
   const project = readSettings(join(cwd, '.cedia', 'settings.json')).checks ?? [];
   return [...new Set([...flags, ...project, ...user])];
+}
+
+// The checks the owner declared (flags and ~/.cedia/settings.json), never the repo's or a detected one: these are
+// the commands plan, review and explore sessions may run to see what fails.
+export function loadOwnerChecks(flags: string[] = []): string[] {
+  const user = readSettings(join(cediaHome(), 'settings.json')).checks ?? [];
+  return [...new Set([...flags, ...user])];
 }
 
 // With no declared checks, the repo's own test command, so the done gate still asks for evidence. Detected

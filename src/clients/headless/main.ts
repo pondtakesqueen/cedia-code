@@ -10,7 +10,7 @@ import { providerFor } from '../../core/providers/index.ts';
 import { projectKey, projectRoot, projectSlug, SessionLog, sessionExists, sessionPath, workspaceRoots } from '../../core/session/log.ts';
 import { DAILY_SPEND_WARN_USD, daySpendUsd } from '../../core/session/select.ts';
 import { dayOf } from '../../core/session/usage.ts';
-import { cediaHome, sharedSkillDirs, detectChecks, loadChecks, loadContext, loadFallback, loadMedia, loadHandoff, loadHandoffAt, loadHooks, loadMcp, loadMaxEffort, loadSubthreadEffort, capEffort, loadPolicy, loadPrivacy, loadQuotaWait, loadRoles, loadSandbox, loadSpawn, loadAsk, loadJobs, loadTodo, loadCreator, loadProfiles, loadLsp, loadPlanWhen, loadPlanOverlap, loadPromptSuggestions, isMode, modeFlags, type Mode, type RoleChoice } from '../../core/config.ts';
+import { cediaHome, sharedSkillDirs, detectChecks, loadChecks, loadOwnerChecks, loadContext, loadFallback, loadMedia, loadHandoff, loadHandoffAt, loadHooks, loadMcp, loadMaxEffort, loadSubthreadEffort, capEffort, loadPolicy, loadPrivacy, loadQuotaWait, loadRoles, loadSandbox, loadSpawn, loadAsk, loadJobs, loadTodo, loadCreator, loadProfiles, loadLsp, loadPlanWhen, loadPlanOverlap, loadPromptSuggestions, isMode, modeFlags, type Mode, type RoleChoice } from '../../core/config.ts';
 import { attachedNote, blobDir, STORED_IMAGE, storedImage, type ImageRef } from '../../core/images.ts';
 import { storeAttachment } from '../../core/video.ts';
 import { claimThread } from '../../core/project/busy.ts';
@@ -327,6 +327,9 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
   const declared = loadChecks(args.cwd, args.checks);
   const checks = declared.length ? declared : detectChecks(args.cwd);
   const softChecks = !declared.length && checks.length > 0;
+  // What plan, review and explore sessions may run: the owner's checks only. The repo's and detected ones are
+  // evidence for the done gate and grant nothing.
+  const ownerChecks = loadOwnerChecks(args.checks).filter((c) => !c.includes('*'));
   const privacy = loadPrivacy(args.cwd, args.privacy);
   const context = loadContext();
   const sandboxSettings = loadSandbox({ ...(args.sandbox ? { mode: args.sandbox } : {}), allowDomains: args.allowDomains ?? [] });
@@ -661,7 +664,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
         ...(writing && cacheTtl === '1h' && m.wire === 'anthropic-messages' ? { ttl: '1h' as const } : {}),
         // They may also run the declared checks, to see what fails instead of only reading.
         // The run's own allow rules are the writer's: one such as bash(git *) would let a reviewer write.
-        permission: profilePermission(kind, policy, checks),
+        permission: profilePermission(kind, policy, ownerChecks),
         privacy,
         // Stop hooks judge the writer's claim of done, not a plan, a review or a sub-thread's report.
         ...(hooked ? { hooks: writing ? hooks : { ...hooks, stop: [] }, hookHome: cediaHome() } : {}),
@@ -738,7 +741,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
     // is capped centrally in runPrompt (writer, spawn children, plan/review steps, escalation).
     effort: capEffort(choice.effort, loadMaxEffort()),
     cwd: args.cwd,
-    allowed: ['Read', 'Grep', 'Glob', ...(role === 'review' ? GIT_READS : []), ...(probes(role) ? PROBES : []), ...checks.map((c) => `Bash(${c})`)],
+    allowed: ['Read', 'Grep', 'Glob', ...(role === 'review' ? GIT_READS : []), ...(probes(role) ? PROBES : []), ...ownerChecks.map((c) => `Bash(${c})`)],
     signal: ac.signal,
     ...(role === 'review' ? { gitStatus: false } : {}),
     ...(probes(role) ? { sandbox: true } : {}),

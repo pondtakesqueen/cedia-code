@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, renameSync } from 'node:fs';
-import { join, dirname, isAbsolute, resolve } from 'node:path';
+import { join, dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import type { ToolSpec } from './registry.ts';
+import { toolPath, type ToolSpec } from './registry.ts';
 
 type Cell = { cell_type: string; source: string | string[]; metadata?: Record<string, unknown>; outputs?: unknown[]; execution_count?: number | null; id?: string };
 
@@ -35,7 +35,7 @@ export const notebookEditTool: ToolSpec = {
   pathOf: (input) => (typeof input.notebook_path === 'string' ? input.notebook_path : undefined),
   async run(input, ctx) {
     const given = String(input.notebook_path ?? '');
-    const path = isAbsolute(given) ? given : resolve(ctx.cwd, given);
+    const path = toolPath(given, ctx.cwd);
     const mode = String(input.edit_mode ?? 'replace');
     const cellId = input.cell_id !== undefined ? String(input.cell_id) : undefined;
     const newSource = input.new_source !== undefined ? String(input.new_source) : '';

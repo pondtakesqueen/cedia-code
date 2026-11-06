@@ -13,7 +13,7 @@ import type { ModelSpec } from '../types.ts';
 //
 // - writer: the run's own writer, the one that hands off, gets mail, may spawn and is judged by the stop hooks.
 // - reviewer: reads and never writes; its policy is read-only whatever the run's mode, and its only allow rules are
-//   the declared checks, so it can see what fails. The run's own allow rules are the writer's: one such as
+//   the owner's declared checks, so it can see what fails. The run's own allow rules are the writer's: one such as
 //   bash(git *) would let a reviewer write.
 // - helper: one reply, no tools, in a session of its own.
 // - child: a sub-thread; it writes under the run's policy, reads MCP tools only.
@@ -39,8 +39,10 @@ export function profileSystem(role: SessionRole | undefined, model: ModelSpec, o
 }
 
 // A helper has no tools, but its policy is the reviewer's all the same: nothing that only reads gets the writer's.
+// `checks` are the owner's (loadOwnerChecks). Each is allowed as the exact command: allow rules are globs, so a
+// check with `*` would grant every command it matches, and is left out.
 export function profilePermission(kind: SessionKind, policy: Policy, checks: string[]): Policy {
-  return kind === 'reviewer' || kind === 'helper' ? { ...policy, mode: 'read-only', allow: checks.map((c) => `bash(${c})`) } : policy;
+  return kind === 'reviewer' || kind === 'helper' ? { ...policy, mode: 'read-only', allow: checks.filter((c) => !c.includes('*')).map((c) => `bash(${c})`) } : policy;
 }
 
 // The tool sets a run has, by who may get them; `profileTools` picks for a kind. A resumed writer keeps exactly

@@ -1,3 +1,4 @@
+import { lookup } from 'node:dns/promises';
 import http from 'node:http';
 import { isIP } from 'node:net';
 import { storeImage } from '../images.ts';
@@ -70,6 +71,30 @@ export function pageDenied(raw: string, access: WebAccess): string | undefined {
   if (!hostAllowed(host, port, access))
     return `${host} is not among the hosts this session may open (${access.allowedDomains.join(', ') || 'none named'}). The user can name it with --allow-domain ${host}, or allow browser(${host})`;
   if (isIP(host) && privateAddress(host) && !namedHost(host, port, access.allowedDomains)) return `${host} is a private address; the browser opens those only when the user names the host`;
+  return undefined;
+}
+
+type Resolve = (host: string) => Promise<{ address: string; family: number }[]>;
+const resolveAll: Resolve = (host) => lookup(host, { all: true });
+
+// pageDenied, and for a host given by name, every address it resolves to judged as web_fetch judges them: a name
+// for a private address (169.254.169.254.nip.io, a LAN name) is refused unless the user named the host. Chromium
+// resolves again itself, so a name that changes its answer in between is not covered; the gate sees documents only.
+export async function pageDeniedResolved(raw: string, access: WebAccess, resolve: Resolve = resolveAll): Promise<string | undefined> {
+  const why = pageDenied(raw, access);
+  if (why || raw === 'about:blank') return why;
+  const url = new URL(raw);
+  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  const port = Number(url.port) || (url.protocol === 'https:' ? 443 : 80);
+  if (loopback(host) || isIP(host) || namedHost(host, port, access.allowedDomains)) return undefined;
+  let addrs: { address: string }[];
+  try {
+    addrs = await resolve(host);
+  } catch (e) {
+    return `cannot resolve ${host}: ${(e as Error).message}`;
+  }
+  if (!addrs.length) return `cannot resolve ${host}`;
+  if (addrs.some((a) => privateAddress(a.address))) return `${host} resolves to a private address; the browser opens those only when the user names the host`;
   return undefined;
 }
 
@@ -326,9 +351,12 @@ export function browserTool(endpoint: string, access: WebAccess): BrowserSession
       c.on(({ method, params }) => {
         if (method === 'Fetch.requestPaused') {
           const url = String((params.request as { url?: string })?.url ?? '');
-          const why = pageDenied(url, access);
-          if (why) blocked.push(`${shown(url)}: ${why}`);
-          void c.send(why ? 'Fetch.failRequest' : 'Fetch.continueRequest', why ? { requestId: params.requestId, errorReason: 'Aborted' } : { requestId: params.requestId }).catch(() => {});
+          void pageDeniedResolved(url, access)
+            .then((why) => {
+              if (why) blocked.push(`${shown(url)}: ${why}`);
+              return c.send(why ? 'Fetch.failRequest' : 'Fetch.continueRequest', why ? { requestId: params.requestId, errorReason: 'Aborted' } : { requestId: params.requestId });
+            })
+            .catch(() => {});
         } else if (method === 'Page.frameStartedLoading' && params.frameId === mainFrame) loading = true;
         else if (method === 'Page.frameStoppedLoading' && params.frameId === mainFrame) loading = false;
         else if (method === 'Runtime.consoleAPICalled') {
@@ -419,7 +447,7 @@ export function browserTool(endpoint: string, access: WebAccess): BrowserSession
         blocked = [];
         if (action === 'open') {
           const url = String(input.url ?? '');
-          const why = pageDenied(url, access);
+          const why = await pageDeniedResolved(url, access);
           if (why) return { text: why, isError: true };
           loading = true;
           const r = (await c.send('Page.navigate', { url })) as { errorText?: string };
@@ -458,7 +486,7 @@ export function browserTool(endpoint: string, access: WebAccess): BrowserSession
           const h = (await c.send('Page.getNavigationHistory')) as { currentIndex: number; entries: { id: number; url: string }[] };
           const prev = h.entries[h.currentIndex - 1];
           if (!prev) return { text: 'there is no page to go back to', isError: true };
-          const why = pageDenied(prev.url, access);
+          const why = await pageDeniedResolved(prev.url, access);
           if (why) return { text: why, isError: true };
           loading = true;
           await c.send('Page.navigateToHistoryEntry', { entryId: prev.id });
