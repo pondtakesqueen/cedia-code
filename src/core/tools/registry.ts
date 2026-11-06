@@ -27,6 +27,9 @@ export type ToolSpec = ToolDef & {
   pathOf?(input: JsonObject): string | undefined;
   // The tool reads everything under pathOf (grep): a credential store inside that directory is kept away too.
   readsTree?: true;
+  // pathOf names one file the call opens (read, edit, write, NotebookEdit): the folder's own instructions are
+  // shown after the first such call under it.
+  opensFile?: true;
   replay: 'safe' | 'unsafe';
   // A writing call that does its work away from the working directory (a work sub-thread in its own worktree)
   // and writes it only through `ctx.write`: it runs in parallel with the calls beside it, as reads do. The policy

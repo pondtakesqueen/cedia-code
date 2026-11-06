@@ -33,6 +33,7 @@ export const notebookEditTool: ToolSpec = {
   // The path the policy checks, as edit and write give theirs: outside the working directory and git's or cedia's
   // own config are denied.
   pathOf: (input) => (typeof input.notebook_path === 'string' ? input.notebook_path : undefined),
+  opensFile: true,
   async run(input, ctx) {
     const given = String(input.notebook_path ?? '');
     const path = toolPath(given, ctx.cwd);

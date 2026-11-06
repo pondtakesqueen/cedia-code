@@ -11,7 +11,7 @@ import { costUsd } from '../providers/catalog.ts';
 import { capEffort, loadMaxEffort } from '../config.ts';
 import { hookName, runHook, type Hooks } from '../hooks.ts';
 import { retryDecision, type RetryConfig } from './retry.ts';
-import { decide, READ_ONLY_POLICY, ruleMatches, type Policy } from '../safety/policy.ts';
+import { decide, READ_ONLY_POLICY, ruleMatches, type Decision, type Policy } from '../safety/policy.ts';
 import { REDACTED, redactSecrets } from '../safety/secrets.ts';
 import type { Snapshots } from '../safety/snapshot.ts';
 import type { SessionLog } from '../session/log.ts';
@@ -20,7 +20,7 @@ import { endGuards, judgeEnd, type TurnEnd } from './guards.ts';
 import { findStuck, stuckEnd, stuckReminder } from '../trust/stuck.ts';
 import type { Verdict } from '../trust/classifier.ts';
 import { changesFromCalls, changesFromPatch, findSlop, formatFinding, type SlopFinding } from '../trust/slop.ts';
-import { effectOf, resolveCall, toolDefs, type ToolSpec } from '../tools/registry.ts';
+import { effectOf, resolveCall, toolDefs, type ToolCtx, type ToolSpec } from '../tools/registry.ts';
 import { isSpawnNudge, spawnNudge } from '../tools/spawn.ts';
 import { shownInstructions } from '../project/instructions.ts';
 import { ASK_TOOL, questionOf } from '../tools/ask.ts';
@@ -843,12 +843,7 @@ async function runTools(
       // The policy decides first; the user's pre hooks see only calls it allows. An input a hook rewrote is
       // decided again, so a hook can narrow a call but never get one past the policy.
       let input = fixed?.input ?? c.input;
-      let d = decide(policy, spec, input, opts.cwd);
-      // A declared check that already passed with nothing written since does not run again.
-      if (d.decision === 'allow' && spec.name === 'bash') {
-        const again = repeatCheck(spec.name, String((input as { command?: unknown }).command ?? ''), log.events, opts.checks ?? [], opts.cwd);
-        if (again) d = { decision: 'deny', rule: 'repeat-check', reason: again };
-      }
+      let d = policyDecision(spec, input, opts, log);
       if (d.decision === 'allow') {
         const pre = await preHooks(opts, log, spec, callId, input);
         if (pre.decision === 'block') d = { decision: 'deny', rule: `hook:${pre.hook}`, reason: pre.reason };
@@ -931,9 +926,8 @@ async function runTools(
       }
     }
     try {
-      const spill = (text: string) => spillOutput(log.id, j.callId, redact ? redactSecrets(text).text : text);
       const write = j.parallel && j.spec.isolated?.(j.input) ? { write: writeFor(j) } : {};
-      const out = await postHooks(opts, log, j, asOutput(await j.spec.run(j.input, { cwd: opts.cwd, signal, spill, ...(opts.wrap ? { wrap: opts.wrap } : {}), ...(opts.diagnose ? { diagnose: opts.diagnose } : {}), ...write })));
+      const out = await postHooks(opts, log, j, asOutput(await j.spec.run(j.input, { ...toolCtx(opts, signal, log, j.callId), ...write })));
       results.set(j.callId, { ...out, status: signal.aborted ? 'interrupted_safe' : out.isError ? 'failed' : 'completed' });
     } catch (e) {
       results.set(j.callId, { status: 'failed', text: `tool crashed: ${e instanceof Error ? e.message : String(e)}`, isError: true });
@@ -1038,21 +1032,36 @@ async function stopHooks(opts: RunOptions, log: SessionLog, result: string, chan
 // A call started while its reply still streams. input is the stableJson of the input it started with.
 type EarlyRun = { input: string; run: Promise<ToolOutput> };
 
+// The first, synchronous step of deciding a call, shared by runTools and startsEarly so the two cannot drift: the
+// policy, then the repeat check (a declared check that already passed with nothing written since does not run
+// again). Pre hooks and the classifier come after it, in runTools only.
+function policyDecision(spec: ToolSpec, input: JsonObject, opts: RunOptions, log: SessionLog): Decision {
+  const d = decide(opts.permission ?? READ_ONLY_POLICY, spec, input, opts.cwd);
+  if (d.decision !== 'allow' || spec.name !== 'bash') return d;
+  const again = repeatCheck(spec.name, String(input.command ?? ''), log.events, opts.checks ?? [], opts.cwd);
+  return again ? { decision: 'deny', rule: 'repeat-check', reason: again } : d;
+}
+
 // Whether a streamed call may start before its reply ends: exactly the calls runTools would run in its parallel
-// pool on the policy's word alone, so starting one early changes when it runs and nothing else. A repair, a
-// pre hook, an isolated write or a check that would be refused as a repeat leaves it to runTools.
+// pool on policyDecision alone, so starting one early changes when it runs and nothing else. A repair, a pre
+// hook or an isolated write leaves it to runTools.
 function startsEarly(spec: ToolSpec, input: JsonObject, opts: RunOptions, log: SessionLog): boolean {
   if (effectOf(spec, input) !== 'read' || spec.isolated?.(input) || spec.repair?.(input)) return false;
   if ((opts.hooks?.preToolUse ?? []).some((h) => !h.match || ruleMatches(h.match, spec, input, opts.cwd))) return false;
-  if (decide(opts.permission ?? READ_ONLY_POLICY, spec, input, opts.cwd).decision !== 'allow') return false;
-  return !(spec.name === 'bash' && repeatCheck(spec.name, String(input.command ?? ''), log.events, opts.checks ?? [], opts.cwd));
+  return policyDecision(spec, input, opts, log).decision === 'allow';
+}
+
+// What a tool's run gets: the working directory, the stop signal, where long output spills (with secrets replaced
+// unless the user unlocked them), and the sandbox and diagnostics when the run has them.
+function toolCtx(opts: RunOptions, signal: AbortSignal, log: SessionLog, callId: string): ToolCtx {
+  const redact = !opts.permission?.unlock?.includes('secret-redaction');
+  const spill = (text: string) => spillOutput(log.id, callId, redact ? redactSecrets(text).text : text);
+  return { cwd: opts.cwd, signal, spill, ...(opts.wrap ? { wrap: opts.wrap } : {}), ...(opts.diagnose ? { diagnose: opts.diagnose } : {}) };
 }
 
 function startEarly(spec: ToolSpec, input: JsonObject, callId: string, opts: RunOptions, signal: AbortSignal, log: SessionLog): EarlyRun {
-  const redact = !opts.permission?.unlock?.includes('secret-redaction');
-  const spill = (text: string) => spillOutput(log.id, callId, redact ? redactSecrets(text).text : text);
   const run = Promise.resolve()
-    .then(() => spec.run(input, { cwd: opts.cwd, signal, spill, ...(opts.wrap ? { wrap: opts.wrap } : {}), ...(opts.diagnose ? { diagnose: opts.diagnose } : {}) }))
+    .then(() => spec.run(input, toolCtx(opts, signal, log, callId)))
     .then(asOutput);
   // A run nobody awaits (its reply failed, or runTools decided otherwise) must not crash the process.
   run.catch(() => {});
@@ -1143,10 +1152,8 @@ export async function bounded<T>(items: T[], limit: number, fn: (item: T) => Pro
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
-// The file a read, edit or write call named, for the folder's own instructions.
-const FILE_TOOLS = new Set(['read', 'edit', 'write', 'NotebookEdit']);
-function fileOf(j: { spec: ToolSpec; input: Record<string, unknown> } | undefined): string | undefined {
-  if (!j || !FILE_TOOLS.has(j.spec.name)) return undefined;
-  const p = j.input.path ?? j.input.notebook_path;
-  return typeof p === 'string' && p ? p : undefined;
+// The file a call that opens one named (ToolSpec.opensFile), for the folder's own instructions.
+function fileOf(j: { spec: ToolSpec; input: JsonObject } | undefined): string | undefined {
+  if (!j?.spec.opensFile) return undefined;
+  return j.spec.pathOf?.(j.input) || undefined;
 }
