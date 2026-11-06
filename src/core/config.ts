@@ -195,6 +195,14 @@ export function writeSettings(settings: Settings, path: string): void {
   renameSync(tmp, path);
 }
 
+// Change the user's settings: read through the same check as every reader (a file that fails it is refused, never
+// replaced) and written through writeSettings (a change that fails it is never written).
+export function updateSettings(change: (settings: Settings) => Settings, home = cediaHome()): Settings {
+  const next = change(userSettings(home));
+  writeSettings(next, settingsPath(home));
+  return next;
+}
+
 const union = <T>(...lists: (T[] | undefined)[]) => [...new Set(lists.flatMap((l) => l ?? []))];
 
 // The permission setting a run takes: flag > env > user settings > auto.

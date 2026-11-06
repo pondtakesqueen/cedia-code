@@ -9,7 +9,7 @@ import type { TuiArgs } from './clients/tui-ink/args.ts';
 import { ALIASES, resolveModel } from './core/providers/catalog.ts';
 import { GUARDS, PERMISSION_ENTRIES, type PermissionList } from './core/safety/policy.ts';
 import { applyAllowRules, suggestAllowRules } from './core/safety/suggest.ts';
-import { cediaHome, sharedSkillDirs, loadCompleteModel, loadHandoffAt, loadPermissionSetting, loadPolicy, loadRoles } from './core/config.ts';
+import { cediaHome, sharedSkillDirs, loadCompleteModel, loadHandoffAt, loadPermissionSetting, loadPolicy, loadRoles, updateSettings } from './core/config.ts';
 import { processKeychain } from './core/providers/keychain.ts';
 import { modelLine, modelList } from './core/providers/models.ts';
 import { threadLine, threadsDir, ThreadStore, type Rating } from './core/project/threads.ts';
@@ -1560,12 +1560,7 @@ function outputStyle(argv: string[]): number {
   if (name) {
     const s = getStyle(name, home);
     if (!s) { console.error(`unknown style ${name}`); return 1; }
-    // persist to settings
-    const settingsPath = join(home, 'settings.json');
-    let settings: Record<string, unknown> = {};
-    try { settings = JSON.parse(readFileSync(settingsPath, 'utf8')); } catch {}
-    settings.outputStyle = name;
-    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+    try { updateSettings((settings) => ({ ...settings, outputStyle: name }), home); } catch (e) { console.error(`cedia: ${(e as Error).message}`); return 1; }
     console.log(parsed.values.json ? JSON.stringify(s) : `switched to ${name}`);
     return 0;
   }

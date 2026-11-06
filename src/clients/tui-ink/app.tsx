@@ -21,7 +21,7 @@ import { resolveModel } from '../../core/providers/catalog.ts';
 import { decode, type CoreMessage } from '../../protocol/index.ts';
 import type { TuiArgs } from './args.ts';
 import type { JsonObject, SessionEvent } from '../../core/types.ts';
-import { cediaHome, loadHandoffAt, loadPromptSuggestions, loadRoles, isMode, modeFlags, readSettings } from '../../core/config.ts';
+import { cediaHome, loadHandoffAt, loadPromptSuggestions, loadRoles, isMode, modeFlags, readSettings, updateSettings, userSettings, type Settings } from '../../core/config.ts';
 import { modelLabel, modelList } from '../../core/providers/models.ts';
 import { processKeychain } from '../../core/providers/keychain.ts';
 import { versionInfo } from '../../protocol/version.ts';
@@ -57,7 +57,7 @@ import { forkThread } from '../../core/project/fork.ts';
 import { ThreadStore, threadsDir } from '../../core/project/threads.ts';
 import { projectKey } from '../../core/session/log.ts';
 import { isAbsolute, join } from 'node:path';
-import { readFileSync as fsRead, writeFileSync as fsWrite, existsSync as fsExists, unlinkSync as fsUnlink, mkdirSync as fsMkdir } from 'node:fs';
+import { readFileSync as fsRead, writeFileSync as fsWrite, existsSync as fsExists, unlinkSync as fsUnlink } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { loadProjectUsage } from './usage-summary.ts';
 import { awayText, ownerPresent, presentIn, recapWhen, type PendingRecap } from './away.ts';
@@ -908,11 +908,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
           const items = styles.map((s: any) => ({ value: s.name, label: `${s.name === cur ? '*' : ' '} ${s.name}  ${s.description ?? ''}` }));
           setPicker({ title: 'output styles', items, onPick: (v) => {
             try {
-              const pp = join(cediaHome(), 'settings.json');
-              let raw: Record<string, unknown> = {};
-              try { raw = JSON.parse(fsRead(pp, 'utf8')); } catch {}
-              raw.outputStyle = v;
-              fsWrite(pp, JSON.stringify(raw, null, 2) + '\n');
+              updateSettings((settings) => ({ ...settings, outputStyle: v }));
               push({ role: "system", text: `output style: ${v} (takes effect next turn)` });
             } catch (e) { push({ role: "system", text: `error: ${(e as Error).message}` }); }
           } });
@@ -1044,13 +1040,8 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         if (t && t !== 'dark' && t !== 'light' && t !== 'auto') { say(`unknown theme: ${t} (dark | light | auto)`); return; }
         if (t) {
           // auto leaves the choice to the terminal's background; settings.json is made when there is none yet.
-          const pp = join(cediaHome(), 'settings.json');
           try {
-            const raw = fsExists(pp) ? JSON.parse(fsRead(pp, 'utf8')) as Record<string, unknown> : {};
-            if (t === 'auto') delete raw.theme;
-            else raw.theme = t;
-            fsMkdir(cediaHome(), { recursive: true });
-            fsWrite(pp, JSON.stringify(raw, null, 2) + '\n');
+            updateSettings(({ theme: _, ...rest }) => (t === 'auto' ? rest : { ...rest, theme: t as 'dark' | 'light' }));
           } catch (e) { say(`could not save the theme: ${(e as Error).message}`, 'red'); return; }
           setThemeTick((n) => n + 1);
           syncOnboardingRef.current();
@@ -1065,10 +1056,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         if (m && !(NOTIFY_MODES as readonly string[]).includes(m)) { say(`unknown notify mode: ${m} (${NOTIFY_MODES.join(' | ')})`); return; }
         if (m) {
           try {
-            const pp = join(cediaHome(), 'settings.json');
-            const raw = fsExists(pp) ? JSON.parse(fsRead(pp, 'utf8')) as Record<string, unknown> : {};
-            raw.notify = m;
-            fsWrite(pp, JSON.stringify(raw, null, 2) + '\n');
+            updateSettings((settings) => ({ ...settings, notify: m as Settings['notify'] }));
           } catch (e) { say((e as Error).message, 'red'); return; }
         }
         const mode = notifyModeFrom(cediaHome());
@@ -1974,13 +1962,9 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
           if (editingKey) {
             if (key.return) {
               try {
-                const pp = join(cediaHome(), 'settings.json');
-                let raw: Record<string, unknown> = {};
-                try { raw = JSON.parse(fsRead(pp, 'utf8')) as Record<string, unknown>; } catch {}
                 let v: unknown = editValue;
                 try { v = JSON.parse(editValue); } catch {}
-                raw[editingKey] = v;
-                fsWrite(pp, JSON.stringify(raw, null, 2) + '\n');
+                updateSettings((settings) => ({ ...settings, [editingKey]: v }) as Settings);
                 push({ role: 'system', text: `setting ${editingKey} updated` });
               } catch (e) { push({ role: 'system', text: `could not save settings: ${(e as Error).message}` }); }
               setEditingKey(null); setEditValue(''); setSettingsQuery('');
@@ -2008,15 +1992,14 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
           }
           if (input === ' ') {
             try {
-              const pp = join(cediaHome(), 'settings.json');
-              const raw = readSettings(pp) as Record<string, unknown>;
+              const raw = userSettings() as Record<string, unknown>;
               const q = settingsQuery.toLowerCase();
               const keys = Object.keys(raw).filter((k) => !q || k.toLowerCase().includes(q));
               const target = keys[Math.min(configSelected, Math.max(0, keys.length - 1))];
               if (target && typeof raw[target] === 'boolean') {
-                raw[target] = !raw[target];
-                fsWrite(pp, JSON.stringify(raw, null, 2) + '\n');
-                push({ role: 'system', text: `setting ${target} = ${String(raw[target])}` });
+                const next = !raw[target];
+                updateSettings((settings) => ({ ...settings, [target]: next }) as Settings);
+                push({ role: 'system', text: `setting ${target} = ${String(next)}` });
               }
             } catch {}
             return;
