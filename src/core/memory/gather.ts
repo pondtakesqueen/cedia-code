@@ -4,6 +4,7 @@ import { resolveModel } from '../providers/catalog.ts';
 import { runSide } from '../loop/side.ts';
 import { memoryPath, MemoryStore, rememberTool, MAX_NOTE } from '../project/memory.ts';
 import { consolidateLockPath, readLock, writeLock } from '../project/consolidate.ts';
+import { fauxActive } from '../providers/faux.ts';
 
 export async function gatherNotes(opts: { cwd: string; home?: string; model?: string; thread?: string; force?: boolean; now?: Date }) {
   const home = opts.home ?? cediaHome();
@@ -30,7 +31,7 @@ export async function gatherNotes(opts: { cwd: string; home?: string; model?: st
     return { extracted: true, notesBefore: before, notesAfter: before, added: 0, lockPath, sessionsScanned: scan.count };
   }
 
-  const modelRef = opts.model ?? (process.env.CEDIA_FAUX_SCRIPT ? 'faux' : 'beam');
+  const modelRef = opts.model ?? (fauxActive() ? 'faux' : 'beam');
   const model = resolveModel(modelRef);
   const system = `You extract durable memories from a session transcript. Keep short facts (commands that work, decisions and reasons, where things live, traps). Not progress. At most ${MAX_NOTE} chars per note. Use remember tool, at most 5 notes. If nothing durable, call nothing.`;
   const prompt = `Extract durable memories from these transcripts:\n\n${scan.text}`;

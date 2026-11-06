@@ -6,6 +6,7 @@ import { projectKey } from '../session/log.ts';
 import { resolveModel } from '../providers/catalog.ts';
 import { runSide } from '../loop/side.ts';
 import { memoryPath, MemoryStore, rememberTool, MAX_NOTE } from './memory.ts';
+import { fauxActive } from '../providers/faux.ts';
 
 // Memory consolidation: between sessions, scan a project's session transcripts
 // and let a model keep the durable facts as project memory notes. Runs only when asked
@@ -148,7 +149,7 @@ export async function consolidateMemory(opts: {
     return { consolidated: true, notesBefore: before, notesAfter: before, added: 0, lockPath, sessionsScanned: scan.count };
   }
 
-  const modelRef = opts.model ?? (process.env.CEDIA_FAUX_SCRIPT ? 'faux' : loadRoles({}).code.ref);
+  const modelRef = opts.model ?? (fauxActive() ? 'faux' : loadRoles({}).code.ref);
   const model = resolveModel(modelRef);
 
   const prompt = `Consolidate memory for this project. Here are the recent session transcripts:\n\n${scan.text}\n\nKeep the durable facts with the remember tool.`;

@@ -5,6 +5,7 @@ import { ALIASES, CATALOG, FAUX_MODEL, localModels } from './catalog.ts';
 import { authKey } from './http.ts';
 import type { Keychain } from './keychain.ts';
 import type { Effort, ModelSpec } from '../types.ts';
+import { fauxActive } from './faux.ts';
 
 type Env = Record<string, string | undefined>;
 
@@ -66,7 +67,7 @@ export function modelEntry(m: ModelSpec, env: Env, keychain: Keychain | undefine
 // `defaultRef` is what the code role resolves to now (loadRoles). The faux model is listed only when a script
 // for it is set, as it is in offline tests.
 export function modelList(defaultRef: string, env: Env, keychain: Keychain | undefined): ModelList {
-  const models = [...CATALOG, ...localModels(), ...(env.CEDIA_FAUX_SCRIPT ? [FAUX_MODEL] : [])];
+  const models = [...CATALOG, ...localModels(), ...(fauxActive(env) ? [FAUX_MODEL] : [])];
   return { default: defaultRef, models: models.map((m) => modelEntry(m, env, keychain)), modes: MODES };
 }
 

@@ -1,10 +1,9 @@
-import { readFileSync } from 'node:fs';
 import { profilePermission, profileSystem, profileTools, sessionKind, sharedPrefixTools } from '../../core/loop/profile.ts';
 import { join, resolve } from 'node:path';
 import { historyRejected, runPrompt, type RunOptions } from '../../core/loop/run.ts';
 import { modeNote, preamble, READ_ONLY_SYSTEM, systemFor, timeNote } from '../../core/prompts.ts';
 import { resolveModel } from '../../core/providers/catalog.ts';
-import type { FauxStep } from '../../core/providers/faux.ts';
+import { fauxScript as readFauxScript } from '../../core/providers/faux.ts';
 import { missingKeyNote } from '../../core/providers/http.ts';
 import { providerFor } from '../../core/providers/index.ts';
 import { projectKey, projectRoot, projectSlug, SessionLog, sessionExists, sessionPath, workspaceRoots } from '../../core/session/log.ts';
@@ -388,7 +387,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
     const note = missingKeyNote(m);
     if (note) say(note + '\n');
   }
-  const fauxScript = process.env.CEDIA_FAUX_SCRIPT ? (JSON.parse(readFileSync(process.env.CEDIA_FAUX_SCRIPT, 'utf8')) as FauxStep[]) : undefined;
+  const fauxScript = readFauxScript();
   let handoffAt: ReturnType<typeof loadHandoffAt>;
   let goalJudge: typeof model | undefined;
   let satisfactionJudge: typeof model | undefined;
