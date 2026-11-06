@@ -79,7 +79,9 @@ export function decide(policy: Policy, spec: ToolSpec, input: JsonObject, cwd: s
     }
   }
   if (!unlocked('secret-path') && policy.secrets?.length) {
-    const named = command !== undefined ? secretInCommand(command, commands!, policy.secrets, cwd) : path !== undefined ? secretUnder(path, policy.secrets, cwd) : undefined;
+    const named = command !== undefined ? secretInCommand(command, commands!, policy.secrets, cwd) : path !== undefined ? secretUnder(path, policy.secrets, cwd, cwd, spec.readsTree === true) : undefined;
+    if (named && spec.readsTree && path !== undefined && secretUnder(path, policy.secrets, cwd) === undefined)
+      return deny('deny-list:secret-path', `${named} holds credentials and lies under ${path}; search a narrower path that does not hold it`);
     if (named) return deny('deny-list:secret-path', `${named} holds credentials; cedia keeps it away from the model. Ask the user to run it`);
   }
   if (effect !== 'read' && JSON.stringify(input).includes(REDACTED))
@@ -256,12 +258,13 @@ export function protectedPath(path: string, cwd: string): boolean {
 // The first secret store `path` falls under, if any. A store that holds the working directory is skipped, so
 // a session run inside cedia's own home can still read its files.
 // `from` is the directory a relative path is read from: the working directory, or where a `cd` before it went.
-function secretUnder(path: string, secrets: string[], cwd: string, from = cwd): string | undefined {
+// `tree`: the tool reads everything under the path (grep), so a store inside it counts as well.
+function secretUnder(path: string, secrets: string[], cwd: string, from = cwd, tree = false): string | undefined {
   const full = real(toolPath(path, from));
   const root = real(cwd);
   return secrets.find((s) => {
     const store = real(s);
-    return !within(root, store) && within(full, store);
+    return !within(root, store) && (within(full, store) || (tree && within(store, full)));
   });
 }
 

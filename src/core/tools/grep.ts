@@ -32,6 +32,7 @@ export const grepTool: ToolSpec = {
   },
   effect: 'read',
   pathOf: (input) => (typeof input.path === 'string' ? input.path : '.'),
+  readsTree: true,
   replay: 'safe',
   async run(input, ctx) {
     const pattern = typeof input.pattern === 'string' ? input.pattern : '';
@@ -45,7 +46,8 @@ export const grepTool: ToolSpec = {
     const rg = rgPath();
     let argv: string[];
     if (rg) {
-      argv = [rg, '--no-config', '--color', 'never', '--no-heading', '--line-number', '--max-columns', String(MAX_COLUMNS), '--max-columns-preview', '--hidden', '--glob', '!.git', ...SECRET_GLOBS.flatMap((g) => ['--glob', `!${g}`]), ...(icase ? ['-i'] : []), ...(files ? ['-l'] : []), ...(glob ? ['--glob', glob] : []), '-e', pattern, ...(target === '.' ? [] : ['--', target])];
+      // The later --glob wins in ripgrep, so cedia's exclusions come after the model's glob.
+      argv = [rg, '--no-config', '--color', 'never', '--no-heading', '--line-number', '--max-columns', String(MAX_COLUMNS), '--max-columns-preview', '--hidden', ...(icase ? ['-i'] : []), ...(files ? ['-l'] : []), ...(glob ? ['--glob', glob] : []), '--glob', '!.git', ...SECRET_GLOBS.flatMap((g) => ['--glob', `!${g}`]), '-e', pattern, ...(target === '.' ? [] : ['--', target])];
     } else {
       const inRepo = Bun.spawnSync(['git', 'rev-parse', '--is-inside-work-tree'], { cwd: ctx.cwd, stdout: 'pipe', stderr: 'ignore' }).stdout.toString().trim() === 'true';
       if (!inRepo) return { text: 'ripgrep (rg) is not installed and this is not a git repository: search with grep in bash', isError: true };

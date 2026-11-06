@@ -30,6 +30,8 @@ export type ToolSpec = ToolDef & {
   // The path a call reads or writes, so the policy can keep writes inside the working directory and reads out of
   // credential stores.
   pathOf?(input: JsonObject): string | undefined;
+  // The tool reads everything under pathOf (grep): a credential store inside that directory is kept away too.
+  readsTree?: true;
   replay: 'safe' | 'unsafe';
   // A writing call that does its work away from the working directory (a work sub-thread in its own worktree)
   // and writes it only through `ctx.write`: it runs in parallel with the calls beside it, as reads do. The policy
