@@ -281,11 +281,23 @@ export function loadQuotaWait(flag?: string): number | undefined {
   return minutes * 60_000;
 }
 
+// A run flag that takes one of `values`, as the error names them: "on or off", "on, off or worktree".
+function flagOf<T extends string>(name: string, flag: string | undefined, values: readonly T[]): T | undefined {
+  if (flag !== undefined && !(values as readonly string[]).includes(flag)) throw new Error(`--${name} must be ${values.slice(0, -1).join(', ')} or ${values.at(-1)}: ${flag}`);
+  return flag as T | undefined;
+}
+const ON_OFF = ['on', 'off'] as const;
+// An on/off flag over a boolean setting: flag > user settings > off.
+const switchOf = (name: string, flag: string | undefined, setting: boolean | undefined): boolean => {
+  const f = flagOf(name, flag, ON_OFF);
+  return f ? f === 'on' : (setting ?? false);
+};
+
 // Sub-threads: flag > user settings > on.
 export type SpawnMode = 'on' | 'off' | 'worktree';
 export function loadSpawn(flag?: string): SpawnMode {
-  if (flag !== undefined && flag !== 'on' && flag !== 'off' && flag !== 'worktree') throw new Error(`--spawn must be on, off or worktree: ${flag}`);
-  if (flag) return flag;
+  const f = flagOf('spawn', flag, ['on', 'off', 'worktree']);
+  if (f) return f;
   const s = userSettings().spawn ?? true;
   if (s !== true && s !== false && s !== 'worktree') throw new Error(`spawn in settings.json must be true, false or "worktree": ${JSON.stringify(s)}`);
   return s === 'worktree' ? 'worktree' : s ? 'on' : 'off';
@@ -322,8 +334,7 @@ export function capEffort(effort: Effort | undefined, cap: Effort | undefined): 
 // Language servers: flag (on|off) > user settings > the known ones that are installed.
 export type LspSetting = NonNullable<Settings['lsp']>;
 export function loadLsp(flag?: string): LspSetting | undefined {
-  if (flag !== undefined && flag !== 'on' && flag !== 'off') throw new Error(`--lsp must be on or off: ${flag}`);
-  if (flag === 'off') return false;
+  if (flagOf('lsp', flag, ON_OFF) === 'off') return false;
   const s = userSettings().lsp;
   if (s === undefined || typeof s === 'boolean') return flag === 'on' ? true : s;
   if (!isObject(s)) throw new Error('"lsp" must be true, false or an object of servers');
@@ -337,34 +348,31 @@ export function loadLsp(flag?: string): LspSetting | undefined {
 // ask_user: flag > user settings > off. auto asks only while the client says the owner is present.
 export type AskMode = 'on' | 'off' | 'auto';
 export function loadAsk(flag?: string): AskMode {
-  if (flag !== undefined && flag !== 'on' && flag !== 'off' && flag !== 'auto') throw new Error(`--ask must be on, off or auto: ${flag}`);
-  if (flag) return flag;
+  const f = flagOf('ask', flag, ['on', 'off', 'auto']);
+  if (f) return f;
   const s = userSettings().ask;
   return s === 'auto' ? 'auto' : s ? 'on' : 'off';
 }
 
 // creator: flag > user settings > off.
 export function loadCreator(flag?: string): boolean {
-  if (flag !== undefined && flag !== 'on' && flag !== 'off') throw new Error(`--creator must be on or off: ${flag}`);
-  return flag ? flag === 'on' : (userSettings().creator ?? false);
+  return switchOf('creator', flag, userSettings().creator);
 }
 
 // jobs: flag > user settings > off.
 export function loadJobs(flag?: string): boolean {
-  if (flag !== undefined && flag !== 'on' && flag !== 'off') throw new Error(`--jobs must be on or off: ${flag}`);
-  return flag ? flag === 'on' : (userSettings().jobs ?? false);
+  return switchOf('jobs', flag, userSettings().jobs);
 }
 
 // todo: flag > user settings > off.
 export function loadTodo(flag?: string): boolean {
-  if (flag !== undefined && flag !== 'on' && flag !== 'off') throw new Error(`--todo must be on or off: ${flag}`);
-  return flag ? flag === 'on' : (userSettings().todo ?? false);
+  return switchOf('todo', flag, userSettings().todo);
 }
 
 // consolidateMemory: flag > user settings (`autoDream`, its old name, when the new one is absent) > off.
 export function loadConsolidateMemory(flag?: string, warn: (line: string) => void = (l) => console.error(l)): boolean {
-  if (flag !== undefined && flag !== 'on' && flag !== 'off') throw new Error(`--consolidate-memory must be on or off: ${flag}`);
-  if (flag) return flag === 'on';
+  const f = flagOf('consolidate-memory', flag, ON_OFF);
+  if (f) return f === 'on';
   const s = userSettings();
   if (s.consolidateMemory !== undefined) return s.consolidateMemory;
   if (s.autoDream !== undefined) {
@@ -376,8 +384,7 @@ export function loadConsolidateMemory(flag?: string, warn: (line: string) => voi
 
 // promptSuggestions: flag > user settings > off.
 export function loadPromptSuggestions(flag?: string): boolean {
-  if (flag !== undefined && flag !== 'on' && flag !== 'off') throw new Error(`--prompt-suggestions must be on or off: ${flag}`);
-  return flag ? flag === 'on' : (userSettings().promptSuggestions ?? false);
+  return switchOf('prompt-suggestions', flag, userSettings().promptSuggestions);
 }
 
 // The user's profiles as written, for core/profiles.ts to check.
@@ -447,6 +454,8 @@ export function loadHandoff(flag?: string): 'note' | 'compact' {
 }
 
 // Roles: flags > CEDIA_MODEL (code only) > user settings > defaults (code: haiku; plan and review: off).
+const isClaudeCode = (ref: string) => /^claude-code\b/.test(ref);
+
 // `claude-code[:<model>][@<effort>]`: alone it means opus at medium effort for both plan and review. Opus at medium
 // scored above Sonnet at every effort and above Opus at high or max on agentic repo work (Artificial Analysis'
 // FrontierCode, research/NOTES.md), and the step names its effort so Claude Code's own default does not decide it.
@@ -457,10 +466,10 @@ export function loadRoles(
 ): { plan?: RoleChoice; code: ModelSpec; review?: RoleChoice; swarm: ModelSpec; advisor?: ModelSpec; classifier?: ModelSpec; workers: ModelSpec[]; triage: ModelSpec } {
   const user = userSettings().roles ?? {};
   const codeRef = flags.code ?? env.CEDIA_MODEL ?? user.code ?? 'haiku';
-  if (/^claude-code\b/.test(codeRef)) throw new Error('the code role runs in cedia, where its writes are checked; use claude-code for plan or review');
+  if (isClaudeCode(codeRef)) throw new Error('the code role runs in cedia, where its writes are checked; use claude-code for plan or review');
   const role = (ref: string | undefined, claudeModel: string): RoleChoice | undefined => {
     if (!ref || ref === 'none') return undefined;
-    if (!/^claude-code\b/.test(ref)) {
+    if (!isClaudeCode(ref)) {
       // `<ref>@<effort>`: the step runs at that effort, whatever the writer's.
       const at = /^(.+?)@(low|medium|high|xhigh|max)$/.exec(ref);
       const model = resolveModel(at ? at[1]! : ref);
@@ -479,11 +488,11 @@ export function loadRoles(
   const swarm = resolveModel(flags.swarm ?? user.swarm ?? 'beam');
   // The advisor reads every turn, so it is off unless named: each turn of the writer costs one of its own.
   const advisorRef = flags.advisor ?? user.advisor;
-  if (advisorRef && /^claude-code\b/.test(advisorRef)) throw new Error('the advisor runs in cedia, one reply a turn; claude-code is for plan or review');
+  if (advisorRef && isClaudeCode(advisorRef)) throw new Error('the advisor runs in cedia, one reply a turn; claude-code is for plan or review');
   const advisor = advisorRef && advisorRef !== 'none' && advisorRef !== 'off' ? resolveModel(advisorRef) : undefined;
   // The classifier reads every command the mode alone would allow, so it too is off unless named.
   const classifierRef = flags.classifier ?? user.classifier;
-  if (classifierRef && /^claude-code\b/.test(classifierRef)) throw new Error('the classifier runs in cedia, one reply a command; claude-code is for plan or review');
+  if (classifierRef && isClaudeCode(classifierRef)) throw new Error('the classifier runs in cedia, one reply a command; claude-code is for plan or review');
   const classifier = classifierRef && classifierRef !== 'none' && classifierRef !== 'off' ? resolveModel(classifierRef) : undefined;
   // The other models a part of a split plan may run on (core/roles.ts), comma-separated; the code model always may.
   const workersRef = flags.workers ?? user.workers ?? '';
@@ -491,7 +500,7 @@ export function loadRoles(
   const workers = workersRef === 'none' ? [] : [...new Set(workersRef.split(',').map((r) => r.trim()).filter(Boolean))].map(resolveModel);
   const code = resolveModel(codeRef);
   const triageRef = flags.triage ?? user.triage;
-  if (triageRef && /^claude-code\b/.test(triageRef)) throw new Error('triage runs in cedia, one short reply a prompt; claude-code is for plan or review');
+  if (triageRef && isClaudeCode(triageRef)) throw new Error('triage runs in cedia, one short reply a prompt; claude-code is for plan or review');
   const triage = triageRef ? resolveModel(triageRef) : code;
   return { code, triage, ...(plan ? { plan } : {}), ...(review ? { review } : {}), swarm, ...(advisor ? { advisor } : {}), ...(classifier ? { classifier } : {}), workers };
 }

@@ -71,3 +71,22 @@ describe('user settings, read once', () => {
     expect(sessionPath('/tmp/x', 'id').startsWith(join(dir, 'sessions'))).toBe(true);
   });
 });
+
+describe('run flags over settings', () => {
+  test('a bad flag names its values as before', async () => {
+    const { loadAsk, loadJobs, loadLsp, loadSpawn } = await import('../src/core/config.ts');
+    expect(() => loadSpawn('x')).toThrow('--spawn must be on, off or worktree: x');
+    expect(() => loadAsk('x')).toThrow('--ask must be on, off or auto: x');
+    expect(() => loadJobs('x')).toThrow('--jobs must be on or off: x');
+    expect(() => loadLsp('x')).toThrow('--lsp must be on or off: x');
+  });
+
+  test('flag > settings > off', async () => {
+    const { loadJobs, loadTodo } = await import('../src/core/config.ts');
+    home(JSON.stringify({ jobs: true }));
+    expect(loadJobs()).toBe(true);
+    expect(loadJobs('off')).toBe(false);
+    expect(loadTodo()).toBe(false);
+    expect(loadTodo('on')).toBe(true);
+  });
+});
