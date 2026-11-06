@@ -54,6 +54,17 @@ test('the system prompt by role', () => {
   expect(profileSystem(undefined, m, { writing: true, fromPlan: true })).toBe(systemFor({ ...m, thorough: true }));
 });
 
+// --thorough on|off sets the writer's stop lines whatever the model's default, so an eval can A/B them.
+test('--thorough overrides the writer prompt, not the helpers\'', () => {
+  const haiku = resolveModel('anthropic/claude-haiku-5-5');
+  const opus = resolveModel('anthropic/claude-opus-5-5');
+  expect(profileSystem(undefined, haiku, { writing: true, fromPlan: false })).toBe(systemFor({ ...haiku, thorough: false }));
+  expect(profileSystem(undefined, haiku, { writing: true, fromPlan: false, thorough: true })).toBe(systemFor({ ...haiku, thorough: true }));
+  expect(profileSystem(undefined, opus, { writing: true, fromPlan: false, thorough: false })).toBe(systemFor({ ...opus, thorough: false }));
+  expect(profileSystem(undefined, haiku, { writing: true, fromPlan: true, thorough: false })).toBe(systemFor({ ...haiku, thorough: false }));
+  expect(profileSystem('plan', haiku, { writing: false, fromPlan: false, thorough: true })).toBe(systemFor(haiku));
+});
+
 // A work sub-thread on the writer's model opens with the writer's tool list, byte for byte, so its first request
 // reads the tools and system prompt from the cache the writer just wrote. It still runs only its own tools.
 const spec = (name: string, description = `${name} does a thing`): ToolSpec =>

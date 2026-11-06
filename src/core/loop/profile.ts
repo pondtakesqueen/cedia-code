@@ -29,13 +29,15 @@ export function sessionKind(role: SessionRole | undefined, child: boolean): Sess
 }
 
 // The system prompt: the helpers' own, the read-only one for explore and review, else the model's writer prompt
-// (thorough when the writer works from a plan). A plan session keeps the model's prompt.
-export function profileSystem(role: SessionRole | undefined, model: ModelSpec, opts: { writing: boolean; fromPlan: boolean }): string {
+// (thorough when the writer works from a plan, or as `thorough` says: --thorough or settings). A plan session keeps
+// the model's prompt.
+export function profileSystem(role: SessionRole | undefined, model: ModelSpec, opts: { writing: boolean; fromPlan: boolean; thorough?: boolean }): string {
   if (role === 'advisor') return ADVISOR_SYSTEM;
   if (role === 'classifier') return CLASSIFIER_SYSTEM;
   if (role === 'triage') return TRIAGE_SYSTEM;
   if (role === 'explore' || role === 'review') return READ_ONLY_SYSTEM;
-  return systemFor(opts.writing && opts.fromPlan ? { ...model, thorough: true } : model);
+  if (!opts.writing) return systemFor(model);
+  return systemFor({ ...model, thorough: opts.thorough ?? (opts.fromPlan || !!model.thorough) });
 }
 
 // A helper has no tools, but its policy is the reviewer's all the same: nothing that only reads gets the writer's.
