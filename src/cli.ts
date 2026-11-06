@@ -276,8 +276,78 @@ const USAGE = `usage: cedia [options]                 the TUI, at a terminal: ea
                                             /<skill> asks the writer to load it first
        cedia skills [--cwd <dir>]           the skills a session here can load: the user's (~/.cedia/skills) and the
                                             repository's (.agents/skills, .claude/skills, .cursor/skills)
+       cedia inline-edit --file <path> --range <line:col-line:col> --instruction <text> [--stdin] [--model <ref>] [--json]
+                                            the desktop's inline edit: the replacement for a range
+       cedia complete --file <path> --at <line:col> [--stdin] [--model <ref>] [--json]
+                                            the desktop's tab completion: the text to insert at a point
+       cedia usage [<file.jsonl>... | --thread <id> | --last <n> | --since <date|Nd>] [--all] [--json]
+                                            spend by day, model and thread
+       cedia failures [the same selection] [--json]
+                                            the tool calls that failed, by tool and kind
+       cedia settings [get | set <key> <value> | unset <key>] [--json]
+                                            print or edit ~/.cedia/settings.json, each value checked as a run reads it
+       cedia plugin [list | install <source> | show | mcp | enable | disable | update | uninstall <name>] [--json]
+       cedia marketplace [list | add <name> <source> | remove <name>] [--json]
+                                            plugins and where they come from
+       cedia doctor [--cwd <dir>] [--json]  what cedia can see here: settings, sandbox, MCP servers
+       cedia onboarding [--accept | --step <name>] [--json]
+                                            the TUI's first-run state
+       cedia teams [list | create | show | add-task | set-status | delete]
+                                            teams and their task lists
+       cedia living-docs [list] [<root>]    the living docs under a folder
+       cedia voice [--seconds <n>]          record and print what was said
 
 models: ${Object.keys(ALIASES).join(', ')}`;
+
+// The subcommands: each takes the words after its name and returns the exit code. docs/CLI.md and the usage
+// text list every one (test/cli-errors.test.ts).
+export const subcommands = (): Record<string, (args: string[]) => number | Promise<number>> => ({
+  'lint-session': lintFiles,
+  threads,
+  memory,
+  teams: teamsCmd,
+  'living-docs': livingDocsCmd,
+  'magic-docs': (args) => {
+    console.error('cedia: magic-docs is now living-docs; the old name still works for now');
+    return livingDocsCmd(args);
+  },
+  voice: voiceCmd,
+  'output-style': outputStyle,
+  doctor,
+  onboarding,
+  daemon: daemonCmd,
+  plugin,
+  marketplace,
+  settings,
+  schedules,
+  skills,
+  commands,
+  permissions,
+  models,
+  mcp,
+  commit,
+  review: reviewCmd,
+  ultrareview: ultrareviewCmd,
+  'explain-change': explainChangeCmd,
+  'inline-edit': inlineEditCmd,
+  complete: completeCmd,
+  pr,
+  usage,
+  failures: failuresCmd,
+  context,
+});
+
+// One error path for every subcommand: a bad flag (parseArgs' ERR_PARSE_ARGS_* errors) is a usage error, exit 2;
+// anything else one throws is one line on stderr, exit 1. CEDIA_DEBUG=1 adds the stack.
+async function runCommand(command: (args: string[]) => number | Promise<number>, args: string[]): Promise<number> {
+  try {
+    return await command(args);
+  } catch (e) {
+    console.error(`cedia: ${(e as Error).message.split('\n')[0]}`);
+    if (process.env.CEDIA_DEBUG) console.error((e as Error).stack);
+    return String((e as { code?: unknown }).code ?? '').startsWith('ERR_PARSE_ARGS') ? 2 : 1;
+  }
+}
 
 export async function main(given: string[]): Promise<number> {
   const taken = takeProject(given);
@@ -292,39 +362,9 @@ export async function main(given: string[]): Promise<number> {
     console.log(argv.slice(1).includes('--json') ? JSON.stringify(info) : `cedia ${info.version}`);
     return 0;
   }
-  if (argv[0] === 'lint-session') return lintFiles(argv.slice(1));
-  if (argv[0] === 'threads') return threads(argv.slice(1));
-  if (argv[0] === 'memory') return memory(argv.slice(1));
-  if (argv[0] === 'teams') return teamsCmd(argv.slice(1));
-  if (argv[0] === 'living-docs') return livingDocsCmd(argv.slice(1));
-  if (argv[0] === 'magic-docs') {
-    console.error('cedia: magic-docs is now living-docs; the old name still works for now');
-    return livingDocsCmd(argv.slice(1));
-  }
-  if (argv[0] === 'voice') return voiceCmd(argv.slice(1));
-  if (argv[0] === 'output-style') return outputStyle(argv.slice(1));
-  if (argv[0] === 'doctor') return doctor(argv.slice(1));
-  if (argv[0] === 'onboarding') return onboarding(argv.slice(1));
-  if (argv[0] === 'daemon') return daemonCmd(argv.slice(1));
-  if (argv[0] === 'plugin') return plugin(argv.slice(1));
-  if (argv[0] === 'marketplace') return marketplace(argv.slice(1));
-  if (argv[0] === 'settings') return settings(argv.slice(1));
-  if (argv[0] === 'schedules') return schedules(argv.slice(1));
-  if (argv[0] === 'skills') return skills(argv.slice(1));
-  if (argv[0] === 'commands') return commands(argv.slice(1));
-  if (argv[0] === 'permissions') return permissions(argv.slice(1));
-  if (argv[0] === 'models') return await models(argv.slice(1));
-  if (argv[0] === 'mcp') return mcp(argv.slice(1));
-  if (argv[0] === 'commit') return commit(argv.slice(1));
-  if (argv[0] === 'review') return reviewCmd(argv.slice(1));
-  if (argv[0] === 'ultrareview') return ultrareviewCmd(argv.slice(1));
-  if (argv[0] === 'explain-change') return explainChangeCmd(argv.slice(1));
-  if (argv[0] === 'inline-edit') return inlineEditCmd(argv.slice(1));
-  if (argv[0] === 'complete') return completeCmd(argv.slice(1));
-  if (argv[0] === 'pr') return pr(argv.slice(1));
-  if (argv[0] === 'usage') return usage(argv.slice(1));
-  if (argv[0] === 'failures') return failuresCmd(argv.slice(1));
-  if (argv[0] === 'context') return context(argv.slice(1));
+  const table = subcommands();
+  const command = argv[0] !== undefined && Object.hasOwn(table, argv[0]) ? table[argv[0]] : undefined;
+  if (command) return runCommand(command, argv.slice(1));
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
