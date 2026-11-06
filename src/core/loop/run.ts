@@ -889,6 +889,8 @@ async function runTools(
   }
   // Secrets are replaced before the result is logged, so neither the log nor the provider ever holds them.
   const redact = !opts.permission?.unlock?.includes('secret-redaction');
+  // Whether a writing call of this reply has run yet (see run).
+  let changed = false;
   // The writes of isolated calls, one at a time.
   let writing = Promise.resolve();
   const writeFor =
@@ -917,6 +919,17 @@ async function runTools(
     if (signal.aborted) {
       results.set(j.callId, { status: 'not_started', text: 'not run: the run was stopped', isError: true });
       return;
+    }
+    // Every call of the reply was decided before any ran. Once a writing call has run, the tree may differ (a
+    // symlink bash just made), so the policy decides again on the tree as it is now: the decision must be about
+    // the file the tool opens, not the path as it read before.
+    if (changed) {
+      const again = decide(opts.permission ?? READ_ONLY_POLICY, j.spec, j.input, opts.cwd);
+      if (again.decision === 'deny') {
+        log.append({ kind: 'permission', callId: j.callId, tool: j.spec.name, ...again });
+        results.set(j.callId, { status: 'denied', text: deniedText(again.rule, again.reason ?? ''), isError: true });
+        return;
+      }
     }
     try {
       const spill = (text: string) => spillOutput(log.id, j.callId, redact ? redactSecrets(text).text : text);
@@ -952,7 +965,10 @@ async function runTools(
     }
   }
   // A call left unstarted by a stop changes nothing, so it needs no snapshots.
-  const runWriting = (j: Job) => (signal.aborted ? run(j) : between(j, () => run(j)));
+  const runWriting = async (j: Job) => {
+    await (signal.aborted ? run(j) : between(j, () => run(j)));
+    changed = true;
+  };
   let pool: Job[] = [];
   for (const j of jobs) {
     if (j.parallel) pool.push(j);
