@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { gitSync } from './run.ts';
 import { workspaceSnapshots, type Snapshots } from '../safety/snapshot.ts';
 import { inert } from '../trust/frame.ts';
 import type { ThreadStore } from '../threads/threads.ts';
@@ -51,7 +51,7 @@ export function commitMessage(reply: string): string {
 }
 
 // Paths are literal: a thread's file named `a[1].txt` must not match the user's own `a1.txt`.
-const git = (cwd: string, args: string[]) => spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_LITERAL_PATHSPECS: '1' } });
+const git = (cwd: string, args: string[]) => gitSync(cwd, args, { literal: true });
 
 // The files a thread changed here, for a commit or a review, or why cedia cannot tell. The one place the CLI and
 // the TUI ask, so both say the same thing when they cannot.
@@ -116,7 +116,7 @@ export function defaultBranch(cwd: string, remote = 'origin'): string | undefine
   const head = git(cwd, ['symbolic-ref', '--quiet', '--short', `refs/remotes/${remote}/HEAD`]);
   if (head.status === 0) return head.stdout.trim().replace(`${remote}/`, '');
   // A remote that does not answer within seconds leaves it unknown rather than holding the TUI.
-  const ls = spawnSync('git', ['ls-remote', '--symref', remote, 'HEAD'], { cwd, encoding: 'utf8', timeout: 10_000 });
+  const ls = gitSync(cwd, ['ls-remote', '--symref', remote, 'HEAD'], { timeout: 10_000 });
   const asked = /^ref: refs\/heads\/(\S+)\tHEAD$/m.exec(ls.stdout ?? '');
   if (asked) return asked[1];
   return ['main', 'master'].find((b) => git(cwd, ['rev-parse', '--verify', '-q', `refs/heads/${b}`]).status === 0);

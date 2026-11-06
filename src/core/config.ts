@@ -73,10 +73,10 @@ export type Settings = {
   desktop?: Record<string, unknown>;
   // The user's hooks (core/hooks.ts). User settings only: a repo must not run code outside the sandbox.
   hooks?: Hooks;
-  // Consolidate project memory between sessions (default off). User settings only.
-  consolidateMemory?: boolean;
-  // The old name of consolidateMemory, still read (with a note on stderr) so an older settings file loads.
-  autoDream?: boolean;
+  // Retired: memory is consolidated only by `cedia memory consolidate`; nothing ever read these. Still accepted, and
+  // ignored, so a settings file that holds them loads.
+  consolidateMemory?: unknown;
+  autoDream?: unknown;
   // Output style name (default/explanatory/learning or user style).
   outputStyle?: string;
   // Prompt suggestions: predict next user prompt after each turn (default off).
@@ -378,19 +378,6 @@ export function loadJobs(flag?: string): boolean {
 // todo: flag > user settings > off.
 export function loadTodo(flag?: string): boolean {
   return switchOf('todo', flag, userSettings().todo);
-}
-
-// consolidateMemory: flag > user settings (`autoDream`, its old name, when the new one is absent) > off.
-export function loadConsolidateMemory(flag?: string, warn: (line: string) => void = (l) => console.error(l)): boolean {
-  const f = flagOf('consolidate-memory', flag, ON_OFF);
-  if (f) return f === 'on';
-  const s = userSettings();
-  if (s.consolidateMemory !== undefined) return s.consolidateMemory;
-  if (s.autoDream !== undefined) {
-    warn('cedia: settings key autoDream is now consolidateMemory; autoDream is still read for now');
-    return s.autoDream;
-  }
-  return false;
 }
 
 // promptSuggestions: flag > user settings > off.

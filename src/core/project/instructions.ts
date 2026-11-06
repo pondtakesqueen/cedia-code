@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { gitSync } from '../git/run.ts';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { redactSecrets } from '../safety/secrets.ts';
@@ -26,7 +26,7 @@ const MAX_IMPORT_DEPTH = 3;
 const MAX_FILE_BYTES = 256 * 1024;
 
 export const repoRoot = (cwd: string): string => {
-  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8' });
+  const r = gitSync(cwd, ['rev-parse', '--show-toplevel']);
   return r.status === 0 && r.stdout.trim() ? r.stdout.trim() : cwd;
 };
 

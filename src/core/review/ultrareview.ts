@@ -1,7 +1,7 @@
 import { runSide } from '../loop/side.ts';
-import { askedReviewPrompt, parseVerdict, type ReviewSubject } from '../trust/review.ts';
+import { askedReviewPrompt, parseVerdict, verifyFindings, type ReviewSubject } from '../trust/review.ts';
 import type { ModelSpec, SessionEvent } from '../types.ts';
-import { parseFindings, type CodeFinding } from './code-review.ts';
+import { FOCUS_MAX_TURNS, parseFindings, type CodeFinding } from './code-review.ts';
 import { pullRequest } from '../git/commit.ts';
 import { workingDiff } from '../git/git.ts';
 
@@ -18,10 +18,11 @@ export const FOCUSES: readonly Focus[] = [
 ];
 
 export type UltraFinding = CodeFinding & { focus: string };
-// What `cedia ultrareview --json` prints: the findings by focus, in focus order, and the passes that did not finish
-// (a failed pass leaves the others standing); or why there is no review.
+// What `cedia ultrareview --json` prints: the findings by focus, in focus order, the findings dropped because they
+// name a file the change does not touch (as /code-review drops them), and the passes that did not finish (a failed
+// pass leaves the others standing); or why there is no review.
 export type UltraReview =
-  | { model: string; subject: string; findings: UltraFinding[]; failed: { focus: string; reason: string }[]; costUsd: number }
+  | { model: string; subject: string; findings: UltraFinding[]; dropped: { focus: string; ref: string; reason: string }[]; failed: { focus: string; reason: string }[]; costUsd: number }
   | { error: string };
 
 // What a review reads: the working tree's changes against HEAD, or pull request `pr` (with or without its `#`).
@@ -63,7 +64,7 @@ export async function ultraReview(opts: {
         role: 'review',
         access: { kind: 'read-only', ...(opts.policy ? { policy: opts.policy } : {}) },
         ...(opts.privacy ? { privacy: opts.privacy } : {}),
-        maxTurns: 30,
+        maxTurns: FOCUS_MAX_TURNS,
         signal,
         ...(opts.onEvent ? { onEvent: (e: SessionEvent) => opts.onEvent!(f.name, e) } : {}),
         prompt: `${askedReviewPrompt(opts.subject, opts.patch)}\n\nSPECIAL FOCUS: ${f.prompt}\nReturn findings relevant to this focus only. Use FINDING: ... and end with VERDICT: ...`,
@@ -71,6 +72,8 @@ export async function ultraReview(opts: {
     ),
   );
   const findings: UltraFinding[] = [];
+  const dropped: { focus: string; ref: string; reason: string }[] = [];
+  const untracked = opts.subject.kind === 'changes' ? opts.subject.untracked : [];
   const failed: { focus: string; reason: string }[] = [];
   let costUsd = 0;
   runs.forEach((res, i) => {
@@ -78,8 +81,10 @@ export async function ultraReview(opts: {
     if (res.status === 'rejected') return void failed.push({ focus, reason: String((res.reason as Error)?.message ?? res.reason) });
     costUsd += res.value.costUsd;
     if (res.value.subtype !== 'success') return void failed.push({ focus, reason: res.value.subtype });
-    for (const f of parseFindings(parseVerdict(res.value.result).findings)) findings.push({ focus, ...f });
+    const placed = verifyFindings(parseVerdict(res.value.result).findings, opts.patch, untracked);
+    for (const d of placed.dropped) dropped.push({ focus, ...d });
+    for (const f of parseFindings(placed.kept)) findings.push({ focus, ...f });
   });
   if (failed.length === focuses.length) return { error: `no pass finished (${failed.map((f) => `${f.focus}: ${f.reason}`).join('; ')})` };
-  return { model: opts.model.ref, subject: subjectTitle(opts.subject), findings, failed, costUsd };
+  return { model: opts.model.ref, subject: subjectTitle(opts.subject), findings, dropped, failed, costUsd };
 }

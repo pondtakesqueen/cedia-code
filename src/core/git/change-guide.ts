@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { gitSync } from './run.ts';
 import { runSide } from '../loop/side.ts';
 import { resolveModel } from '../providers/catalog.ts';
 import type { Snapshots } from '../safety/snapshot.ts';
@@ -15,7 +15,7 @@ import { sinceTurn, threadTurn } from '../threads/undo.ts';
 export type DiffBase = 'turn' | 'head' | 'upstream';
 export const DIFF_BASES: DiffBase[] = ['turn', 'head', 'upstream'];
 
-const git = (cwd: string, args: string[]) => spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+const git = (cwd: string, args: string[]) => gitSync(cwd, args);
 
 export function threadDiff(store: ThreadStore, id: string, base: DiffBase, cwd: string, snapshots: Snapshots | undefined): { patch: string; files: string[] } | { error: string } {
   if (base === 'turn') {

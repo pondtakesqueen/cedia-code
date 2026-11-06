@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { gitSync } from './run.ts';
 
 // Read-only looks at the user's repository, for the status line and `/diff`. They never take git's index lock
 // (`--no-optional-locks`), so a status refresh never collides with the user's own git commands.
@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 export type GitStatus = { branch: string; detached: boolean; dirty: number; ahead: number; behind: number };
 
 const git = (cwd: string, args: string[]) => {
-  const r = spawnSync('git', ['--no-optional-locks', ...args], { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const r = gitSync(cwd, args, { locks: false });
   return r.status === 0 ? r.stdout : undefined;
 };
 
