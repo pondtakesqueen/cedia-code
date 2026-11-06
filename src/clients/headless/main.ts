@@ -1360,7 +1360,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
         const { generateSuggestion } = await import('../../core/suggestions/prompt-suggestion.ts');
         const sug = await generateSuggestion({ cwd: args.cwd, lastResult: result.result });
         if (sug) {
-          if (args.outputFormat === 'stream-json') out(encode({ type: 'prompt_suggestion', suggestion: sug.text } as any));
+          if (args.outputFormat === 'stream-json') out(encode({ type: 'prompt_suggestion', suggestion: sug.text }));
           else say(`cedia suggestion: ${sug.text}\n`);
         }
       } catch {}
