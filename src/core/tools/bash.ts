@@ -33,10 +33,18 @@ export function splitWords(segment: string): string[] | null {
   let cur = '';
   let quote: '"' | "'" | null = null;
   let has = false;
-  for (const ch of segment) {
+  for (let i = 0; i < segment.length; i++) {
+    const ch = segment[i]!;
     if (quote) {
-      if (ch === quote) quote = null;
+      // In double quotes a backslash escapes only $ ` " \ and a newline; elsewhere bash keeps it.
+      if (ch === '\\' && quote === '"' && i + 1 < segment.length) {
+        const next = segment[++i]!;
+        cur += '$`"\\\n'.includes(next) ? next : ch + next;
+      } else if (ch === quote) quote = null;
       else cur += ch;
+    } else if (ch === '\\' && i + 1 < segment.length) {
+      // Outside quotes it takes away the next character's meaning: `\-i` is -i, `\'` a plain quote.
+      cur += segment[++i];
     } else if (ch === '"' || ch === "'") {
       quote = ch;
       has = true;
@@ -51,10 +59,27 @@ export function splitWords(segment: string): string[] | null {
   return words;
 }
 
-// Strips quoted text and the two harmless redirections (2>&1, 2>/dev/null), leaving the operators that matter.
+// Strips quoted text, escaped characters (an escaped quote opens no string) and the two harmless redirections
+// (2>&1, 2>/dev/null), leaving the operators bash acts on. An unclosed quote is left as written.
+function unquoted(command: string): string {
+  let out = '';
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i]!;
+    if (ch === '\\') {
+      out += '_';
+      i++;
+    } else if (ch === "'" || ch === '"') {
+      let j = i + 1;
+      while (j < command.length && command[j] !== ch) j += ch === '"' && command[j] === '\\' ? 2 : 1;
+      if (j >= command.length) return out + command.slice(i);
+      out += '""';
+      i = j;
+    } else out += ch;
+  }
+  return out;
+}
 const bareOf = (command: string) =>
-  command
-    .replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, '""')
+  unquoted(command)
     .replace(/(^|\s)\d?>&\d(?=[\s;|&]|$)/g, ' ')
     .replace(/(^|\s)2>\s*\/dev\/null(?=[\s;|&]|$)/g, ' ');
 
@@ -121,6 +146,8 @@ function splitTopLevel(command: string): string[] | null {
       }
       if (ch === quote) quote = null;
       cur += ch;
+    } else if (ch === '\\') {
+      cur += ch + (command[++i] ?? '');
     } else if (ch === '"' || ch === "'") {
       quote = ch;
       cur += ch;
