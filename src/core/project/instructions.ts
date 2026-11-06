@@ -1,8 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
 import { redactSecrets } from '../safety/secrets.ts';
 import { inert } from '../trust/frame.ts';
+import { inside, isSecretFile, realExisting } from '../fs-safety.ts';
 
 // The repository's own instructions for agents: an AGENTS.md (or, where a directory has none, a CLAUDE.md) in each
 // directory from the repository's root down to the working directory, root first, so the nearer file reads last
@@ -23,30 +24,15 @@ export const MAX_INSTRUCTIONS = 40_000;
 const MAX_IMPORT_DEPTH = 3;
 // A file larger than this is not read at all: instructions are prose, and the cap would cut it anyway.
 const MAX_FILE_BYTES = 256 * 1024;
-// Files an import never brings in, whatever the repository says.
-export const SECRET_NAME = /^(\.env(\..*)?|.*\.(pem|key|p12|pfx|keystore|jks)|id_(rsa|dsa|ecdsa|ed25519)(\.pub)?|\.netrc|\.npmrc|\.pypirc|credentials(\.json)?)$/i;
 
 export const repoRoot = (cwd: string): string => {
   const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8' });
   return r.status === 0 && r.stdout.trim() ? r.stdout.trim() : cwd;
 };
 
-export const real = (p: string): string | undefined => {
-  try {
-    return realpathSync(p);
-  } catch {
-    return undefined;
-  }
-};
-
-export const inside = (root: string, p: string) => {
-  const rel = relative(root, p);
-  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
-};
-
 export function loadInstructions(cwd: string): InstructionFile[] {
-  const root = real(repoRoot(resolve(cwd)));
-  const here = real(resolve(cwd));
+  const root = realExisting(repoRoot(resolve(cwd)));
+  const here = realExisting(resolve(cwd));
   if (!root || !here || !inside(root, here)) return [];
   const dirs = [root];
   for (let d = here; d !== root; d = dirname(d)) dirs.splice(1, 0, d);
@@ -68,9 +54,9 @@ export function loadInstructions(cwd: string): InstructionFile[] {
 // A file's text with its `@path` lines replaced by the files they name. Undefined for a file outside the
 // repository, one already read, or one that is not a regular file.
 function read(root: string, path: string, seen: Set<string>, depth: number): string | undefined {
-  const p = real(path);
+  const p = realExisting(path);
   if (!p || !inside(root, p) || seen.has(p)) return undefined;
-  if (depth > 0 && (SECRET_NAME.test(basename(p)) || relative(root, p).split(sep).includes('.git'))) return undefined;
+  if (depth > 0 && isSecretFile(root, p)) return undefined;
   try {
     const st = statSync(p);
     if (!st.isFile() || st.size > MAX_FILE_BYTES) return undefined;
@@ -136,9 +122,9 @@ export function shownInstructions(texts: Iterable<string>): Set<string> {
 }
 
 export function nestedInstructions(cwd: string, file: string, shown: Set<string>): InstructionFile[] {
-  const root = real(repoRoot(resolve(cwd)));
-  const here = real(resolve(cwd));
-  const at = real(dirname(resolve(cwd, file)));
+  const root = realExisting(repoRoot(resolve(cwd)));
+  const here = realExisting(resolve(cwd));
+  const at = realExisting(dirname(resolve(cwd, file)));
   if (!root || !here || !at || !inside(root, at)) return [];
   const dirs: string[] = [];
   for (let d = at; d !== root && inside(root, d); d = dirname(d)) if (!inside(d, here)) dirs.unshift(d);

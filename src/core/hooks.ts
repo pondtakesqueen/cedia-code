@@ -1,8 +1,8 @@
 import { mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
 import type { JsonObject } from './types.ts';
 import { scrubbedEnv } from './tools/bash.ts';
 import { inert } from './trust/frame.ts';
+import { expandHome } from './fs-safety.ts';
 
 // Hooks are the user's own commands, run at three points of a session: before a call runs (it may block the
 // call or rewrite its input, which the policy then decides again), after a call (it may add a note to the
@@ -41,7 +41,6 @@ export const HOOK_TIMEOUT_MS = 30_000;
 const MAX_HOOK_TEXT = 4_000;
 const MAX_HOOK_OUTPUT = 1_000_000;
 
-const expandHome = (p: string) => (p === '~' || p.startsWith('~/') ? homedir() + p.slice(1) : p);
 
 export const hookName = (event: HookEvent, i: number, spec: HookSpec) => `${event}[${i}] ${spec.command[0] ?? ''}`.trim();
 

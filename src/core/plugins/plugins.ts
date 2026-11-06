@@ -2,7 +2,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { basename, join, resolve } from 'node:path';
 import { cediaHome } from '../config.ts';
 import { addMcp, removeMcp, type McpAdd } from '../mcp/manage.ts';
-import { inside, real } from '../project/instructions.ts';
+import { inside, realExisting } from '../fs-safety.ts';
 
 // Plugins in the Claude Code layout, so the plugins people already publish work as they are: a folder with
 // `.claude-plugin/plugin.json` (or `plugin.json`), `skills/<name>/SKILL.md`, `commands/<name>.md`, `agents/`,
@@ -126,11 +126,11 @@ export function listInstalled(home = cediaHome()): InstalledPlugin[] {
 // The plugins a session takes skills from: installed, enabled, and still in ~/.cedia/plugins. Home only: a
 // repository must not add what a session reads the way the user's own plugins add it.
 export function enabledPlugins(home = cediaHome()): InstalledPlugin[] {
-  const root = real(pluginsDir(home));
+  const root = realExisting(pluginsDir(home));
   return listInstalled(home)
     .filter((p) => p.enabled && PLUGIN_NAME.test(p.name))
     .filter((p) => {
-      const at = real(p.installPath);
+      const at = realExisting(p.installPath);
       return !!root && !!at && inside(root, at) && at !== root;
     })
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -171,8 +171,8 @@ function fromMarketplace(spec: string, home: string, temps: string[]): string {
   if (!entry) throw new Error(`marketplace ${market} has no plugin ${plugin}`);
   const src = entry.source;
   if (typeof src === 'string') {
-    const dir = real(resolve(root, src));
-    const top = real(root);
+    const dir = realExisting(resolve(root, src));
+    const top = realExisting(root);
     if (!dir || !top || !inside(top, dir)) throw new Error(`plugin ${plugin}'s source ${src} is outside marketplace ${market}`);
     return dir;
   }
@@ -225,8 +225,8 @@ export function uninstallPlugin(name: string, home = cediaHome()): void {
   for (const server of rec.mcp ?? []) {
     try { removeMcp(server); } catch { /* already gone */ }
   }
-  const root = real(pluginsDir(home));
-  const at = real(rec.installPath);
+  const root = realExisting(pluginsDir(home));
+  const at = realExisting(rec.installPath);
   if (root && at && inside(root, at) && at !== root) rmSync(at, { recursive: true, force: true });
   delete data.plugins[name];
   saveInstalled(home, data);

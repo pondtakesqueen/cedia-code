@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { secretPaths } from './secrets.ts';
+import { realExisting, strictlyInside } from '../fs-safety.ts';
 
 // Where git looks for hooks in the repository holding `cwd`: core.hooksPath when set (`.husky`), otherwise
 // .git/hooks. Undefined outside a repository.
@@ -97,7 +98,7 @@ export async function openSandbox(
   // user's next commit, outside the sandbox. Make it exist (empty, so git and the snapshots ignore it) to deny it.
   const hooks = hooksDir(cwd);
   for (const dir of [hooks, existsSync(join(cwd, '.git')) && statSync(join(cwd, '.git')).isDirectory() ? join(cwd, '.git', 'hooks') : undefined])
-    if (dir && within(dir, cwd)) mkdirSync(dir, { recursive: true });
+    if (dir && strictlyInside(cwd, dir)) mkdirSync(dir, { recursive: true });
   const missing = MANDATORY_DENY.map((p) => join(cwd, p)).filter((p) => !existsSync(p));
   try {
     await manager.initialize(sandboxConfig(cwd, opts.allowedDomains, opts.cediaHome, hooks));
@@ -122,16 +123,5 @@ export async function openSandbox(
   };
 }
 
-const within = (path: string, dir: string) => {
-  const rel = relative(dir, path);
-  return rel !== '' && !rel.startsWith('..') && !rel.startsWith('/');
-};
-
 // realpathSync that tolerates missing paths: a path that does not exist (yet) stays as written.
-const dereference = (p: string) => {
-  try {
-    return realpathSync(p);
-  } catch {
-    return p;
-  }
-};
+const dereference = (p: string) => realExisting(p) ?? p;
