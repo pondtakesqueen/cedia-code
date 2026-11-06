@@ -133,6 +133,7 @@ export const editTool: ToolSpec = {
   effect: 'write_workspace',
   replay: 'unsafe',
   pathOf: (input) => (typeof input.path === 'string' ? input.path : undefined),
+  opensFile: true,
   repair: editRepair,
   async run(input, ctx) {
     const path = String(input.path ?? '');
@@ -177,6 +178,7 @@ export const writeTool: ToolSpec = {
   effect: 'write_workspace',
   replay: 'unsafe',
   pathOf: (input) => (typeof input.path === 'string' ? input.path : undefined),
+  opensFile: true,
   async run(input, ctx) {
     const path = String(input.path ?? '');
     if (!path) return { text: 'path is required', isError: true };
