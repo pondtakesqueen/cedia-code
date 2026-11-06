@@ -54,10 +54,26 @@ import { EFFORTS, type Effort } from './core/types.ts';
 import { doctorReport } from './core/doctor.ts';
 import { versionInfo } from './protocol/version.ts';
 
-// Multi-repo workspace: --project <key> overrides the project key for this invocation, so threads in different
-// repositories can file under one workspace. Set early, before any command parses args.
-const _projectFlagIndex = process.argv.indexOf('--project');
-if (_projectFlagIndex >= 0 && process.argv[_projectFlagIndex + 1]) process.env.CEDIA_PROJECT = process.argv[_projectFlagIndex + 1];
+// Multi-repo workspace: --project <key> (anywhere in the line) overrides the project key for this invocation, so
+// threads in different repositories file under one workspace. It is taken out of argv here, before any command
+// parses its own options, and passed on as CEDIA_PROJECT, which projectKey reads and child cedia processes inherit.
+export function takeProject(argv: string[]): { argv: string[]; project?: string } | { error: string } {
+  const rest: string[] = [];
+  let project: string | undefined;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!;
+    if (a === '--') {
+      rest.push(...argv.slice(i));
+      break;
+    }
+    if (a === '--project' || a.startsWith('--project=')) {
+      const v = a === '--project' ? argv[++i] : a.slice('--project='.length);
+      if (!v || v.startsWith('-')) return { error: '--project takes a workspace key' };
+      project = v;
+    } else rest.push(a);
+  }
+  return { argv: rest, ...(project ? { project } : {}) };
+}
 
 // bin/cedia starts Bun with NODE_ENV=production when it was unset, for the TUI's React (see the TUI's import below).
 // Nothing else wants it, and the commands cedia runs must not inherit it, so it goes before anything runs.
@@ -261,7 +277,14 @@ const USAGE = `usage: cedia [options]                 the TUI, at a terminal: ea
 
 models: ${Object.keys(ALIASES).join(', ')}`;
 
-export async function main(argv: string[]): Promise<number> {
+export async function main(given: string[]): Promise<number> {
+  const taken = takeProject(given);
+  if ('error' in taken) {
+    console.error(`cedia: ${taken.error}`);
+    return 2;
+  }
+  if (taken.project) process.env.CEDIA_PROJECT = taken.project;
+  const argv = taken.argv;
   if (argv[0] === '--version' || argv[0] === '-v') {
     const info = versionInfo();
     console.log(argv.slice(1).includes('--json') ? JSON.stringify(info) : `cedia ${info.version}`);
