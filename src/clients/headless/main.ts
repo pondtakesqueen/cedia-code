@@ -1,7 +1,7 @@
 import { profilePermission, profileSystem, profileTools, sessionKind, sharedPrefixTools } from '../../core/loop/profile.ts';
 import { join, resolve } from 'node:path';
 import { historyRejected, runPrompt, type RunOptions } from '../../core/loop/run.ts';
-import { modeNote, preamble, READ_ONLY_SYSTEM, systemFor, timeNote } from '../../core/prompts.ts';
+import { modeNote, preamble, READ_ONLY_SYSTEM, timeNote } from '../../core/prompts.ts';
 import { resolveModel } from '../../core/providers/catalog.ts';
 import { fauxScript as readFauxScript } from '../../core/providers/faux.ts';
 import { missingKeyNote } from '../../core/providers/http.ts';
@@ -9,7 +9,7 @@ import { providerFor } from '../../core/providers/index.ts';
 import { projectKey, projectRoot, projectSlug, SessionLog, sessionExists, sessionPath, workspaceRoots } from '../../core/session/log.ts';
 import { DAILY_SPEND_WARN_USD, daySpendUsd } from '../../core/session/select.ts';
 import { dayOf } from '../../core/session/usage.ts';
-import { cediaHome, sharedSkillDirs, detectChecks, loadChecks, loadOwnerChecks, loadContext, loadFallback, loadMedia, loadHandoff, loadHandoffAt, loadHooks, loadMcp, loadMaxEffort, loadSubthreadEffort, capEffort, loadPolicy, loadPrivacy, loadQuotaWait, loadRoles, loadSandbox, loadSpawn, loadAsk, loadJobs, loadTodo, loadCreator, loadProfiles, loadLsp, loadPlanWhen, loadPlanOverlap, loadPromptSuggestions, isMode, modeFlags, type Mode, type RoleChoice } from '../../core/config.ts';
+import { cediaHome, sharedSkillDirs, detectChecks, loadChecks, loadOwnerChecks, loadContext, loadFallback, loadMedia, loadHandoff, loadHandoffAt, loadHooks, loadMcp, loadMaxEffort, loadSubthreadEffort, capEffort, loadPolicy, loadPrivacy, loadQuotaWait, loadRoles, loadSandbox, loadSpawn, loadAsk, loadJobs, loadTodo, loadCreator, loadProfiles, loadLsp, loadPlanWhen, loadPlanOverlap, loadThorough, loadPromptSuggestions, isMode, modeFlags, type Mode, type RoleChoice } from '../../core/config.ts';
 import { attachedNote, blobDir, STORED_IMAGE, storedImage, type ImageRef } from '../../core/images.ts';
 import { storeAttachment } from '../../core/video.ts';
 import { claimThread } from '../../core/project/busy.ts';
@@ -144,6 +144,8 @@ export type HeadlessArgs = {
   planWhen?: string;
   // "on": the writer starts reading while the plan is written (core/roles.ts, planComing); default settings, on.
   planOverlap?: string;
+  // on|off: the writer's thorough or turn-saving stop lines; default its model's own (settings "thorough").
+  thorough?: string;
   // The model that says whether a message needs the planner (default: the code model).
   triage?: string;
   // The review role in place of `review` when the sandbox lets a Claude Code review probe (set by -m auto).
@@ -315,6 +317,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
   const planWhen = loadPlanWhen(args.planWhen);
   const subthreadEffort = loadSubthreadEffort();
   const planOverlap = loadPlanOverlap(args.planOverlap);
+  const thorough = loadThorough(args.thorough);
   const cacheTtl = args.cacheTtl ?? '5m';
   warnDaySpend(args.cwd, cediaHome(), say);
   if (cacheTtl !== '5m' && cacheTtl !== '1h') throw new Error(`--cache-ttl must be 5m or 1h, not ${cacheTtl}`);
@@ -637,7 +640,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
       ...(child?.recall ? { childRecall: child.recall } : {}),
       ...(header ? { resumed: header.tools.map((d) => d.name) } : {}),
     });
-    let system = profileSystem(opts.role, m, { writing, fromPlan });
+    let system = profileSystem(opts.role, m, { writing, fromPlan, ...(thorough !== undefined ? { thorough } : {}) });
     // A new work sub-thread on the writer's model opens with the writer's tools and system prompt, so its first
     // request reads them from the cache the writer just wrote (core/loop/profile.ts).
     const shared = kind === 'child' && !header && writerPrefix?.model === m.ref ? sharedPrefixTools(writerPrefix.tools, tools) : undefined;
@@ -1194,7 +1197,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
     warm('review', roles.review);
     // A session whose cache has expired costs its whole context to resume; past a size, a new session from where
     // the thread stopped is cheaper, so the run says both prices and takes the cheaper.
-    const freshTokens = resumed ? Math.ceil((systemFor(fromPlan ? { ...model, thorough: true } : model).length + JSON.stringify(toolDefs(CORE_TOOLS)).length + basePreamble().length + resumeNote(resumed).length + task.length) / 4) : 0;
+    const freshTokens = resumed ? Math.ceil((profileSystem(undefined, model, { writing: true, fromPlan, ...(thorough !== undefined ? { thorough } : {}) }).length + JSON.stringify(toolDefs(CORE_TOOLS)).length + basePreamble().length + resumeNote(resumed).length + task.length) / 4) : 0;
     const choice = lastLog ? resumeChoice(lastLog.events, model, freshTokens) : undefined;
     if (choice?.fresh)
       say(

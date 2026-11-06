@@ -32,6 +32,8 @@ export type Settings = {
   planWhen?: string;
   // "on": the writer starts reading while the plan is written, and the plan follows into its session (default on).
   planOverlap?: string;
+  // on|off: the writer's thorough or turn-saving stop lines whatever its model's default (core/prompts.ts).
+  thorough?: string;
   // Whether writer sessions get the spawn tool for sub-threads (default true), and "worktree" to run each work
   // sub-thread in a git worktree of its own, several at once. User settings only.
   spawn?: boolean | 'worktree';
@@ -108,6 +110,7 @@ const SETTINGS_KEYS: Record<keyof Settings, readonly string[] | 'any'> = {
   roles: ['plan', 'code', 'review', 'swarm', 'advisor', 'classifier', 'workers', 'triage', 'complete'],
   planWhen: 'any',
   planOverlap: 'any',
+  thorough: 'any',
   spawn: 'any',
   lsp: 'any',
   ask: 'any',
@@ -562,6 +565,15 @@ export function loadPlanWhen(flag?: string): 'auto' | 'always' | 'never' {
 export function loadPlanOverlap(flag?: string): boolean {
   const v = flag ?? userSettings().planOverlap ?? 'on';
   if (v !== 'on' && v !== 'off') throw new Error(`${flag !== undefined ? '--plan-overlap' : '"planOverlap"'} must be on or off, not ${v}`);
+  return v === 'on';
+}
+
+// The writer's stop lines: undefined keeps the model's own (thorough for Opus, turn-saving for the rest), on or off
+// sets them (core/prompts.ts; an A/B of the two: --cedia-arg=--thorough --cedia-arg=on in evals/gate.ts).
+export function loadThorough(flag?: string): boolean | undefined {
+  const v = flag ?? userSettings().thorough;
+  if (v === undefined) return undefined;
+  if (v !== 'on' && v !== 'off') throw new Error(`${flag !== undefined ? '--thorough' : '"thorough"'} must be on or off, not ${v}`);
   return v === 'on';
 }
 

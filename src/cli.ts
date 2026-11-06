@@ -133,6 +133,9 @@ const USAGE = `usage: cedia [options]                 the TUI, at a terminal: ea
       --plan-overlap <on|off>  with a plan role: on starts the writer reading while the plan is written; the plan
                                follows into its session and nothing changes before it arrives (default: settings
                                planOverlap, on)
+      --thorough <on|off>      the writer's stop lines: on probes edge cases and reads its diff before it stops, off
+                               stops once a declared check passes, to save turns (default: settings thorough, else
+                               the model's own: on for Opus, off for the rest)
       --triage <ref>           the model that decides (default: the code model; roles.triage in settings)
       --output-style <name>    report style by name (default, explanatory, learning, terse; settings, cedia output-style)
       --cache-ttl <5m|1h>      how long the writer's cached prompt lasts on Claude API models between requests.
@@ -392,6 +395,7 @@ export async function main(given: string[]): Promise<number> {
       'cache-ttl': { type: 'string' },
       'plan-when': { type: 'string' },
       'plan-overlap': { type: 'string' },
+      thorough: { type: 'string' },
       'output-style': { type: 'string' },
       triage: { type: 'string' },
       ask: { type: 'string' },
@@ -466,6 +470,7 @@ export async function main(given: string[]): Promise<number> {
     ...(values['cache-ttl'] ? { cacheTtl: values['cache-ttl'] } : {}),
     ...(values['plan-when'] ? { planWhen: values['plan-when'] } : {}),
     ...(values['plan-overlap'] ? { planOverlap: values['plan-overlap'] } : {}),
+    ...(values.thorough ? { thorough: values.thorough } : {}),
     ...(values['output-style'] ? { outputStyle: values['output-style'] } : {}),
     ...(values.triage ? { triage: values.triage } : {}),
     ...(values.ask ? { ask: values.ask } : {}),
