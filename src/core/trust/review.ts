@@ -98,8 +98,10 @@ export function patchFiles(patch: string): Set<string> {
 // chase it. Drop those lines (saying which), keep the rest; a finding with no file:line at all is kept, since
 // the format, not the substance, is what it lacks. Line numbers are not checked: the prompt sends the reviewer
 // into the change's callers, where a real defect lives outside any hunk.
-export function verifyFindings(findings: string, patch: string): { kept: string; dropped: { ref: string; reason: string }[] } {
-  const files = patchFiles(patch);
+export function verifyFindings(findings: string, patch: string, also: string[] = []): { kept: string; dropped: { ref: string; reason: string }[] } {
+  // `also`: files that are part of the change but not in the patch (untracked ones, which a diff against HEAD
+  // leaves out).
+  const files = new Set([...patchFiles(patch), ...also]);
   const kept: string[] = [];
   const dropped: { ref: string; reason: string }[] = [];
   for (const line of findings.split('\n')) {

@@ -41,6 +41,11 @@ const summaryOf = (findings: string) =>
     .join('\n')
     .trim();
 
+// How many turns a review session gets. One review of the whole change reads more than one of ultrareview's four
+// passes, each narrowed to one focus, and the four run at once, so a pass gets fewer.
+export const REVIEW_MAX_TURNS = 40;
+export const FOCUS_MAX_TURNS = 30;
+
 export async function codeReview(opts: { cwd: string; files: string[]; patch: string; model: string; signal?: AbortSignal }): Promise<CodeReview> {
   if (!opts.files.length) return { error: 'nothing this thread changed differs from HEAD' };
   const model = resolveModel(opts.model);
@@ -49,7 +54,7 @@ export async function codeReview(opts: { cwd: string; files: string[]; patch: st
     model,
     role: 'review',
     access: { kind: 'read-only' },
-    maxTurns: 40,
+    maxTurns: REVIEW_MAX_TURNS,
     ...(opts.signal ? { signal: opts.signal } : {}),
     // The patch holds the thread's new files whole, so none is left to name as untracked.
     prompt: askedReviewPrompt({ kind: 'changes', untracked: [] }, opts.patch),

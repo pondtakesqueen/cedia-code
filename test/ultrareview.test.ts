@@ -54,3 +54,13 @@ test('cedia ultrareview runs each focus in a session of its own and files every 
     expect(log).toContain('new.txt');
   }
 });
+
+test('cedia ultrareview drops a finding on a file the change does not touch, as /code-review does', () => {
+  const { dir, run } = repo();
+  writeFileSync(join(dir, 'base.txt'), 'base\nmore\n');
+  writeFileSync(join(dir, 'new.txt'), 'new\n');
+  const r = run([reply('FINDING: base.txt:2 kept\nFINDING: new.txt:1 kept, the file is new\nFINDING: elsewhere.ts:9 not part of the change\nVERDICT: changes')], ['--model', 'faux', '--json']);
+  const out = JSON.parse(r.out);
+  expect(out.findings.filter((f: { focus: string }) => f.focus === 'correctness').map((f: { path: string }) => f.path)).toEqual(['base.txt', 'new.txt']);
+  expect(out.dropped).toContainEqual({ focus: 'correctness', ref: 'elsewhere.ts:9', reason: 'not in the diff' });
+});
