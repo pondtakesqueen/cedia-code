@@ -379,6 +379,14 @@ export function browserTool(endpoint: string, access: WebAccess): BrowserSession
     return `${head}\n\n${part || '(empty page)'}${more}`;
   };
 
+  // Why the main frame's page may not be used, or undefined when it may. Chromium's error page, left in place of a
+  // page the gate refused, says nothing of anyone's.
+  const hereDenied = async (c: Cdp): Promise<string | undefined> => {
+    const h = (await c.send('Page.getNavigationHistory')) as { currentIndex: number; entries: { url: string }[] };
+    const url = h.entries[h.currentIndex]?.url ?? 'about:blank';
+    return url.startsWith('chrome-error:') ? undefined : pageDenied(url, access);
+  };
+
   // What the gate refused while the step ran, said before the page.
   const refused = () => {
     const r = blocked;
@@ -417,6 +425,12 @@ export function browserTool(endpoint: string, access: WebAccess): BrowserSession
       try {
         const c = await connect();
         blocked = [];
+        // The page open now may not be one this session may use: the owner browsed there, or the run attached to it.
+        // The gate above sees only pages opened from here on, so every step but going elsewhere checks where it is.
+        if (action !== 'open' && action !== 'back') {
+          const why = await hereDenied(c);
+          if (why) return { text: `The page open now is not one this session may use (${why}). Open one it may first.`, isError: true };
+        }
         if (action === 'open') {
           const url = String(input.url ?? '');
           const why = pageDenied(url, access);
