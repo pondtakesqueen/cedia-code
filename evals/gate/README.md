@@ -13,7 +13,7 @@ Exit 0: no model got worse. 1: a model regressed. 3: no comparison could be made
 
 ## In CI
 
-The gate runs where a key and a quota are: your machine or a Claude session. On a pull request, `.github/workflows/eval-gate.yml` only checks that it ran (`evals/gate-report.ts`, no model, no secret): a PR that changes what the model sees or how a run is scored (the prompts, roles, config, loop, tools, trust, safety, context, session, memory, skills and providers under `src/core`, the headless client, `src/cli.ts`, `evals/` scripts and tasks, the lockfile) fails the `report` check until its "Eval gate" section holds the gate's report (a model's `PASS`, `REGRESSED` or `INCONCLUSIVE` line, or the result file's path) or "Not needed" with the reason. Editing the description reruns the check.
+The gate runs where a key and a quota are: your machine or a Claude session. On a pull request, `.github/workflows/eval-gate.yml` only checks that it ran (`evals/gate-report.ts`, no model, no secret): a PR that changes what the model sees or how a run is scored (the prompts, roles, config, loop, tools, trust, safety, context, session, memory, skills, providers and run orchestrator under `src/core`, the headless client, `src/cli.ts`, `evals/` scripts and tasks, the lockfile) fails the `report` check until its "Eval gate" section holds the gate's report (a model's `PASS`, `REGRESSED` or `INCONCLUSIVE` line, or the result file's path) or "Not needed" with the reason. Editing the description reruns the check.
 
 The gate itself can run in Actions by hand (eval-gate, Run workflow, with a suite and `--only`) once an `OPENCODE_API_KEY` repository secret exists. It never runs `--update-baseline`.
 

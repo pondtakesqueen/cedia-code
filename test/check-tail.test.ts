@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { receipt } from '../src/clients/headless/main.ts';
+import { receipt } from '../src/core/run/thread.ts';
 import { checkTail, evidence, ledgerEntries } from '../src/core/trust/ledger.ts';
 import type { SessionEvent } from '../src/core/types.ts';
 

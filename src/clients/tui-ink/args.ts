@@ -1,5 +1,6 @@
-import type { HeadlessArgs } from '../headless/main.ts';
+import type { ThreadArgs } from '../../core/run/thread.ts';
 
 // The arguments a terminal UI runs with: everything headless takes except the prompt itself (typed, not given),
-// the output shape (a live screen, not JSON), and the run controls the TUI owns (note, signal).
-export type TuiArgs = Omit<HeadlessArgs, 'prompt' | 'outputFormat' | 'note' | 'signal'>;
+// how the run is shown (a live screen: every message as it comes, no summary lines), and the run controls the TUI
+// owns (note, signal).
+export type TuiArgs = Omit<ThreadArgs, 'prompt' | 'note' | 'signal' | 'live' | 'summary'>;

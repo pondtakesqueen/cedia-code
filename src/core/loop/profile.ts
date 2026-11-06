@@ -6,7 +6,7 @@ import type { Policy } from '../safety/policy.ts';
 import type { ToolSpec } from '../tools/registry.ts';
 import type { ModelSpec } from '../types.ts';
 
-// The kind of session a run opens, and what each kind gets. A run (clients/headless) opens sessions for its
+// The kind of session a run opens, and what each kind gets. A run (core/run/thread.ts) opens sessions for its
 // writer, for read-only roles (plan, review, explore), for one-reply helpers (advisor, classifier, triage) and for
 // sub-threads. Which tools, system prompt, permission and checks each gets was a set of conditions spread through
 // one call; here it is one rule per kind, testable on its own (test/session-profile.test.ts).

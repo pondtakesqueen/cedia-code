@@ -215,7 +215,7 @@ export function escalationTarget(model: ModelSpec, start: Effort | undefined, to
 
 // The provider refused a request after taking this session's earlier ones: what changed is the history (a
 // thinking signature it no longer accepts, a tool call it cannot read back, a context past its window), and the
-// same request fails however often it is sent. The task goes on in a new session instead (clients/headless).
+// same request fails however often it is sent. The task goes on in a new session instead (core/run/thread.ts).
 export function historyRejected(events: SessionEvent[]): AttemptError | undefined {
   const error = events.findLast((e): e is EventOf<'attempt'> => e.kind === 'attempt')?.error;
   if (error?.code !== 'bad_request' && error?.code !== 'context_length') return undefined;

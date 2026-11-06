@@ -17,7 +17,7 @@ const GATED_FILES = new Set([
 ]);
 const GATED_DIRS = [
   "src/core/loop/", "src/core/tools/", "src/core/trust/", "src/core/safety/", "src/core/context/", "src/core/session/",
-  "src/core/memory/", "src/core/skills/", "src/core/providers/", "src/clients/headless/", "evals/gate/", "evals/tasks/",
+  "src/core/memory/", "src/core/skills/", "src/core/providers/", "src/core/run/", "src/clients/headless/", "evals/gate/", "evals/tasks/",
 ];
 // The checker and the gate's docs change nothing a run does.
 const NOT_GATED = new Set(["evals/gate-report.ts", "evals/gate/README.md"]);

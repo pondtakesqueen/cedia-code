@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { claudeCodeArgs, claudeCodeEnv, runClaudeCode, sandboxSettings, startClaudeCode } from '../src/clients/headless/claude-code.ts';
+import { claudeCodeArgs, claudeCodeEnv, runClaudeCode, sandboxSettings, startClaudeCode } from '../src/core/providers/claude-code.ts';
 
 const fake = (body: string) => {
   const dir = mkdtempSync(join(tmpdir(), 'cedia-cc-'));
