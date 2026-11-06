@@ -7,9 +7,9 @@ const template = (gate: string) =>
 describe("gate report check", () => {
   test("which files the gate covers", () => {
     expect(gatedFiles([
-      "src/core/loop/run.ts", "src/core/prompts.ts", "src/clients/headless/main.ts", "evals/run.ts", "evals/tasks/x/task.json", "bun.lock",
+      "src/core/loop/run.ts", "src/core/prompts.ts", "src/core/run/thread.ts", "src/clients/headless/main.ts", "evals/run.ts", "evals/tasks/x/task.json", "bun.lock",
       "src/clients/tui-ink/app.tsx", "docs/CLI.md", "test/loop.test.ts", "evals/gate-report.ts", "evals/gate/README.md", "src/core/lsp/client.ts",
-    ])).toEqual(["src/core/loop/run.ts", "src/core/prompts.ts", "src/clients/headless/main.ts", "evals/run.ts", "evals/tasks/x/task.json", "bun.lock"]);
+    ])).toEqual(["src/core/loop/run.ts", "src/core/prompts.ts", "src/core/run/thread.ts", "src/clients/headless/main.ts", "evals/run.ts", "evals/tasks/x/task.json", "bun.lock"]);
   });
 
   test("a PR that touches no gated file passes without a section", () => {
