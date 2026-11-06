@@ -1382,7 +1382,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
     turnStartRef.current = turnStart;
     try {
       const result = await runHeadless(
-        { ...args, model: model ?? args.model, permission: permission ?? args.permission, ...(effort ? { effort } : {}), cacheTtl: args.cacheTtl ?? '1h', streamingTools: true, prompt: takeShellNote() + expandPastes(text, pastesRef.current), outputFormat: 'stream-json', note: (t: string) => { if (t.trim()) push({ role: 'system', text: `▲ ${t.trim().replace(/^cedia: /, '')}`, tone: 'accent' }); }, onPermission: (took: string) => setRunPermission({ setting: permission ?? args.permission ?? 'auto', took }), ...(thread ? { thread } : {}), ...(goal ? { goal } : {}), ...(planWhen ? { planWhen } : {}), present: () => ownerPresent(seenRef.current, Date.now()), signal: stop.signal },
+        { ...args, model: model ?? args.model, permission: permission ?? args.permission, ...(effort ? { effort } : {}), cacheTtl: args.cacheTtl ?? '1h', streamingTools: true, promptSuggestions: 'off', prompt: takeShellNote() + expandPastes(text, pastesRef.current), outputFormat: 'stream-json', note: (t: string) => { if (t.trim()) push({ role: 'system', text: `▲ ${t.trim().replace(/^cedia: /, '')}`, tone: 'accent' }); }, onPermission: (took: string) => setRunPermission({ setting: permission ?? args.permission ?? 'auto', took }), ...(thread ? { thread } : {}), ...(goal ? { goal } : {}), ...(planWhen ? { planWhen } : {}), present: () => ownerPresent(seenRef.current, Date.now()), signal: stop.signal },
         handleChunk,
       );
       setThread(result.thread ?? thread);
