@@ -47,6 +47,7 @@ import { lintSession } from './core/session/lint.ts';
 import { projectKey, sessionPath, SessionLog } from './core/session/log.ts';
 import { formatUsage, isUsageEvent, readEventsLenient, sinceOf, usageReport, type SessionInput } from './core/session/usage.ts';
 import { selectSessions, sessionFiles } from './core/session/select.ts';
+import { printable } from './core/printable.ts';
 import { formatContext } from './core/context/breakdown.ts';
 import { threadContext } from './core/context/thread-context.ts';
 import { awayRecap, formatRecap, lastRunStart, recapSince } from './core/project/recap.ts';
@@ -797,7 +798,7 @@ function skills(argv: string[]): number {
   }
   const found = loadSkills(resolve(parsed.values.cwd ?? process.cwd()), cediaHome(), sharedSkillDirs());
   // A repository's description could carry terminal escapes; they are shown as text.
-  const shown = (t: string) => t.replace(/[\x00-\x1f\x7f-\x9f‪-‮⁦-⁩]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+  const shown = printable;
   console.log(found.length ? found.map((s) => `${s.name}  (${s.source}${s.manual ? ', / only' : ''})  ${s.dir ? shown(s.dir) : 'built in'}\n    ${shown(s.description)}`).join('\n') : 'no skills here');
   return 0;
 }
@@ -1220,7 +1221,7 @@ function commands(argv: string[]): number {
     return 2;
   }
   const list = commandList(loadSkills(resolve(parsed.values.cwd ?? process.cwd()), cediaHome(), sharedSkillDirs()));
-  const shown = (t: string) => t.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ');
+  const shown = printable;
   console.log(parsed.values.json ? JSON.stringify(list) : list.commands.map((c) => `/${c.name}${c.argumentHint ? ` ${shown(c.argumentHint)}` : ''}  ${shown(c.description)}`).join('\n') || 'no commands here');
   return 0;
 }
@@ -1291,7 +1292,7 @@ async function memory(argv: string[]): Promise<number> {
     if (cmd === 'list') {
       const notes = store.notes();
       // A session's note could carry terminal escapes; they are shown as text.
-      const shown = (t: string) => t.replace(/[\x00-\x1f\x7f\x9b]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
+      const shown = printable;
       console.log(notes.length ? notes.map((n) => `${n.id}  ${n.at.slice(0, 10)}  ${n.from}: ${shown(n.text)}`).join('\n') : 'no notes for this project');
       return 0;
     }

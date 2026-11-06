@@ -25,6 +25,7 @@ import { cediaHome, sharedSkillDirs, loadHandoffAt, loadPromptSuggestions, loadR
 import { modelLabel, modelList } from '../../core/providers/models.ts';
 import { processKeychain } from '../../core/providers/keychain.ts';
 import { doctorReport } from '../../core/doctor.ts';
+import { printable } from '../../core/printable.ts';
 import { versionInfo } from '../../protocol/version.ts';
 import { runStatusLineCommand } from './statusline.ts';
 import { loadKeybindings, watchKeybindings } from './keybindings/loader.ts';
@@ -692,18 +693,18 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         const text = rest.join(' ').trim();
         if (!text) {
           const notes = store.notes();
-          say(notes.length ? notes.map((n) => `${n.id}  ${n.text}`).join('\n') : 'no memory notes for this project');
+          say(notes.length ? notes.map((n) => `${n.id}  ${printable(n.text)}`).join('\n') : 'no memory notes for this project');
           return;
         }
         try {
           const n = store.add(text, 'tui');
-          say(`remembered ${n.id}: ${n.text}`);
+          say(`remembered ${n.id}: ${printable(n.text)}`);
         } catch (e) { say((e as Error).message); }
         return;
       }
       case 'skills': {
         const skills = loadSkills(args.cwd, cediaHome(), sharedSkillDirs());
-        say(skills.length ? skills.map((s) => `${s.name}  ${s.description}`).join('\n') : 'no skills for this project');
+        say(skills.length ? skills.map((s) => `${s.name}  ${printable(s.description)}`).join('\n') : 'no skills for this project');
         return;
       }
       case 'mcp': {
