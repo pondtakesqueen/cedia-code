@@ -345,6 +345,16 @@ export async function runThread(given: ThreadArgs, emit: (m: CoreMessage) => voi
   const sandboxSettings = loadSandbox({ ...(args.sandbox ? { mode: args.sandbox } : {}), allowDomains: args.allowDomains ?? [] });
   const { sandbox, note: sandboxNote } = await openSandbox(args.cwd, sandboxSettings.mode, { allowedDomains: sandboxSettings.allowedDomains, cediaHome: cediaHome() });
   if (sandboxNote) say(sandboxNote + '\n');
+  // A setup step that fails after the sandbox opened closes it before the error goes on; from the run's try below,
+  // its finally closes it.
+  const closingOnError = async <T>(step: () => T | Promise<T>): Promise<T> => {
+    try {
+      return await step();
+    } catch (e) {
+      await sandbox.close();
+      throw e;
+    }
+  };
   // A Claude Code review probes the change with `bun -e` only where an OS sandbox can hold it, which cedia's own
   // opening shows; auto's review then runs at medium (core/config.ts, modeFlags).
   const reviewProbe = sandbox.on && roles.review?.via === 'claude-code';
@@ -352,13 +362,7 @@ export async function runThread(given: ThreadArgs, emit: (m: CoreMessage) => voi
   const planProbe = sandbox.on && roles.plan?.via === 'claude-code';
   if (reviewProbe && args.reviewProbe) roles.review = loadRoles({ review: args.reviewProbe }).review;
   const policyFlags = { ...(args.permission ? { mode: args.permission } : {}), allow: args.allow ?? [], deny: args.deny ?? [], unlock: args.unlock ?? [] };
-  let policy;
-  try {
-    policy = loadPolicy(args.cwd, policyFlags, process.env, sandbox.on);
-  } catch (e) {
-    await sandbox.close();
-    throw e;
-  }
+  let policy = await closingOnError(() => loadPolicy(args.cwd, policyFlags, process.env, sandbox.on));
   // A task that says to leave the existing tests alone: they become paths no tool may change this run.
   if (policy.mode !== 'read-only' && leavesTestsAlone(args.prompt)) {
     const paths = existingTests(args.cwd);
@@ -387,30 +391,20 @@ export async function runThread(given: ThreadArgs, emit: (m: CoreMessage) => voi
   const fallback = loadFallback(model, args.fallback);
   const hooks = loadHooks();
   const hooked = Object.values(hooks).some((l) => l?.length);
-  let quotaWaitMs: number | undefined;
-  try {
-    quotaWaitMs = loadQuotaWait(args.onQuota);
-  } catch (e) {
-    await sandbox.close();
-    throw e;
-  }
+  const quotaWaitMs = await closingOnError(() => loadQuotaWait(args.onQuota));
   for (const m of [model, ...[roles.plan, roles.review].flatMap((r) => (r?.via === 'cedia' ? [r.model] : [])), ...(roles.advisor ? [roles.advisor] : []), ...(roles.classifier ? [roles.classifier] : [])]) {
     const note = missingKeyNote(m);
     if (note) say(note + '\n');
   }
   const fauxScript = readFauxScript();
-  let handoffAt: ReturnType<typeof loadHandoffAt>;
-  let goalJudge: typeof model | undefined;
-  let satisfactionJudge: typeof model | undefined;
-  try {
-    handoffAt = loadHandoffAt(model, args.handoffAt);
-    goalJudge = args.goal ? (args.goalJudge ? resolveModel(args.goalJudge) : model) : undefined;
+  const { handoffAt, goalJudge, satisfactionJudge } = await closingOnError(() => {
     if (args.goalMode !== undefined && args.goalMode !== 'light' && args.goalMode !== 'full') throw new Error(`goal-mode must be light or full: ${args.goalMode}`);
-    satisfactionJudge = args.satisfactionJudge ? resolveModel(args.satisfactionJudge) : undefined;
-  } catch (e) {
-    await sandbox.close();
-    throw e;
-  }
+    return {
+      handoffAt: loadHandoffAt(model, args.handoffAt),
+      goalJudge: args.goal ? (args.goalJudge ? resolveModel(args.goalJudge) : model) : undefined,
+      satisfactionJudge: args.satisfactionJudge ? resolveModel(args.satisfactionJudge) : undefined,
+    };
+  });
   if (goalJudge && goalJudge !== model) {
     const note = missingKeyNote(goalJudge);
     if (note) say(note + '\n');
@@ -423,16 +417,13 @@ export async function runThread(given: ThreadArgs, emit: (m: CoreMessage) => voi
   const escalate = args.escalate === 'off' ? undefined : ((args.escalate ?? 'high') as Effort);
   // Every run belongs to a thread of the project, unless nothing is written to disk.
   const store = args.noSessionFile ? undefined : new ThreadStore(threadsDir(cediaHome(), projectKey(args.cwd)));
-  if (args.thread && !store?.has(args.thread)) {
-    await sandbox.close();
-    throw new Error(`no thread ${args.thread} in this project${args.noSessionFile ? ' (threads need session files)' : ''}`);
-  }
   if (args.thread) {
-    const claim = await claimThread(store!, args.thread, { takeOver: !!args.takeOver });
-    if (!claim.ok) {
-      await sandbox.close();
-      throw new Error(claim.error);
-    }
+    const claim = await closingOnError(async () => {
+      if (!store?.has(args.thread!)) throw new Error(`no thread ${args.thread} in this project${args.noSessionFile ? ' (threads need session files)' : ''}`);
+      const c = await claimThread(store, args.thread!, { takeOver: !!args.takeOver });
+      if (!c.ok) throw new Error(c.error);
+      return c;
+    });
     if (claim.tookOver) say(`cedia: stopped run ${claim.tookOver.run} (pid ${claim.tookOver.pid}) of thread ${args.thread} to go on with it\n`);
   }
   const resumed = args.thread ? store!.read(args.thread) : undefined;
