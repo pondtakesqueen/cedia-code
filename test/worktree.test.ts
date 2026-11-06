@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { applyWorktree, openWorktree, type Worktree } from '../src/core/project/worktree.ts';
 import { openSnapshots } from '../src/core/safety/snapshot.ts';
+import { noSandbox } from './sandbox-skip.ts';
 
 const git = (cwd: string, ...args: string[]) => {
   const p = Bun.spawnSync(['git', '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgSign=false', ...args], { cwd, stdout: 'pipe', stderr: 'pipe' });
@@ -444,7 +445,7 @@ describe('--spawn worktree (offline, faux)', () => {
 });
 
 describe('--spawn worktree in the OS sandbox', () => {
-  test.skipIf(!process.env.CEDIA_REQUIRE_SANDBOX && !Bun.which('bwrap') && process.platform !== 'darwin')("a child's bash writes only in its worktree, never the parent's files", () => {
+  test.skipIf(noSandbox)("a child's bash writes only in its worktree, never the parent's files", () => {
     const r = repo();
     const leak = join(r.work, 'leak.txt');
     const out = cedia(
