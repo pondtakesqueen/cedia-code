@@ -47,7 +47,7 @@ import { reviewCommand, type CommandCtx } from './command-review.ts';
 import { MemoryStore, memoryPath } from '../../core/project/memory.ts';
 import { loadSkills } from '../../core/skills/skills.ts';
 import { listMcp } from '../../core/mcp/manage.ts';
-import { threadChanges, commitFiles, prBlocked, currentBranch, defaultBranch, pushAndOpenPr } from '../../core/project/commit.ts';
+import { threadFiles, NOTHING_CHANGED, commitFiles, currentBranch, prPlan, pushAndOpenPr } from '../../core/project/commit.ts';
 import { draftCommitMessage } from '../../core/project/draft.ts';
 import { workspaceSnapshots } from '../../core/safety/snapshot.ts';
 import { allowRuleFor, applyAllowRules } from '../../core/safety/suggest.ts';
@@ -730,10 +730,10 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       }
       case 'commit': {
         if (!thread) { say('no thread yet: nothing to commit'); return; }
-        const snaps = workspaceSnapshots(args.cwd, cediaHome());
-        if (!snaps) { say('no snapshots for this directory, so cedia cannot tell which files the thread changed'); return; }
-        const files = threadChanges(store, thread, args.cwd, snaps);
-        if (!files.length) { say('nothing this thread changed differs from HEAD'); return; }
+        const found = threadFiles(store, thread, args.cwd, cediaHome());
+        if ('error' in found) { say(found.error); return; }
+        const { files } = found;
+        if (!files.length) { say(NOTHING_CHANGED); return; }
         const own = rest.join(' ').trim();
         busyRef.current = true;
         void (async () => {
@@ -745,7 +745,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
               const drafted = await draftCommitMessage({ cwd: args.cwd, model: writerModel, files, signal: new AbortController().signal });
               message = drafted.message;
               setSpent((s) => s + drafted.costUsd);
-            } catch (e) { say(`git commit failed: ${(e as Error).message}`, 'red'); return; }
+            } catch (e) { say(`could not draft the commit message: ${(e as Error).message}`, 'red'); return; }
           }
           if (!message) { say('the message came back empty: write one with /commit <message>'); return; }
           say([`commit ${files.length} file${files.length === 1 ? '' : 's'}: ${files.join(', ')}`, '', message, '', 'commit this? y to commit; n, or anything else you type, cancels'].join('\n'));
@@ -758,16 +758,14 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         return;
       }
       case 'pr': {
-        const blocked = prBlocked(args.cwd);
+        const { blocked, branch, base } = prPlan(args.cwd);
         if (blocked) { say(blocked); return; }
-        const branch = currentBranch(args.cwd);
-        const base = defaultBranch(args.cwd);
         say(`push ${branch} to origin and open a pull request${base ? ` into ${base}` : ''}? y to go on; n, or anything else you type, cancels`);
         pendingRef.current = { what: 'the push', yes: async (signal) => {
           busyRef.current = true;
           try {
             const r = await pushAndOpenPr(args.cwd, undefined, signal);
-            say(r.ok ? r.out : r.out, r.ok ? undefined : 'red');
+            say(r.out, r.ok ? undefined : 'red');
           } finally { busyRef.current = false; }
         } };
         return;

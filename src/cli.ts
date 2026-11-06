@@ -36,7 +36,7 @@ import { getEditable, setEditable } from './core/settings-edit.ts';
 import type { McpToolRule } from './core/mcp/client.ts';
 import { codeReview, type CodeReview } from './core/project/code-review.ts';
 import { changeGuide, DIFF_BASES, guideText, threadDiff, type ChangeGuide, type DiffBase } from './core/project/change-guide.ts';
-import { commitFiles, commitPatch, currentBranch, headCommit, prPlan, pushAndOpenPr, threadChanges, type CommitDraft, type Committed, type PrOpened } from './core/project/commit.ts';
+import { commitFiles, commitPatch, currentBranch, headCommit, NOTHING_CHANGED, prPlan, pushAndOpenPr, threadFiles, type CommitDraft, type Committed, type PrOpened } from './core/project/commit.ts';
 import { draftCommitMessage } from './core/project/draft.ts';
 import { reviewSubject, ultraReview } from './core/project/ultrareview.ts';
 import { sideModel, threadWriter } from './core/side-model.ts';
@@ -991,11 +991,10 @@ async function commit(argv: string[]): Promise<number> {
   };
   const cwd = resolve(values.cwd ?? process.cwd());
   const store = new ThreadStore(threadsDir(cediaHome(), projectKey(cwd)));
-  if (!store.has(values.thread)) return fail(`no thread ${values.thread} in this project`);
-  const snaps = workspaceSnapshots(cwd, cediaHome());
-  if (!snaps) return fail('no snapshots for this directory, so cedia cannot tell which files the thread changed');
-  const files = threadChanges(store, values.thread, cwd, snaps);
-  if (!files.length) return fail('nothing this thread changed differs from HEAD');
+  const found = threadFiles(store, values.thread, cwd, cediaHome());
+  if ('error' in found) return fail(found.error);
+  const { files } = found;
+  if (!files.length) return fail(NOTHING_CHANGED);
   try {
     if (values.message === undefined) {
       const model = sideModel('write', { explicit: values.model, threadWriter: threadWriter(store, values.thread) });
@@ -1077,10 +1076,9 @@ async function reviewCmd(argv: string[]): Promise<number> {
   };
   const cwd = resolve(values.cwd ?? process.cwd());
   const store = new ThreadStore(threadsDir(cediaHome(), projectKey(cwd)));
-  if (!store.has(values.thread)) return fail(`no thread ${values.thread} in this project`);
-  const snaps = workspaceSnapshots(cwd, cediaHome());
-  if (!snaps) return fail('no snapshots for this directory, so cedia cannot tell which files the thread changed');
-  const files = threadChanges(store, values.thread, cwd, snaps);
+  const found = threadFiles(store, values.thread, cwd, cediaHome());
+  if ('error' in found) return fail(found.error);
+  const { files } = found;
   const model = sideModel('review', { explicit: values.model, threadWriter: threadWriter(store, values.thread) }).ref;
   const r = await codeReview({ cwd, files, patch: files.length ? commitPatch(cwd, files) : '', model }).catch((e: Error): CodeReview => ({ error: e.message }));
   if ('error' in r) return fail(r.error);

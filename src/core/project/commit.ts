@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import type { Snapshots } from '../safety/snapshot.ts';
+import { workspaceSnapshots, type Snapshots } from '../safety/snapshot.ts';
 import { inert } from '../trust/frame.ts';
 import type { ThreadStore } from './threads.ts';
 
@@ -52,6 +52,16 @@ export function commitMessage(reply: string): string {
 
 // Paths are literal: a thread's file named `a[1].txt` must not match the user's own `a1.txt`.
 const git = (cwd: string, args: string[]) => spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_LITERAL_PATHSPECS: '1' } });
+
+// The files a thread changed here, for a commit or a review, or why cedia cannot tell. The one place the CLI and
+// the TUI ask, so both say the same thing when they cannot.
+export const NOTHING_CHANGED = 'nothing this thread changed differs from HEAD';
+export function threadFiles(store: ThreadStore, thread: string, cwd: string, home: string): { files: string[] } | { error: string } {
+  if (!store.has(thread)) return { error: `no thread ${thread} in this project` };
+  const snaps = workspaceSnapshots(cwd, home);
+  if (!snaps) return { error: 'no snapshots for this directory, so cedia cannot tell which files the thread changed' };
+  return { files: threadChanges(store, thread, cwd, snaps) };
+}
 
 // The files the thread's turns changed in `cwd` that still differ from HEAD (or are new), in path order.
 export function threadChanges(store: ThreadStore, thread: string, cwd: string, snapshots: Snapshots): string[] {
