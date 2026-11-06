@@ -86,3 +86,8 @@ test('a sub-thread that needs a tool the writer does not list, or lists differen
   expect(sharedPrefixTools([read, spec('spawn')], [read, spec('recall')])).toBeUndefined();
   expect(sharedPrefixTools([read, spec('web_fetch', 'the writer\'s version')], [read, spec('web_fetch')])).toBeUndefined();
 });
+
+test('a reviewer runs only the owner checks it is given, each as the exact command: a wildcard grants nothing', () => {
+  const policy = { mode: 'read-only', allow: [], deny: [] } as unknown as Policy;
+  expect(profilePermission('reviewer', policy, ['*', 'git *', 'bun test'])).toMatchObject({ allow: ['bash(bun test)'] });
+});
