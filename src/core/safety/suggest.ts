@@ -4,9 +4,8 @@
 // their exact `mcp__server__tool` name. Edits, writes and mutating commands stay per-decision; anything a
 // deny rule (or a built-in guard) stopped is skipped, since deny always wins. Suggestions go to the USER
 // settings: a repository's settings can only tighten, never grant.
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
-import { checkSettings } from '../config.ts';
+import { isAbsolute, relative, resolve } from 'node:path';
+import { settingsPath, userSettings, writeSettings } from '../config.ts';
 import type { SessionInput } from '../session/usage.ts';
 import { rulePatternMatches } from '../safety/policy.ts';
 import { checkReadOnly } from '../tools/bash.ts';
@@ -83,23 +82,12 @@ function mcpRule(name: string): { rule: string; text: string } | undefined {
 // Append missing rules to the USER settings' allow list (whole-file rewrite through a temp file).
 // Throws when the file on disk fails validation, rather than writing past it.
 export function applyAllowRules(home: string, rules: string[]): { added: string[] } {
-  const path = join(home, 'settings.json');
-  let raw: Record<string, unknown>;
-  try {
-    raw = (existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : {}) as Record<string, unknown>;
-  } catch (e) {
-    throw new Error(`${path}: ${(e as Error).message}`);
-  }
-  const checked = checkSettings(raw);
-  const have = new Set((checked.permissions?.allow ?? []).map(String));
+  const settings = userSettings(home);
+  const allow = settings.permissions?.allow ?? [];
+  const have = new Set(allow.map(String));
   const added = rules.filter((r) => !have.has(r));
   if (!added.length) return { added: [] };
-  mkdirSync(home, { recursive: true });
-  const next = { ...raw, permissions: { ...((raw.permissions ?? {}) as Record<string, unknown>), allow: [...(checked.permissions?.allow ?? []), ...added] } };
-  checkSettings(next);
-  const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify(next, null, 2) + '\n');
-  renameSync(tmp, path);
+  writeSettings({ ...settings, permissions: { ...settings.permissions, allow: [...allow, ...added] } }, settingsPath(home));
   return { added };
 }
 

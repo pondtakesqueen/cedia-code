@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { MCP_TOOL_RULES, type McpServerConfig, type McpToolRule } from './mcp/client.ts';
@@ -10,6 +10,7 @@ import { secretPaths } from './safety/secrets.ts';
 import { checkHooks, type Hooks } from './hooks.ts';
 import type { Effort, ModelSpec, PrivacyLevel } from './types.ts';
 import { EFFORTS } from './types.ts';
+import { cediaHome } from './home.ts';
 
 export type Settings = {
   permissions?: { mode?: PermissionSetting; allow?: string[]; deny?: string[]; unlock?: Guard[] };
@@ -154,7 +155,7 @@ export function checkSettings(value: unknown): Settings {
 export type RoleChoice = { via: 'cedia'; model: ModelSpec; effort?: Effort } | { via: 'claude-code'; model: string; effort: ClaudeCodeEffort };
 export type ClaudeCodeEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
-export const cediaHome = () => process.env.CEDIA_HOME ?? join(homedir(), '.cedia');
+export { cediaHome };
 // The user's skills that other clients keep (agentskills.io's cross-client ~/.agents/skills, and Claude Code's
 // ~/.claude/skills), read after cedia's own. None under CEDIA_HOME: a home of its own (a test, a second setup) does
 // not take the user's other folders with it.
@@ -167,6 +168,21 @@ export function readSettings(path: string): Settings {
   } catch (e) {
     throw new Error(`${path}: ${(e as Error).message}`);
   }
+}
+
+// The user's settings file, and its checked contents. Every reader goes through userSettings, so a bad file fails
+// the same way everywhere, naming its path. A file unchanged since the last read (same inode, size and mtime: a
+// rewrite through writeSettings is a new inode) is not parsed or checked again; each caller gets its own copy, so
+// one that edits what it got never changes what the next one reads.
+export const settingsPath = (home = cediaHome()) => join(home, 'settings.json');
+let lastRead: { path: string; stamp: string; settings: Settings } | undefined;
+export function userSettings(home = cediaHome()): Settings {
+  const path = settingsPath(home);
+  const st = statSync(path, { throwIfNoEntry: false });
+  if (!st) return {};
+  const stamp = `${st.ino}:${st.size}:${st.mtimeMs}`;
+  if (lastRead?.path !== path || lastRead.stamp !== stamp) lastRead = { path, stamp, settings: readSettings(path) };
+  return structuredClone(lastRead.settings);
 }
 
 // Written whole through a temporary file, so a reader never sees half of it, and checked first, so cedia never
@@ -183,7 +199,7 @@ const union = <T>(...lists: (T[] | undefined)[]) => [...new Set(lists.flatMap((l
 
 // The permission setting a run takes: flag > env > user settings > auto.
 export function loadPermissionSetting(flag?: string, env = process.env): PermissionSetting {
-  const setting = flag || env.CEDIA_PERMISSION || readSettings(join(cediaHome(), 'settings.json')).permissions?.mode || 'auto';
+  const setting = flag || env.CEDIA_PERMISSION || userSettings().permissions?.mode || 'auto';
   if (!PERMISSION_SETTINGS.includes(setting as PermissionSetting)) throw new Error(`unknown permission mode "${setting}" (use ${PERMISSION_SETTINGS.join(', ')})`);
   return setting as PermissionSetting;
 }
@@ -197,7 +213,7 @@ export function loadPolicy(
   env = process.env,
   sandboxOn = false,
 ): Policy {
-  const user = readSettings(join(cediaHome(), 'settings.json')).permissions ?? {};
+  const user = userSettings().permissions ?? {};
   const project = readSettings(join(cwd, '.cedia', 'settings.json')).permissions ?? {};
   const setting = loadPermissionSetting(flags.mode, env);
   const unlock = union<string>(flags.unlock, user.unlock);
@@ -216,7 +232,7 @@ export function loadPolicy(
 // Which models may see this repo: flags > CEDIA_PRIVACY > user settings > no-training. A repo may tighten it to
 // zdr (a client's code, say) but never loosen it.
 export function loadPrivacy(cwd: string, flag?: string, env = process.env): PrivacyLevel {
-  const user = readSettings(join(cediaHome(), 'settings.json')).privacy;
+  const user = userSettings().privacy;
   const project = readSettings(join(cwd, '.cedia', 'settings.json')).privacy;
   const level = flag || env.CEDIA_PRIVACY || user || 'no-training';
   if (!PRIVACY_LEVELS.includes(level as PrivacyLevel)) throw new Error(`unknown privacy level "${level}" (use ${PRIVACY_LEVELS.join(' or ')})`);
@@ -226,7 +242,7 @@ const PRIVACY_LEVELS: PrivacyLevel[] = ['no-training', 'zdr'];
 
 // The user's standing context. A repo's settings cannot set it: a cloned repo must not speak as the user.
 export function loadContext(): string | undefined {
-  const c = readSettings(join(cediaHome(), 'settings.json')).context;
+  const c = userSettings().context;
   const text = Array.isArray(c) ? c.join('\n') : c;
   return text?.trim() || undefined;
 }
@@ -234,7 +250,7 @@ export function loadContext(): string | undefined {
 // The model a session continues on when `model`'s quota runs out: flag > user settings > the built-in FALLBACKS.
 // "none" turns it off. A repo cannot set it, since the fallback is usually paid per token.
 export function loadFallback(model: ModelSpec, flag?: string): ModelSpec | undefined {
-  const user = readSettings(join(cediaHome(), 'settings.json')).fallback ?? {};
+  const user = userSettings().fallback ?? {};
   const fromUser = Object.entries(user).find(([k]) => resolveModel(k).ref === model.ref)?.[1];
   const ref = flag ?? fromUser ?? FALLBACKS[model.ref];
   if (!ref || ref === 'none') return undefined;
@@ -248,7 +264,7 @@ export function loadFallback(model: ModelSpec, flag?: string): ModelSpec | undef
 export const MEDIA_MODEL = 'anthropic/claude-haiku-5-5';
 export function loadMedia(model: ModelSpec, flag?: string): ModelSpec | undefined {
   if (model.caps.input.includes('image')) return undefined;
-  const ref = flag ?? readSettings(join(cediaHome(), 'settings.json')).media ?? (model.wire === 'faux' ? FAUX_MEDIA.ref : MEDIA_MODEL);
+  const ref = flag ?? userSettings().media ?? (model.wire === 'faux' ? FAUX_MEDIA.ref : MEDIA_MODEL);
   if (ref === 'none') return undefined;
   const media = resolveModel(ref);
   if (!media.caps.input.includes('image')) throw new Error(`--media ${ref}: ${media.ref} reads text only`);
@@ -258,7 +274,7 @@ export function loadMedia(model: ModelSpec, flag?: string): ModelSpec | undefine
 // How long a run may wait for a spent quota that says when it comes back: flag > user settings > not at all
 // (fall back at once). Returns milliseconds, or undefined for fallback.
 export function loadQuotaWait(flag?: string): number | undefined {
-  const raw = flag ?? readSettings(join(cediaHome(), 'settings.json')).onQuota ?? 'fallback';
+  const raw = flag ?? userSettings().onQuota ?? 'fallback';
   if (raw === 'fallback') return undefined;
   const minutes = Number(/^wait:(.+)$/.exec(raw)?.[1]);
   if (!(minutes > 0)) throw new Error(`on-quota must be fallback or wait:<minutes>: ${raw}`);
@@ -270,7 +286,7 @@ export type SpawnMode = 'on' | 'off' | 'worktree';
 export function loadSpawn(flag?: string): SpawnMode {
   if (flag !== undefined && flag !== 'on' && flag !== 'off' && flag !== 'worktree') throw new Error(`--spawn must be on, off or worktree: ${flag}`);
   if (flag) return flag;
-  const s = readSettings(join(cediaHome(), 'settings.json')).spawn ?? true;
+  const s = userSettings().spawn ?? true;
   if (s !== true && s !== false && s !== 'worktree') throw new Error(`spawn in settings.json must be true, false or "worktree": ${JSON.stringify(s)}`);
   return s === 'worktree' ? 'worktree' : s ? 'on' : 'off';
 }
@@ -278,7 +294,7 @@ export function loadSpawn(flag?: string): SpawnMode {
 // A ceiling on effort: user settings, or CEDIA_MAX_EFFORT. Flags choose under it, never over: the loop
 // resolves the writer, spawn children, plan/review steps and escalation down to it.
 export function loadMaxEffort(env: Record<string, string | undefined> = process.env): Effort | undefined {
-  const raw = env.CEDIA_MAX_EFFORT ?? readSettings(join(cediaHome(), 'settings.json')).maxEffort;
+  const raw = env.CEDIA_MAX_EFFORT ?? userSettings().maxEffort;
   if (raw === undefined) return undefined;
   if (typeof raw !== 'string' || !(EFFORTS as string[]).includes(raw))
     throw new Error(`maxEffort must be one of ${EFFORTS.join(', ')}: ${JSON.stringify(raw)}`);
@@ -287,7 +303,7 @@ export function loadMaxEffort(env: Record<string, string | undefined> = process.
 
 // The effort a sub-thread spawned with none runs at: user settings, or CEDIA_SUBTHREAD_EFFORT. Unset, its model's own.
 export function loadSubthreadEffort(env: Record<string, string | undefined> = process.env): Effort | undefined {
-  const raw = env.CEDIA_SUBTHREAD_EFFORT ?? readSettings(join(cediaHome(), 'settings.json')).subthreadEffort;
+  const raw = env.CEDIA_SUBTHREAD_EFFORT ?? userSettings().subthreadEffort;
   if (raw === undefined) return undefined;
   if (typeof raw !== 'string' || !(EFFORTS as string[]).includes(raw))
     throw new Error(`subthreadEffort must be one of ${EFFORTS.join(', ')}: ${JSON.stringify(raw)}`);
@@ -308,7 +324,7 @@ export type LspSetting = NonNullable<Settings['lsp']>;
 export function loadLsp(flag?: string): LspSetting | undefined {
   if (flag !== undefined && flag !== 'on' && flag !== 'off') throw new Error(`--lsp must be on or off: ${flag}`);
   if (flag === 'off') return false;
-  const s = readSettings(join(cediaHome(), 'settings.json')).lsp;
+  const s = userSettings().lsp;
   if (s === undefined || typeof s === 'boolean') return flag === 'on' ? true : s;
   if (!isObject(s)) throw new Error('"lsp" must be true, false or an object of servers');
   for (const [name, v] of Object.entries(s)) {
@@ -323,33 +339,33 @@ export type AskMode = 'on' | 'off' | 'auto';
 export function loadAsk(flag?: string): AskMode {
   if (flag !== undefined && flag !== 'on' && flag !== 'off' && flag !== 'auto') throw new Error(`--ask must be on, off or auto: ${flag}`);
   if (flag) return flag;
-  const s = readSettings(join(cediaHome(), 'settings.json')).ask;
+  const s = userSettings().ask;
   return s === 'auto' ? 'auto' : s ? 'on' : 'off';
 }
 
 // creator: flag > user settings > off.
 export function loadCreator(flag?: string): boolean {
   if (flag !== undefined && flag !== 'on' && flag !== 'off') throw new Error(`--creator must be on or off: ${flag}`);
-  return flag ? flag === 'on' : (readSettings(join(cediaHome(), 'settings.json')).creator ?? false);
+  return flag ? flag === 'on' : (userSettings().creator ?? false);
 }
 
 // jobs: flag > user settings > off.
 export function loadJobs(flag?: string): boolean {
   if (flag !== undefined && flag !== 'on' && flag !== 'off') throw new Error(`--jobs must be on or off: ${flag}`);
-  return flag ? flag === 'on' : (readSettings(join(cediaHome(), 'settings.json')).jobs ?? false);
+  return flag ? flag === 'on' : (userSettings().jobs ?? false);
 }
 
 // todo: flag > user settings > off.
 export function loadTodo(flag?: string): boolean {
   if (flag !== undefined && flag !== 'on' && flag !== 'off') throw new Error(`--todo must be on or off: ${flag}`);
-  return flag ? flag === 'on' : (readSettings(join(cediaHome(), 'settings.json')).todo ?? false);
+  return flag ? flag === 'on' : (userSettings().todo ?? false);
 }
 
 // consolidateMemory: flag > user settings (`autoDream`, its old name, when the new one is absent) > off.
 export function loadConsolidateMemory(flag?: string, warn: (line: string) => void = (l) => console.error(l)): boolean {
   if (flag !== undefined && flag !== 'on' && flag !== 'off') throw new Error(`--consolidate-memory must be on or off: ${flag}`);
   if (flag) return flag === 'on';
-  const s = readSettings(join(cediaHome(), 'settings.json'));
+  const s = userSettings();
   if (s.consolidateMemory !== undefined) return s.consolidateMemory;
   if (s.autoDream !== undefined) {
     warn('cedia: settings key autoDream is now consolidateMemory; autoDream is still read for now');
@@ -361,16 +377,16 @@ export function loadConsolidateMemory(flag?: string, warn: (line: string) => voi
 // promptSuggestions: flag > user settings > off.
 export function loadPromptSuggestions(flag?: string): boolean {
   if (flag !== undefined && flag !== 'on' && flag !== 'off') throw new Error(`--prompt-suggestions must be on or off: ${flag}`);
-  return flag ? flag === 'on' : (readSettings(join(cediaHome(), 'settings.json')).promptSuggestions ?? false);
+  return flag ? flag === 'on' : (userSettings().promptSuggestions ?? false);
 }
 
 // The user's profiles as written, for core/profiles.ts to check.
-export const loadProfiles = (): Record<string, unknown> => readSettings(join(cediaHome(), 'settings.json')).profiles ?? {};
+export const loadProfiles = (): Record<string, unknown> => userSettings().profiles ?? {};
 
 // The user's MCP servers, checked: each a command (with args, env, cwd) or a URL (with headers), optionally
 // readOnly and timeoutSec. A bad entry is an error, like any bad setting.
 export function loadMcp(env = process.env): Record<string, McpServerConfig> {
-  const raw = readSettings(join(cediaHome(), 'settings.json')).mcpServers ?? {};
+  const raw = userSettings().mcpServers ?? {};
   return Object.fromEntries(Object.entries(raw).map(([name, v]) => [name, checkMcpServer(name, v, env)]));
 }
 
@@ -408,11 +424,16 @@ export function checkMcpServer(name: string, v: unknown, env: Record<string, str
 
 // When a writer session hands off: flag > user settings > half the window, capped (core/project/handoff.ts).
 export function loadHandoffAt(model: ModelSpec, flag?: string): number | undefined {
-  const raw = flag ?? readSettings(join(cediaHome(), 'settings.json')).handoffAt;
-  if (raw === undefined) return defaultHandoffAt(model);
+  const raw = flag ?? userSettings().handoffAt;
+  return raw === undefined ? defaultHandoffAt(model) : parseHandoffAt(raw);
+}
+
+// A handoff point as a flag or setting gives it: a token count of at least 1000, or off (undefined). `name` is how
+// the caller's owner spells it in the error.
+export function parseHandoffAt(raw: string | number, name = 'handoff-at'): number | undefined {
   if (raw === 'off') return undefined;
   const n = Number(raw);
-  if (!Number.isInteger(n) || n < 1000) throw new Error(`handoff-at must be a token count of at least 1000, or off: ${raw}`);
+  if (!Number.isInteger(n) || n < 1000) throw new Error(`${name} must be a token count of at least 1000, or off: ${raw}`);
   return n;
 }
 
@@ -420,7 +441,7 @@ export function loadHandoffAt(model: ModelSpec, flag?: string): number | undefin
 // Claude API models); the client falls back to the note elsewhere. On the long three-changes runs it cost 31% less
 // than the note and took 14% less time, 3 of 3 passing either way (evals/results/README.md).
 export function loadHandoff(flag?: string): 'note' | 'compact' {
-  const raw = flag ?? readSettings(join(cediaHome(), 'settings.json')).handoff ?? 'compact';
+  const raw = flag ?? userSettings().handoff ?? 'compact';
   if (raw !== 'note' && raw !== 'compact') throw new Error(`handoff must be note or compact: ${raw}`);
   return raw;
 }
@@ -434,7 +455,7 @@ export function loadRoles(
   flags: { plan?: string; code?: string; review?: string; swarm?: string; advisor?: string; classifier?: string; workers?: string; triage?: string } = {},
   env = process.env,
 ): { plan?: RoleChoice; code: ModelSpec; review?: RoleChoice; swarm: ModelSpec; advisor?: ModelSpec; classifier?: ModelSpec; workers: ModelSpec[]; triage: ModelSpec } {
-  const user = readSettings(join(cediaHome(), 'settings.json')).roles ?? {};
+  const user = userSettings().roles ?? {};
   const codeRef = flags.code ?? env.CEDIA_MODEL ?? user.code ?? 'haiku';
   if (/^claude-code\b/.test(codeRef)) throw new Error('the code role runs in cedia, where its writes are checked; use claude-code for plan or review');
   const role = (ref: string | undefined, claudeModel: string): RoleChoice | undefined => {
@@ -478,7 +499,7 @@ export function loadRoles(
 // The model tab completion asks: the flag, else roles.complete, else the code model. Each keystroke's pause asks it,
 // so the one picked should answer fast.
 export function loadCompleteModel(flag?: string): string {
-  return flag ?? readSettings(join(cediaHome(), 'settings.json')).roles?.complete ?? loadRoles({}).code.ref;
+  return flag ?? userSettings().roles?.complete ?? loadRoles({}).code.ref;
 }
 
 // Modes a model picker offers beside the models, picked as `-m auto` or `-m oplan`. Both keep the writer the user's
@@ -514,7 +535,7 @@ export function modeFlags(mode: Mode, flags: { plan?: string; review?: string; p
 
 // When a prompt with a plan role is planned: the flag, else the user's settings, else auto.
 export function loadPlanWhen(flag?: string): 'auto' | 'always' | 'never' {
-  const v = flag ?? readSettings(join(cediaHome(), 'settings.json')).planWhen ?? 'auto';
+  const v = flag ?? userSettings().planWhen ?? 'auto';
   if (v !== 'auto' && v !== 'always' && v !== 'never') throw new Error(`${flag !== undefined ? '--plan-when' : '"planWhen"'} must be auto, always or never, not ${v}`);
   return v;
 }
@@ -522,7 +543,7 @@ export function loadPlanWhen(flag?: string): 'auto' | 'always' | 'never' {
 // Whether the writer starts reading while the plan is written (core/roles.ts, planComing): the flag, else the
 // user's settings, else on (evals/results/2026-10-28-overlap/: 9 blind wins to 2, the same time).
 export function loadPlanOverlap(flag?: string): boolean {
-  const v = flag ?? readSettings(join(cediaHome(), 'settings.json')).planOverlap ?? 'on';
+  const v = flag ?? userSettings().planOverlap ?? 'on';
   if (v !== 'on' && v !== 'off') throw new Error(`${flag !== undefined ? '--plan-overlap' : '"planOverlap"'} must be on or off, not ${v}`);
   return v === 'on';
 }
@@ -530,7 +551,7 @@ export function loadPlanOverlap(flag?: string): boolean {
 // Declared checks for the done gate. Declaring a check grants nothing, so a repo may declare its own: only the
 // owner's checks (loadOwnerChecks) become commands a read-only session may run.
 export function loadChecks(cwd: string, flags: string[] = []): string[] {
-  const user = readSettings(join(cediaHome(), 'settings.json')).checks ?? [];
+  const user = userSettings().checks ?? [];
   const project = readSettings(join(cwd, '.cedia', 'settings.json')).checks ?? [];
   return [...new Set([...flags, ...project, ...user])];
 }
@@ -538,7 +559,7 @@ export function loadChecks(cwd: string, flags: string[] = []): string[] {
 // The checks the owner declared (flags and ~/.cedia/settings.json), never the repo's or a detected one: these are
 // the commands plan, review and explore sessions may run to see what fails.
 export function loadOwnerChecks(flags: string[] = []): string[] {
-  const user = readSettings(join(cediaHome(), 'settings.json')).checks ?? [];
+  const user = userSettings().checks ?? [];
   return [...new Set([...flags, ...user])];
 }
 
@@ -566,14 +587,18 @@ export function detectChecks(cwd: string): string[] {
 
 // Sandbox: flags > CEDIA_SANDBOX > user settings > auto. Network grants come from the user only, never the repo.
 export function loadSandbox(flags: { mode?: string; allowDomains?: string[] } = {}, env = process.env): { mode: SandboxSetting; allowedDomains: string[] } {
-  const user = readSettings(join(cediaHome(), 'settings.json')).sandbox ?? {};
+  const user = userSettings().sandbox ?? {};
   const mode = flags.mode || env.CEDIA_SANDBOX || user.mode || 'auto';
+  checkSandboxMode(mode);
+  return { mode, allowedDomains: [...new Set([...DEFAULT_DOMAINS, ...(user.allowedDomains ?? []), ...(flags.allowDomains ?? [])])] };
+}
+
+export function checkSandboxMode(mode: string): asserts mode is SandboxSetting {
   if (!SANDBOX_SETTINGS.includes(mode as SandboxSetting)) throw new Error(`unknown sandbox setting "${mode}" (use ${SANDBOX_SETTINGS.join(', ')})`);
-  return { mode: mode as SandboxSetting, allowedDomains: [...new Set([...DEFAULT_DOMAINS, ...(user.allowedDomains ?? []), ...(flags.allowDomains ?? [])])] };
 }
 
 // Hooks come from the user's settings only; a repo's .cedia/settings.json may name them but they are never read.
 export function loadHooks(): Hooks {
-  return readSettings(join(cediaHome(), 'settings.json')).hooks ?? {};
+  return userSettings().hooks ?? {};
 }
 

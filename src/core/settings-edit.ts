@@ -1,9 +1,8 @@
-import { join } from 'node:path';
-import { cediaHome, loadHandoff, loadMaxEffort, loadPlanOverlap, loadPlanWhen, loadQuotaWait, loadRoles, loadSpawn, MEDIA_MODEL, readSettings, writeSettings, type Settings } from './config.ts';
+import { checkSandboxMode, loadHandoff, loadMaxEffort, loadPlanOverlap, loadPlanWhen, loadQuotaWait, loadRoles, loadSpawn, MEDIA_MODEL, parseHandoffAt, settingsPath, userSettings, writeSettings, type Settings } from './config.ts';
 import { loadOutputStyles } from './output-styles/styles.ts';
 import { FALLBACKS, resolveModel } from './providers/catalog.ts';
 import { GUARDS, type Guard } from './safety/policy.ts';
-import { DEFAULT_DOMAINS, SANDBOX_SETTINGS, type SandboxSetting } from './safety/sandbox.ts';
+import { DEFAULT_DOMAINS, type SandboxSetting } from './safety/sandbox.ts';
 import type { Effort, PrivacyLevel } from './types.ts';
 
 // `cedia settings get|set|unset`: the settings a client's settings page edits, so cedia stays the only writer of
@@ -98,7 +97,7 @@ const FIELDS: Record<string, Field> = {
     path: ['handoffAt'],
     store: (v) => (v === 'off' ? 'off' : Number(v)),
     check: (v) => {
-      if (v !== 'off' && !(Number.isInteger(Number(v)) && Number(v) >= 1000)) throw new Error(`handoffAt must be a token count of at least 1000, or off: ${v}`);
+      parseHandoffAt(v, 'handoffAt');
     },
   },
   handoff: plain('handoff', (v) => void loadHandoff(v)),
@@ -117,18 +116,16 @@ const FIELDS: Record<string, Field> = {
     const names = loadOutputStyles().map((s) => s.name);
     if (!names.includes(v)) throw new Error(`no output style ${v} (have ${names.join(', ')})`);
   }),
-  'sandbox.mode': { path: ['sandbox', 'mode'], store: (v) => v, check: (v) => {
-    if (!(SANDBOX_SETTINGS as string[]).includes(v)) throw new Error(`sandbox.mode must be ${SANDBOX_SETTINGS.join(', ')}, not ${v}`);
-  } },
+  'sandbox.mode': { path: ['sandbox', 'mode'], store: (v) => v, check: (v) => checkSandboxMode(v) },
   'sandbox.allowedDomains': { path: ['sandbox', 'allowedDomains'], store: lines, check: each('a host', (l) => HOST.test(l), 'one per line, like api.example.com or *.example.com') },
   'permissions.allow': { path: ['permissions', 'allow'], store: lines, check: each('a rule', (l) => RULE.test(l), 'one per line, like bash(git status*) or edit') },
   'permissions.deny': { path: ['permissions', 'deny'], store: lines, check: each('a rule', (l) => RULE.test(l), 'one per line, like bash(rm *) or web_fetch') },
   'permissions.unlock': { path: ['permissions', 'unlock'], store: lines, check: each('a guard', (l) => (GUARDS as string[]).includes(l), `one of ${GUARDS.join(', ')}`) },
 };
 
-const path = () => join(cediaHome(), 'settings.json');
+const path = () => settingsPath();
 const lspCustom = () => {
-  const l = readSettings(path()).lsp;
+  const l = userSettings().lsp;
   return typeof l === 'object' && l !== null;
 };
 const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
@@ -137,7 +134,7 @@ const sw = (v: unknown): OnOff | undefined => (typeof v === 'boolean' ? (v ? 'on
 const drop = <T extends object>(o: T) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
 
 export function getEditable(): EditableSettings {
-  const s = readSettings(path());
+  const s = userSettings();
   const roles = Object.fromEntries(EDITABLE_ROLES.flatMap((r) => (typeof s.roles?.[r] === 'string' ? [[r, s.roles[r]]] : []))) as EditableSettings['roles'];
   const fallback = Object.fromEntries(Object.entries(s.fallback ?? {}).filter(([, v]) => typeof v === 'string'));
   const context = Array.isArray(s.context) ? s.context.join('\n') : str(s.context);
@@ -231,7 +228,7 @@ export function setEditable(keyName: string, value: string | undefined): Editabl
   }
   const [top, inner, stored] =
     key.kind === 'role' ? ['roles', key.role, value] : key.kind === 'fallback' ? ['fallback', key.model, value] : [key.field.path[0], key.field.path[1], value === undefined ? undefined : key.field.store(value)];
-  const s = { ...readSettings(path()) } as Record<string, unknown>;
+  const s = userSettings() as Record<string, unknown>;
   if (inner === undefined) {
     if (stored === undefined) delete s[top];
     else s[top] = stored;

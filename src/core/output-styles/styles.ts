@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { cediaHome } from '../config.ts';
+import { cediaHome, userSettings } from '../config.ts';
 
 export type OutputStyle = { name: string; description: string; promptModifier: string };
 
@@ -47,10 +47,5 @@ export function getStyle(name: string, home = cediaHome()): OutputStyle | undefi
 }
 
 export function loadOutputStyleSetting(home = cediaHome()): string {
-  try {
-    const raw = JSON.parse(readFileSync(join(home, 'settings.json'), 'utf8'));
-    return raw?.outputStyle ?? 'default';
-  } catch {
-    return 'default';
-  }
+  return userSettings(home).outputStyle ?? 'default';
 }

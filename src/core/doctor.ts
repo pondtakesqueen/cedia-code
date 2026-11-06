@@ -1,8 +1,7 @@
 // `cedia doctor`: one read-only pass over versions, user settings, MCP config and the sandbox. Pure data out; cli.ts prints it (text and --json), and the TUIs can adopt it instead of
 // their inline copies. Nothing here starts a server or touches the network.
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { cediaHome, checkSettings } from './config.ts';
+import { existsSync } from 'node:fs';
+import { cediaHome, readSettings, settingsPath } from './config.ts';
 import { listMcp } from './mcp/manage.ts';
 import { versionInfo } from '../protocol/version.ts';
 
@@ -31,15 +30,7 @@ export type DoctorReport = {
 
 export function doctorReport(cwd: string, home = cediaHome()): DoctorReport {
   const info = versionInfo();
-  const readJson = (path: string): unknown => JSON.parse(readFileSync(path, 'utf8'));
-  const readUserSettings = () => {
-    const path = join(home, 'settings.json');
-    try {
-      return checkSettings(readJson(path));
-    } catch (e) {
-      throw new Error(`${path}: ${(e as Error).message}`);
-    }
-  };
+  const readUserSettings = () => readSettings(settingsPath(home));
   const tool = Bun.which('bwrap') ?? Bun.which('sandbox-exec') ?? null;
   let servers: DoctorReport['mcp']['servers'] = [];
   try {
@@ -54,7 +45,7 @@ export function doctorReport(cwd: string, home = cediaHome()): DoctorReport {
     home,
     cwd,
     settings: {
-      user: tier(existsSync(join(home, 'settings.json')), readUserSettings),
+      user: tier(existsSync(settingsPath(home)), readUserSettings),
     },
     sandbox: { available: tool !== null, tool },
     mcp: { servers },
