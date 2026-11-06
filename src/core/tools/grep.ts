@@ -1,5 +1,5 @@
-import { isAbsolute, relative, resolve } from 'node:path';
-import { clip, MAX_SHELL_OUTPUT_CHARS, type ToolSpec } from './registry.ts';
+import { relative } from 'node:path';
+import { clip, MAX_SHELL_OUTPUT_CHARS, toolPath, type ToolSpec } from './registry.ts';
 
 // Search file contents with ripgrep, which skips what .gitignore and .ignore list (build output, dependencies,
 // worktrees), so a question about a large repository does not read gigabytes it never needed: on a 2.8 GB tree a
@@ -37,7 +37,7 @@ export const grepTool: ToolSpec = {
     const pattern = typeof input.pattern === 'string' ? input.pattern : '';
     if (!pattern) return { text: 'pattern is required', isError: true };
     const where = typeof input.path === 'string' && input.path ? input.path : '.';
-    const full = isAbsolute(where) ? where : resolve(ctx.cwd, where);
+    const full = toolPath(where, ctx.cwd);
     const target = relative(ctx.cwd, full) || '.';
     const glob = typeof input.glob === 'string' && input.glob ? input.glob : undefined;
     const icase = input.ignore_case === true;

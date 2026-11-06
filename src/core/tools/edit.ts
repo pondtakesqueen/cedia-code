@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { dirname } from 'node:path';
 import type { JsonObject } from '../types.ts';
-import type { ToolSpec } from './registry.ts';
+import { toolPath, type ToolSpec } from './registry.ts';
 
 export type TextEdit = { old_text: string; new_text: string; replace_all?: boolean };
 type Tier = 'exact' | 'trailing-space' | 'indentation';
@@ -47,7 +47,7 @@ export function editRepair(input: JsonObject): { input: JsonObject; repairs: str
 
 const fullPath = (input: JsonObject, cwd: string) => {
   const path = String(input.path ?? '');
-  return isAbsolute(path) ? path : resolve(cwd, path);
+  return toolPath(path, cwd);
 };
 
 // Tiered matching: exact text first, then whole lines ignoring trailing spaces, then ignoring indentation

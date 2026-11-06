@@ -2,7 +2,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { checkReadOnly, redirectsOutput } from '../tools/bash.ts';
-import { effectOf, type ToolSpec } from '../tools/registry.ts';
+import { effectOf, toolPath, type ToolSpec } from '../tools/registry.ts';
 import type { JsonObject } from '../types.ts';
 import { REDACTED } from './secrets.ts';
 import { simpleCommands } from './shell.ts';
@@ -159,7 +159,7 @@ function matches(rule: string, tool: string, commands: string[][] | null | undef
     return commands.length > 0 && commands.every((argv) => re.test(line(argv)) || (argv[0] !== 'cd' && checkReadOnly(line(argv)).ok));
   }
   if (path === undefined) return false;
-  const full = resolve(cwd, path);
+  const full = toolPath(path, cwd);
   return re.test(path) || re.test(full) || re.test(relative(cwd, full));
 }
 
@@ -220,7 +220,7 @@ function glob(pattern: string): RegExp {
 
 export function insideWorkspace(path: string, cwd: string): boolean {
   const root = real(cwd);
-  const full = real(resolve(cwd, expandHome(path)));
+  const full = real(toolPath(path, cwd));
   const rel = relative(root, full);
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
@@ -247,7 +247,7 @@ export function real(path: string, realpath: (p: string) => string = realpathSyn
 // .git (hooks and config run code later, outside any sandbox), a hooks directory set by core.hooksPath (.husky)
 // and .cedia (cedia's rules and checks).
 export function protectedPath(path: string, cwd: string): boolean {
-  const full = real(resolve(cwd, expandHome(path)));
+  const full = real(toolPath(path, cwd));
   if (/^(\.git|\.cedia)(\/|$)/.test(relative(real(cwd), full))) return true;
   const hooks = hooksDir(cwd);
   return hooks !== undefined && within(full, real(hooks));
@@ -257,7 +257,7 @@ export function protectedPath(path: string, cwd: string): boolean {
 // a session run inside cedia's own home can still read its files.
 // `from` is the directory a relative path is read from: the working directory, or where a `cd` before it went.
 function secretUnder(path: string, secrets: string[], cwd: string, from = cwd): string | undefined {
-  const full = real(resolve(from, expandHome(path)));
+  const full = real(toolPath(path, from));
   const root = real(cwd);
   return secrets.find((s) => {
     const store = real(s);

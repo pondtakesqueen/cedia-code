@@ -1,4 +1,13 @@
+import { homedir } from 'node:os';
+import { isAbsolute, resolve } from 'node:path';
 import type { JsonObject, ToolDef, ToolEffect, ToolOutput } from '../types.ts';
+
+// The file a path a tool was given names: `~` is the home directory, a relative path is read from `cwd`. The
+// policy judges paths with this and the file tools open them with it, so the two can never mean different files.
+export function toolPath(path: string, cwd: string): string {
+  const expanded = path === '~' || path.startsWith('~/') ? homedir() + path.slice(1) : path;
+  return isAbsolute(expanded) ? expanded : resolve(cwd, expanded);
+}
 
 // `wrap` puts a shell command inside the OS sandbox when one is on. `spill` writes a whole output too long for
 // the result to a file (redacted like a result) and returns its path, or undefined when it could not.
