@@ -794,7 +794,7 @@ function threads(argv: string[]): number {
         console.log(runs.length ? runs.join('\n') : `thread ${id} has no run to rewind to`);
         return 0;
       }
-      const r = rewindThread(store, id, Number(rest[0]), { open: (cwd) => workspaceSnapshots(cwd, cediaHome()), sessionFile: (cwd, sid) => sessionPath(cwd, sid) }, { force: values.force ?? false });
+      const r = rewindThread(store, id, Number(rest[0]), undefined, { force: values.force ?? false });
       // A refusal is the answer too: the client offers --force when it goes past it.
       if (values.json) {
         const out: RewindResult = 'error' in r ? r : { run: r.run.id, restored: r.restored, ...(r.sessionId ? { sessionId: r.sessionId } : {}) };

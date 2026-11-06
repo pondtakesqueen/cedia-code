@@ -829,7 +829,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         if (!rest[0]) { say(runs.length ? runs.join('\n') : 'no runs'); return; }
         const n = Number(rest[0]);
         if (!Number.isInteger(n)) { say('/rewind <n>'); return; }
-        const r = rewindThread(store, thread, n, { open: (cwd) => workspaceSnapshots(cwd, cediaHome()), sessionFile: (c, sid) => `${c}/${sid}.jsonl` }, { force: rest[1] === 'force' });
+        const r = rewindThread(store, thread, n, undefined, { force: rest[1] === 'force' });
         if ('error' in r) { say('error: ' + r.error); return; }
         say(rewoundText(r));
         setContext(0);
@@ -2039,7 +2039,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
           const n = messageSelector.selected + 1;
           if (!runs.length) { push({ role: 'system', text: 'no runs to rewind to' }); setMessageSelector({ open: false, selected: 0 });
           closeDialog('messageSelector'); return; }
-          const r = rewindThread(store, thread, n, { open: (cwd) => workspaceSnapshots(cwd, cediaHome()), sessionFile: (c, sid) => `${c}/${sid}.jsonl` }, {});
+          const r = rewindThread(store, thread, n);
           if ('error' in r) push({ role: 'system', text: 'error: ' + r.error });
           else { push({ role: 'system', text: rewoundText(r) }); setContext(0); }
           setMessageSelector({ open: false, selected: 0 });
