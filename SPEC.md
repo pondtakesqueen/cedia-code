@@ -245,7 +245,7 @@ Research findings and source paths are in `research/NOTES.md`.
   Chat Completions and Responses: client side, clear old tool results first, then summarize.
   Segments stay grep-able
 - **TUI**: `cedia` with no prompt at a terminal, on Ink (`src/clients/tui-ink/`), the only TUI since the pi-tui client (`src/clients/tui/`) was removed on 2026-10-28.
-  Each prompt is one headless run of the current thread (`--thread`) streamed as stream-json, so it takes the path `-p` and the evals take and the same session goes on while the model stays the same; cedia's notes and a stop come in through `HeadlessArgs.note` and `signal` instead of stderr and SIGINT.
+  Each prompt is one run of the current thread (`--thread`) through `runThread` (`core/run/thread.ts`), the path `-p` and the evals take, so the same session goes on while the model stays the same; the TUI takes the run's messages (the ones stream-json writes as lines) as objects through its `emit` callback, and cedia's notes and a stop come in through `ThreadArgs.note` and `signal` instead of stderr and SIGINT.
   Esc or Ctrl+C stops a turn.
   Status line: model, permission, branch and dirty count, thread, context, spend.
   Commands: `/diff`, `/undo`, `/redo`, `/commit`, `/pr`, `/review`, `/new`, `/thread`, `/model`, `/goal` (the condition every turn runs under, as `--goal`; `/goal off` ends it), `/help`, `/quit`.

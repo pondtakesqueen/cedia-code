@@ -15,10 +15,10 @@ import { inkTheme, PANEL_BAR, type ThemeTokens } from './theme-tokens.ts';
 import { PermissionDialog } from './permission-dialogs.tsx';
 import { askedBannerText } from './asked.ts';
 import { StatusBar } from './status-bar.tsx';
-import { runHeadless } from '../headless/main.ts';
+import { runThread } from '../../core/run/thread.ts';
 
 import { resolveModel } from '../../core/providers/catalog.ts';
-import { decode, type CoreMessage } from '../../protocol/index.ts';
+import type { CoreMessage } from '../../protocol/index.ts';
 import type { TuiArgs } from './args.ts';
 import type { JsonObject, SessionEvent } from '../../core/types.ts';
 import { cediaHome, sharedSkillDirs, loadHandoffAt, loadPromptSuggestions, loadRoles, isMode, modeFlags, readSettings, updateSettings, userSettings, type Settings } from '../../core/config.ts';
@@ -1326,52 +1326,46 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
     turnRef.current = { tools: 0, blocked: 0, files: new Set() };
     streamedRef.current = 0;
     setSteps([]);
-    let buffer = '';
-    const handleChunk = (chunk: string) => {
-      buffer += chunk;
-      for (let nl = buffer.indexOf('\n'); nl >= 0; nl = buffer.indexOf('\n')) {
-        const line = buffer.slice(0, nl);
-        buffer = buffer.slice(nl + 1);
-        if (!line.trim()) continue;
-        try {
-          const m = decode<CoreMessage>(line);
-          if (m.type === 'stream') {
-            const e = m.event;
-            // What the model has sent this turn, about four characters a token, for the status bar.
-            if ('delta' in e && typeof e.delta === 'string') streamedRef.current += e.delta.length;
-            if (e.type === 'text_delta') {
-              setMessages((prev) => {
-                const last = prev[prev.length - 1] as Msg | undefined;
-                if (last && last.role === 'assistant') {
-                  return [...prev.slice(0, -1), { role: 'assistant', text: last.text + e.delta }];
-                }
-                return [...prev, { role: 'assistant', text: e.delta }];
-              });
-            } else if (e.type === 'text_start') {
-              setActivity('writing');
-            } else if (e.type === 'thinking_start') {
-              setActivity('thinking');
-              thinkingStartRef.current = Date.now();
-              thinkingRef.current = '';
-              setThinkingText('');
-            } else if (e.type === 'thinking_delta') {
-              thinkingRef.current = (thinkingRef.current + e.delta).slice(-2000);
-              setThinkingText(thinkingRef.current);
-            } else if (e.type === 'thinking_end') {
-              const t = thinkingRef.current.trim();
-              thinkingRef.current = '';
-              setThinkingText('');
-              const began = thinkingStartRef.current;
-              thinkingStartRef.current = undefined;
-              if (t) push({ role: 'system', text: t, thinking: { text: t, ...(began !== undefined ? { ms: Date.now() - began } : {}) } });
-            }
-          } else if (m.type === 'event') {
-            const e = m.event as SessionEvent;
-            if (e.kind === 'request') setActivity('waiting for model');
-            else applyToolEvent(e);
+    // What the run sends as it goes (core/run/thread.ts), taken as it is: no JSONL in between. A message the
+    // screen fails to show is dropped, so a rendering fault never reaches the run.
+    const handleMessage = (m: CoreMessage) => {
+      try {
+        if (m.type === 'stream') {
+          const e = m.event;
+          // What the model has sent this turn, about four characters a token, for the status bar.
+          if ('delta' in e && typeof e.delta === 'string') streamedRef.current += e.delta.length;
+          if (e.type === 'text_delta') {
+            setMessages((prev) => {
+              const last = prev[prev.length - 1] as Msg | undefined;
+              if (last && last.role === 'assistant') {
+                return [...prev.slice(0, -1), { role: 'assistant', text: last.text + e.delta }];
+              }
+              return [...prev, { role: 'assistant', text: e.delta }];
+            });
+          } else if (e.type === 'text_start') {
+            setActivity('writing');
+          } else if (e.type === 'thinking_start') {
+            setActivity('thinking');
+            thinkingStartRef.current = Date.now();
+            thinkingRef.current = '';
+            setThinkingText('');
+          } else if (e.type === 'thinking_delta') {
+            thinkingRef.current = (thinkingRef.current + e.delta).slice(-2000);
+            setThinkingText(thinkingRef.current);
+          } else if (e.type === 'thinking_end') {
+            const t = thinkingRef.current.trim();
+            thinkingRef.current = '';
+            setThinkingText('');
+            const began = thinkingStartRef.current;
+            thinkingStartRef.current = undefined;
+            if (t) push({ role: 'system', text: t, thinking: { text: t, ...(began !== undefined ? { ms: Date.now() - began } : {}) } });
           }
-        } catch {}
-      }
+        } else if (m.type === 'event') {
+          const e = m.event as SessionEvent;
+          if (e.kind === 'request') setActivity('waiting for model');
+          else applyToolEvent(e);
+        }
+      } catch {}
     };
     const stop = new AbortController();
     stopRef.current = stop;
@@ -1381,9 +1375,9 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
     const turnStart = Date.now();
     turnStartRef.current = turnStart;
     try {
-      const result = await runHeadless(
-        { ...args, model: model ?? args.model, permission: permission ?? args.permission, ...(effort ? { effort } : {}), cacheTtl: args.cacheTtl ?? '1h', streamingTools: true, promptSuggestions: 'off', prompt: takeShellNote() + expandPastes(text, pastesRef.current), outputFormat: 'stream-json', note: (t: string) => { if (t.trim()) push({ role: 'system', text: `▲ ${t.trim().replace(/^cedia: /, '')}`, tone: 'accent' }); }, onPermission: (took: string) => setRunPermission({ setting: permission ?? args.permission ?? 'auto', took }), ...(thread ? { thread } : {}), ...(goal ? { goal } : {}), ...(planWhen ? { planWhen } : {}), present: () => ownerPresent(seenRef.current, Date.now()), signal: stop.signal },
-        handleChunk,
+      const result = await runThread(
+        { ...args, model: model ?? args.model, permission: permission ?? args.permission, ...(effort ? { effort } : {}), cacheTtl: args.cacheTtl ?? '1h', streamingTools: true, promptSuggestions: 'off', prompt: takeShellNote() + expandPastes(text, pastesRef.current), live: true, note: (t: string) => { if (t.trim()) push({ role: 'system', text: `▲ ${t.trim().replace(/^cedia: /, '')}`, tone: 'accent' }); }, onPermission: (took: string) => setRunPermission({ setting: permission ?? args.permission ?? 'auto', took }), ...(thread ? { thread } : {}), ...(goal ? { goal } : {}), ...(planWhen ? { planWhen } : {}), present: () => ownerPresent(seenRef.current, Date.now()), signal: stop.signal },
+        handleMessage,
       );
       setThread(result.thread ?? thread);
       turnThread = result.thread ?? thread;
