@@ -46,7 +46,7 @@ import { workspaceSnapshots } from './core/safety/snapshot.ts';
 import { lintSession } from './core/session/lint.ts';
 import { projectKey, sessionPath, SessionLog } from './core/session/log.ts';
 import { formatUsage, isUsageEvent, readEventsLenient, sinceOf, usageReport, type SessionInput } from './core/session/usage.ts';
-import { selectSessions } from './core/session/select.ts';
+import { selectSessions, sessionFiles } from './core/session/select.ts';
 import { formatContext } from './core/context/breakdown.ts';
 import { threadContext } from './core/context/thread-context.ts';
 import { awayRecap, formatRecap, lastRunStart, recapSince } from './core/project/recap.ts';
@@ -516,28 +516,7 @@ function usage(argv: string[]): number {
   const home = cediaHome();
   try {
     const since = values.since === undefined ? undefined : sinceOf(values.since);
-    let inputs: { path: string; project?: string }[] = positionals.map((path) => ({ path }));
-    if (!inputs.length && values.thread) {
-      const store = new ThreadStore(threadsDir(home, projectKey(cwd)));
-      // The thread and every sub-thread under it, however deep.
-      const all = store.list();
-      const ids = [values.thread];
-      for (let i = 0; i < ids.length; i++) ids.push(...all.filter((t) => t.parent === ids[i]).map((t) => t.id));
-      inputs = ids.flatMap((id) => store.read(id).sessions.map((s) => ({ path: s.path ?? sessionPath(cwd, s.sessionId, home), project: projectKey(cwd) })));
-    } else if (!inputs.length) {
-      const root = join(home, 'sessions');
-      const keys = values.all ? (existsSync(root) ? readdirSync(root) : []) : [projectKey(cwd)];
-      const found = keys.flatMap((project) => {
-        const dir = join(root, project);
-        if (!existsSync(dir) || !statSync(dir).isDirectory()) return [];
-        return readdirSync(dir)
-          .filter((f) => f.endsWith('.jsonl'))
-          .map((f) => ({ path: join(dir, f), project, mtime: statSync(join(dir, f)).mtimeMs }));
-      });
-      found.sort((a, b) => b.mtime - a.mtime);
-      // A range reads every session written in it; otherwise the newest few.
-      inputs = since ? found.filter((f) => f.mtime >= since.getTime()) : found.slice(0, Number(values.last ?? 20));
-    }
+    const inputs = sessionFiles({ cwd, home, files: positionals, ...(values.thread ? { thread: values.thread } : {}), ...(since ? { since } : {}), last: Number(values.last ?? 20), all: values.all ?? false });
     // Which thread each session is part of, from each project's threads.
     const threadOf = new Map<string, { thread: string; title: string }>();
     for (const project of new Set(inputs.map((i) => i.project).filter((p) => p !== undefined))) {
@@ -606,26 +585,7 @@ function failuresCmd(argv: string[]): number {
   const home = cediaHome();
   try {
     const since = values.since === undefined ? undefined : sinceOf(values.since);
-    let inputs: { path: string; project?: string }[] = positionals.map((path) => ({ path }));
-    if (!inputs.length && values.thread) {
-      const store = new ThreadStore(threadsDir(home, projectKey(cwd)));
-      const all = store.list();
-      const ids = [values.thread];
-      for (let i = 0; i < ids.length; i++) ids.push(...all.filter((t) => t.parent === ids[i]).map((t) => t.id));
-      inputs = ids.flatMap((id) => store.read(id).sessions.map((s) => ({ path: s.path ?? sessionPath(cwd, s.sessionId, home), project: projectKey(cwd) })));
-    } else if (!inputs.length) {
-      const root = join(home, 'sessions');
-      const keys = values.all ? (existsSync(root) ? readdirSync(root) : []) : [projectKey(cwd)];
-      const found = keys.flatMap((project) => {
-        const dir = join(root, project);
-        if (!existsSync(dir) || !statSync(dir).isDirectory()) return [];
-        return readdirSync(dir)
-          .filter((f) => f.endsWith('.jsonl'))
-          .map((f) => ({ path: join(dir, f), project, mtime: statSync(join(dir, f)).mtimeMs }));
-      });
-      found.sort((a, b) => b.mtime - a.mtime);
-      inputs = since ? found.filter((f) => f.mtime >= since.getTime()) : found.slice(0, Number(values.last ?? 20));
-    }
+    const inputs = sessionFiles({ cwd, home, files: positionals, ...(values.thread ? { thread: values.thread } : {}), ...(since ? { since } : {}), last: Number(values.last ?? 20), all: values.all ?? false });
     const records = inputs
       .filter((i) => existsSync(i.path))
       .flatMap((i) => mineToolFailures(readEventsLenient(readFileSync(i.path, 'utf8'))));
