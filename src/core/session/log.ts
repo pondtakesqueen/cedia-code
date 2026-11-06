@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { gitSync } from '../git/run.ts';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { cediaHome } from '../home.ts';
@@ -51,7 +51,7 @@ export function projectSlug(cwd: string): string {
 // worktree's root, so threads started in different worktrees list, message and recall one another. Outside git,
 // or in a bare repository, the working directory itself.
 export function projectRoot(cwd: string): string {
-  const r = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, encoding: 'utf8' });
+  const r = gitSync(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
   const common = r.status === 0 ? r.stdout.trim() : '';
   return common && basename(common) === '.git' ? dirname(common) : cwd;
 }

@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { gitSync } from './run.ts';
 import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
@@ -49,7 +49,7 @@ const MAX_LINKS = 500;
 const MAX_COPY = 1024 * 1024;
 
 const run = (cwd: string, args: string[]) => {
-  const r = spawnSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', ...args], { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
+  const r = gitSync(cwd, args, { hooks: false });
   return r.status === 0 ? { ok: true as const, out: r.stdout } : { ok: false as const, err: (r.stderr || r.error?.message || '').trim() };
 };
 

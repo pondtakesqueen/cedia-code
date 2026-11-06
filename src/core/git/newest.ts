@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { gitSync } from './run.ts';
 import { lstatSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
@@ -41,7 +41,7 @@ const ATTRS = ['linguist-generated', 'lww'];
 export function newestWins(cwd: string, files: string[]): string[] {
   if (!files.length) return [];
   const marked = new Set<string>();
-  const r = spawnSync('git', ['check-attr', '-z', '--stdin', ...ATTRS], { cwd, input: files.join('\0'), encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+  const r = gitSync(cwd, ['check-attr', '-z', '--stdin', ...ATTRS], { input: files.join('\0') });
   if (r.status === 0) {
     const out = r.stdout.split('\0');
     for (let i = 0; i + 2 < out.length; i += 3) if (out[i + 2] === 'set' || out[i + 2] === 'true') marked.add(out[i]!);
