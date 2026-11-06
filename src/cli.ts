@@ -402,8 +402,6 @@ export async function main(given: string[]): Promise<number> {
       todo: { type: 'string' },
       jobs: { type: 'string' },
       creator: { type: 'string' },
-      'consolidate-memory': { type: 'string' },
-      'auto-dream': { type: 'string' },
       'prompt-suggestions': { type: 'string' },
       browser: { type: 'string' },
       'browser-sites': { type: 'string' },

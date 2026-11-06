@@ -10,7 +10,7 @@ import { fauxActive } from '../providers/faux.ts';
 
 // Memory consolidation: between sessions, scan a project's session transcripts
 // and let a model keep the durable facts as project memory notes. Runs only when asked
-// (`cedia memory consolidate`) or, with consolidateMemory on, between sessions. Never mid-session.
+// (`cedia memory consolidate`). Never mid-session.
 
 export type ConsolidationLock = { lastConsolidatedAt: string; pid?: number };
 export type ConsolidationResult = {

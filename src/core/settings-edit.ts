@@ -37,7 +37,6 @@ export type EditableSettings = {
   lsp?: 'on' | 'off' | 'custom';
   jobs?: OnOff;
   promptSuggestions?: OnOff;
-  consolidateMemory?: OnOff;
   outputStyle?: string;
   sandbox: { mode?: SandboxSetting; allowedDomains: string[] };
   permissions: { allow: string[]; deny: string[]; unlock: Guard[] };
@@ -111,7 +110,6 @@ const FIELDS: Record<string, Field> = {
   },
   jobs: { path: ['jobs'], store: (v) => v === 'on', check: onOff('jobs') },
   promptSuggestions: { path: ['promptSuggestions'], store: (v) => v === 'on', check: onOff('promptSuggestions') },
-  consolidateMemory: { path: ['consolidateMemory'], store: (v) => v === 'on', check: onOff('consolidateMemory') },
   outputStyle: plain('outputStyle', (v) => {
     const names = loadOutputStyles().map((s) => s.name);
     if (!names.includes(v)) throw new Error(`no output style ${v} (have ${names.join(', ')})`);
@@ -156,7 +154,6 @@ export function getEditable(): EditableSettings {
       lsp: typeof s.lsp === 'object' && s.lsp !== null ? ('custom' as const) : sw(s.lsp),
       jobs: sw(s.jobs),
       promptSuggestions: sw(s.promptSuggestions),
-      consolidateMemory: sw(s.consolidateMemory ?? s.autoDream),
       outputStyle: str(s.outputStyle),
     }),
     sandbox: drop({ mode: s.sandbox?.mode, allowedDomains: strs(s.sandbox?.allowedDomains) }),
@@ -232,8 +229,6 @@ export function setEditable(keyName: string, value: string | undefined): Editabl
   if (inner === undefined) {
     if (stored === undefined) delete s[top];
     else s[top] = stored;
-    // The old name of consolidateMemory goes with it, so the two never disagree.
-    if (top === 'consolidateMemory') delete s.autoDream;
   } else {
     const obj = { ...((s[top] ?? {}) as Record<string, unknown>) };
     if (stored === undefined) delete obj[inner];

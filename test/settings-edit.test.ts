@@ -85,7 +85,6 @@ describe('cedia settings get|set|unset', () => {
     setEditable('spawn', 'worktree');
     setEditable('jobs', 'on');
     setEditable('handoffAt', '150000');
-    setEditable('consolidateMemory', 'off');
     setEditable('permissions.allow', 'bash(git status*)\n\n  edit  ');
     setEditable('sandbox.allowedDomains', 'api.example.com\n*.npmjs.org');
     setEditable('context', 'I write in Thai\nKeep commits small');
@@ -93,13 +92,10 @@ describe('cedia settings get|set|unset', () => {
     expect(s.spawn).toBe('worktree');
     expect(s.jobs).toBe(true);
     expect(s.handoffAt).toBe(150000);
-    expect(s.consolidateMemory).toBe(false);
-    expect(s.autoDream).toBeUndefined();
     expect(s.permissions).toEqual({ allow: ['bash(git status*)', 'edit'] });
     expect(s.sandbox).toEqual({ allowedDomains: ['api.example.com', '*.npmjs.org'] });
     const e = getEditable();
     expect(e.lsp).toBe('custom');
-    expect(e.consolidateMemory).toBe('off');
     expect(e.context).toBe('I write in Thai\nKeep commits small');
     expect(e.choices.outputStyles).toContain('default');
     expect(() => setEditable('lsp', 'off')).toThrow('its own servers');

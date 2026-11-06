@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Removed: the `consolidateMemory` setting (and `autoDream`, its older name) and `--consolidate-memory`, which nothing ever read; memory is consolidated by `cedia memory consolidate`. A settings file that still holds either key loads, and the key is ignored.
 - Security: a repository's `.cedia/settings.json` checks and the detected test command no longer become commands plan, review and explore sessions may run; only the owner's checks (`--check`, `~/.cedia/settings.json`) do, each as the exact command. Before, a repo check of `*` let a read-only run's explore sub-thread run any command.
 - Security: a call decided before an earlier call of the same reply ran is decided again once a writing call has run, so a symlink made by bash in that reply no longer carries a write out of the workspace (or into `.git/hooks`) or a read into a credential store.
 - Security: the policy and the file tools read a path the same way (`~` is home), so `~/../../.ssh/config` is no longer judged as one path and opened as another.
