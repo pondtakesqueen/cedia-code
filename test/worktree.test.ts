@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import { applyWorktree, openWorktree, type Worktree } from '../src/core/project/worktree.ts';
+import { applyWorktree, openWorktree, type Worktree } from '../src/core/git/worktree.ts';
 import { openSnapshots } from '../src/core/safety/snapshot.ts';
 import { noSandbox } from './sandbox-skip.ts';
 

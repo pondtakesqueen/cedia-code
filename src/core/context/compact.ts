@@ -1,6 +1,6 @@
 import type { CompactionBlock, EventId, EventOf, NewEvent, SessionEvent } from '../types.ts';
 import type { SessionLog } from '../session/log.ts';
-import { sessionHeader } from '../context/build.ts';
+import { sessionHeader } from './build.ts';
 
 // Handoff by compaction, on a model that takes on-demand compaction requests (Anthropic beta compact-2026-09-04).
 // The note handoff (handoff.ts) asks the model for a note and starts the next session from the task and the note,

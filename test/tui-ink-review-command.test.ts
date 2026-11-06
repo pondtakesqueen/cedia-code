@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { reviewCommand, type CommandCtx } from '../src/clients/tui-ink/command-review.ts';
-import { ThreadStore } from '../src/core/project/threads.ts';
+import { ThreadStore } from '../src/core/threads/threads.ts';
 
 // The TUI's /review runs on a context of plain functions, so it is tested without Ink.
 const saved = { script: process.env.CEDIA_FAUX_SCRIPT, home: process.env.CEDIA_HOME };

@@ -5,8 +5,8 @@ import type { Snapshots } from '../safety/snapshot.ts';
 import { inert } from '../trust/frame.ts';
 import { findingRef, MAX_REVIEW_DIFF } from '../trust/review.ts';
 import { commitPatch, defaultBranch, threadChanges } from './commit.ts';
-import type { ThreadStore } from './threads.ts';
-import { sinceTurn, threadTurn } from './undo.ts';
+import type { ThreadStore } from '../threads/threads.ts';
+import { sinceTurn, threadTurn } from '../threads/undo.ts';
 
 // What a thread changed, against one of three bases (Delta's Changes tab): `turn`, since its last turn that
 // changed files started (what /diff showed before); `head`, the files it changed against the last commit; and

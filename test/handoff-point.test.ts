@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { handoffDue, handoffFloor } from '../src/core/project/handoff.ts';
+import { handoffDue, handoffFloor } from '../src/core/context/handoff.ts';
 
 // When a session may hand off or compact, from numbers alone.
 test('a fresh session must double the part of its first reply a handoff can shrink', () => {

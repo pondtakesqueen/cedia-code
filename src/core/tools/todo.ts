@@ -1,4 +1,4 @@
-import type { ThreadStore, TodoItem, TodoState } from '../project/threads.ts';
+import type { ThreadStore, TodoItem, TodoState } from '../threads/threads.ts';
 import type { ToolSpec } from './registry.ts';
 
 // todo: the writer keeps a short list of the steps of its task and marks them as it goes. Each call replaces the

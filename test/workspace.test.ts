@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ThreadStore, threadsDir } from '../src/core/project/threads.ts';
+import { ThreadStore, threadsDir } from '../src/core/threads/threads.ts';
 import { projectKey, projectSlug, SessionLog, workspaceRoots } from '../src/core/session/log.ts';
 import { openThreadTool } from '../src/core/tools/open.ts';
 import type { SessionEvent } from '../src/core/types.ts';

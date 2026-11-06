@@ -3,7 +3,7 @@
 // project (of every project with `all`), the ones written since `since` when it is given, else the newest `last`.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { ThreadStore, threadsDir } from '../project/threads.ts';
+import { ThreadStore, threadsDir } from '../threads/threads.ts';
 import { projectKey, sessionPath } from './log.ts';
 import { readEventsLenient, dayOf, usageReport, type SessionInput } from './usage.ts';
 

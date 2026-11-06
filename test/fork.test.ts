@@ -2,10 +2,10 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ThreadStore, threadsDir } from '../src/core/project/threads.ts';
+import { ThreadStore, threadsDir } from '../src/core/threads/threads.ts';
 import { projectKey, SessionLog } from '../src/core/session/log.ts';
 import { lintSession } from '../src/core/session/lint.ts';
-import { settledEvents } from '../src/core/project/fork.ts';
+import { settledEvents } from '../src/core/threads/fork.ts';
 import type { SessionEvent } from '../src/core/types.ts';
 
 const BIN = join(import.meta.dir, '..', 'bin', 'cedia');

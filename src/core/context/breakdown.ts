@@ -1,5 +1,5 @@
 import { sessionPath } from '../session/log.ts';
-import type { Thread } from '../project/threads.ts';
+import type { Thread } from '../threads/threads.ts';
 import { resolveModel } from '../providers/catalog.ts';
 import type { ModelSpec, SessionEvent } from '../types.ts';
 

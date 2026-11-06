@@ -2,8 +2,8 @@
 // One `--once` pass suits cron; the foreground loop suits the desktop's daemon. State stays in the
 // thread, schedule and background files, so stopping the daemon never stops a run.
 import { parseArgs } from 'node:util';
-import { DEFAULT_INTERVAL_S, DEFAULT_MAX_RUNS, daemonPaths, daemonStart, daemonStop, pumpDaemon, readDaemonPid, spawnDetached } from '../../core/project/daemon.ts';
-import { daemonPid } from '../../core/project/background.ts';
+import { DEFAULT_INTERVAL_S, DEFAULT_MAX_RUNS, daemonPaths, daemonStart, daemonStop, pumpDaemon, readDaemonPid, spawnDetached } from '../../core/background/daemon.ts';
+import { daemonPid } from '../../core/background/background.ts';
 
 export async function daemonCmd(argv: string[]): Promise<number> {
   const [sub, ...rest] = argv;

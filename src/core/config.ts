@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { MCP_TOOL_RULES, type McpServerConfig, type McpToolRule } from './mcp/client.ts';
 import { GUARDS, PERMISSION_SETTINGS, type Guard, type PermissionSetting, type Policy } from './safety/policy.ts';
 import { DEFAULT_DOMAINS, SANDBOX_SETTINGS, type SandboxSetting } from './safety/sandbox.ts';
-import { defaultHandoffAt } from './project/handoff.ts';
+import { defaultHandoffAt } from './context/handoff.ts';
 import { FALLBACKS, FAUX_MEDIA, resolveModel } from './providers/catalog.ts';
 import { secretPaths } from './safety/secrets.ts';
 import { checkHooks, type Hooks } from './hooks.ts';
@@ -440,7 +440,7 @@ export function checkMcpServer(name: string, v: unknown, env: Record<string, str
   throw new Error(`${at} needs either a command or a url`);
 }
 
-// When a writer session hands off: flag > user settings > half the window, capped (core/project/handoff.ts).
+// When a writer session hands off: flag > user settings > half the window, capped (core/context/handoff.ts).
 export function loadHandoffAt(model: ModelSpec, flag?: string): number | undefined {
   const raw = flag ?? userSettings().handoffAt;
   return raw === undefined ? defaultHandoffAt(model) : parseHandoffAt(raw);

@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { claimThread, holderOf, isCediaProcess } from '../src/core/project/busy.ts';
-import { ThreadStore, threadsDir } from '../src/core/project/threads.ts';
+import { claimThread, holderOf, isCediaProcess } from '../src/core/background/busy.ts';
+import { ThreadStore, threadsDir } from '../src/core/threads/threads.ts';
 import { projectKey } from '../src/core/session/log.ts';
 
 const BIN = join(import.meta.dir, '..', 'bin', 'cedia');

@@ -2,10 +2,10 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { recordStart } from '../src/core/project/background.ts';
-import { pumpDaemon } from '../src/core/project/daemon.ts';
-import { threadsDir, ThreadStore } from '../src/core/project/threads.ts';
-import { MAX_DEAD_STARTS, STALL_MS, watchThreads } from '../src/core/project/watchdog.ts';
+import { recordStart } from '../src/core/background/background.ts';
+import { pumpDaemon } from '../src/core/background/daemon.ts';
+import { threadsDir, ThreadStore } from '../src/core/threads/threads.ts';
+import { MAX_DEAD_STARTS, STALL_MS, watchThreads } from '../src/core/background/watchdog.ts';
 
 const GONE = 2147483647;
 

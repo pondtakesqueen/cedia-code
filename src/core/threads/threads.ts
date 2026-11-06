@@ -12,13 +12,13 @@ import type { RunPermission } from '../safety/policy.ts';
 // queued: another thread opened it (core/tools/open.ts) and no run of it has started yet.
 export type ThreadState = 'queued' | 'working' | 'done' | 'failed' | 'stopped' | 'asking';
 // rejected: the provider refused the last session's history, so the thread went on in a new one.
-// rewind: a copy of a session as it was before a run, which the thread goes on from (core/project/rewind.ts).
+// rewind: a copy of a session as it was before a run, which the thread goes on from (core/threads/rewind.ts).
 export type SessionWhy = 'start' | 'resume' | 'handoff' | 'quota' | 'rejected' | 'rewind' | 'fork';
 
 type ThreadBody =
   // parent: the thread that spawned this one as a sub-thread. by: the thread that opened it with open_thread, for a
   // client to run. profile: the profile its runs take unless another is named (core/profiles.ts).
-  // forkOf: the thread and run this one was forked at (core/project/fork.ts). side: a side chat, forked at the
+  // forkOf: the thread and run this one was forked at (core/threads/fork.ts). side: a side chat, forked at the
   // other thread's end to ask about it without adding to it; a client shows it beside that thread, not in the list.
   | { kind: 'open'; title: string; task: string; parent?: string; by?: string; profile?: string; forkOf?: ForkOf; side?: boolean; root?: string }
   | { kind: 'session'; sessionId: string; model: string; role: string; why: SessionWhy; path?: string }
@@ -42,16 +42,16 @@ type ThreadBody =
   | { kind: 'state'; state: ThreadState; result?: string }
   // A run of the thread that changed files: the shadow-git trees before its first write and after its last, across
   // every session it took (handoff, fallback, a review's fix), and the working directory they are of. What /undo
-  // and /diff call a turn (core/project/undo.ts).
+  // and /diff call a turn (core/threads/undo.ts).
   | { kind: 'turn'; cwd: string; before: string; after: string; sessions: string[] }
   // A run of the thread starting: its prompt, the shadow-git tree of the working directory then, and the session
   // the conversation stood in, with how many of its events there were. What /rewind goes back to.
   // `permission`: what the run ran under (absent before cedia recorded it).
-  // `images`: the ones shown with the prompt, so an edit and resend (core/project/fork.ts) can keep them.
-  // `pid`: the process that runs it, which holds the thread until the run ends (core/project/busy.ts).
+  // `images`: the ones shown with the prompt, so an edit and resend (core/threads/fork.ts) can keep them.
+  // `pid`: the process that runs it, which holds the thread until the run ends (core/background/busy.ts).
   | { kind: 'run'; id: string; prompt: string; cwd: string; tree?: string; from?: RunFrom; permission?: RunPermission; images?: ImageRef[]; pid?: number }
   // The thread went back to just before run `run`: what happened from there to here is dropped from the fold
-  // (core/project/rewind.ts), except what is not the conversation's (messages, ratings, archiving).
+  // (core/threads/rewind.ts), except what is not the conversation's (messages, ratings, archiving).
   | { kind: 'rewind'; run: string }
   // A satisfaction judgement of an earlier run, from the user's follow-up message (core/trust/satisfaction.ts).
   | { kind: 'satisfaction'; verdict: 'satisfied' | 'not_satisfied' | 'impossible'; reason: string; sessionId: string }
@@ -62,7 +62,7 @@ type ThreadBody =
 // run: the run forked before; none when forked at the thread's end (a side chat).
 export type ForkOf = { thread: string; run?: string };
 export type RunFrom = { sessionId: string; path: string; events: number; model: string };
-// `run`: the run that wrote it, on what a run writes (core/project/rewind.ts).
+// `run`: the run that wrote it, on what a run writes (core/threads/rewind.ts).
 export type ThreadEvent = { at: string; run?: string } & ThreadBody;
 
 export type TodoState = 'pending' | 'doing' | 'done';
@@ -199,7 +199,7 @@ export class ThreadStore {
     return named;
   }
 
-  // The thread's file, gone: only for deleting it (core/project/delete.ts), which also takes its sessions.
+  // The thread's file, gone: only for deleting it (core/threads/delete.ts), which also takes its sessions.
   remove(id: string): void {
     rmSync(this.path(id), { force: true });
     rmSync(this.summaryPath(id), { force: true });

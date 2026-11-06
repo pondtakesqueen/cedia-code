@@ -9,7 +9,7 @@ import { projectKey, sessionPath } from '../session/log.ts';
 import { daemonPid, daemonStart, daemonStop, isAlive, listBgSessions, recordStart, recordStop } from './background.ts';
 import { desktopLockHolder } from './desktop-lock.ts';
 import { schedulesPath, ScheduleStore } from './schedules.ts';
-import { threadsDir, ThreadStore } from './threads.ts';
+import { threadsDir, ThreadStore } from '../threads/threads.ts';
 import { watchThreads, type WatchdogFinding, type WatchdogOpts } from './watchdog.ts';
 
 export type DaemonTick = {
@@ -19,7 +19,7 @@ export type DaemonTick = {
   started: { bg: string; thread: string }[];
   fired: { schedule: string; thread: string; bg: string }[];
   running: number;
-  // What the watchdog found and wrote (core/project/watchdog.ts): runs whose process is gone, runs gone quiet,
+  // What the watchdog found and wrote (core/background/watchdog.ts): runs whose process is gone, runs gone quiet,
   // queued threads whose run keeps dying before it starts.
   watchdog: WatchdogFinding[];
   // The desktop's daemon held its lock, so this pass did nothing: its pid.

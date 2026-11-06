@@ -2,9 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { gitStatus, statusText, workingDiff } from '../src/core/project/git.ts';
-import { ThreadStore, threadsDir } from '../src/core/project/threads.ts';
-import { runTurn } from '../src/core/project/undo.ts';
+import { gitStatus, statusText, workingDiff } from '../src/core/git/git.ts';
+import { ThreadStore, threadsDir } from '../src/core/threads/threads.ts';
+import { runTurn } from '../src/core/threads/undo.ts';
 import { projectKey, SessionLog } from '../src/core/session/log.ts';
 import type { SessionEvent } from '../src/core/types.ts';
 

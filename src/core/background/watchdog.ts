@@ -7,7 +7,7 @@
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { isCediaProcess } from './busy.ts';
-import type { Thread, ThreadStore } from './threads.ts';
+import type { Thread, ThreadStore } from '../threads/threads.ts';
 
 export type WatchdogFinding =
   // The thread's last run never wrote its state and the process that ran it is gone: marked failed.

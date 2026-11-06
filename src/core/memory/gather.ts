@@ -1,6 +1,6 @@
 import { cediaHome } from '../config.ts';
-import { MAX_NOTE } from '../project/memory.ts';
-import { notesPass } from '../project/consolidate.ts';
+import { MAX_NOTE } from './memory.ts';
+import { notesPass } from './consolidate.ts';
 
 // `cedia memory extract`: a shorter pass than consolidation, on the beam model, keeping at most five notes.
 const SYSTEM = `You extract durable memories from a session transcript. Keep short facts (commands that work, decisions and reasons, where things live, traps). Not progress. At most ${MAX_NOTE} chars per note. Use remember tool, at most 5 notes. If nothing durable, call nothing.`;

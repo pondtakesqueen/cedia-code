@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildMessages } from '../src/core/context/build.ts';
-import { memoryPath } from '../src/core/project/memory.ts';
+import { memoryPath } from '../src/core/memory/memory.ts';
 import { stableJson } from '../src/core/hash.ts';
 import { projectSlug, SessionLog } from '../src/core/session/log.ts';
 import type { EventOf, SessionEvent } from '../src/core/types.ts';

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { completePrompt, completionText } from '../src/core/project/complete.ts';
+import { completePrompt, completionText } from '../src/core/editor/complete.ts';
 import { SessionLog } from '../src/core/session/log.ts';
 
 const BIN = join(import.meta.dir, '..', 'bin', 'cedia');

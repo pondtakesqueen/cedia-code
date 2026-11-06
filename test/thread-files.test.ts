@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { threadFiles } from '../src/core/project/commit.ts';
-import { ThreadStore } from '../src/core/project/threads.ts';
+import { threadFiles } from '../src/core/git/commit.ts';
+import { ThreadStore } from '../src/core/threads/threads.ts';
 
 // The CLI's commit and review and the TUI's /commit ask core which files a thread changed, so they refuse alike.
 describe('threadFiles', () => {

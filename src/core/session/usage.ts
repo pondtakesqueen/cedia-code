@@ -140,7 +140,7 @@ export function usageReport(sessions: SessionInput[], opts: UsageOptions = {}): 
     let turnThinking = 0;
     // The level requests run at: the request's own, until an escalation changes it for the rest of the session.
     let effort: string | undefined;
-    // A session that goes on from a summary (core/project/compact.ts) starts with copies of the turns it kept: sent
+    // A session that goes on from a summary (core/context/compact.ts) starts with copies of the turns it kept: sent
     // again as context, but billed in the session they came from.
     let copied = 0;
     for (const e of s.events) {
@@ -199,7 +199,7 @@ export function usageReport(sessions: SessionInput[], opts: UsageOptions = {}): 
           }
           break;
         }
-        // A summary written for the next session (core/project/compact.ts): billed here, sent back only there.
+        // A summary written for the next session (core/context/compact.ts): billed here, sent back only there.
         case 'compaction':
           if (!billed(e.at)) break;
           tokens.input += inputOf(e.usage);

@@ -1,10 +1,10 @@
-// The recap the TUI shows when the owner comes back to turns that ran without them (core/project/recap.ts). The
+// The recap the TUI shows when the owner comes back to turns that ran without them (core/threads/recap.ts). The
 // owner is present when the terminal sends anything but a blur report: a key, a paste, the mouse, focus coming back.
 // A turn (and whatever queued behind it) that ends at least AWAY_MS after that gets a recap: at once while the
 // terminal has focus or never said, since the end of the transcript is what the owner reads on return; when the
 // terminal is blurred, on the owner's next sign of presence, so it is the newest thing on screen then.
-import { awayRecap, formatRecap } from '../../core/project/recap.ts';
-import type { ThreadStore } from '../../core/project/threads.ts';
+import { awayRecap, formatRecap } from '../../core/threads/recap.ts';
+import type { ThreadStore } from '../../core/threads/threads.ts';
 import type { Focus } from './notify.ts';
 
 export const AWAY_MS = 3 * 60_000;

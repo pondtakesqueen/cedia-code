@@ -10,7 +10,7 @@ import { approachesOf, bestOfReport, MAX_APPROACHES, type Try } from '../project
 //   explore  read-only, on the swarm model (cheap and fast); several in one turn run in parallel.
 //   work     may write, on the code model, under the run's policy, sandbox and checks. It runs alone, between two
 //            snapshots, so the parent's ledger records what it changed and the done gate still wants a check.
-//            With worktrees on, each runs in a git worktree of its own instead (core/project/worktree.ts), several
+//            With worktrees on, each runs in a git worktree of its own instead (core/git/worktree.ts), several
 //            at once, and only applying its changes to the parent's files runs alone, between the two snapshots.
 //
 // A child cannot spawn. A work child whose context grows long hands off to a new session of its own thread, as

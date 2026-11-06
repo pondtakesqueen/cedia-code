@@ -3,7 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { capEffort, loadMaxEffort } from '../src/core/config.ts';
-import { ThreadStore } from '../src/core/project/threads.ts';
+import { ThreadStore } from '../src/core/threads/threads.ts';
 import { decide, ruleMatches, type Policy } from '../src/core/safety/policy.ts';
 import { bashTool } from '../src/core/tools/bash.ts';
 import type { ToolSpec } from '../src/core/tools/registry.ts';

@@ -1,6 +1,6 @@
 import { runSide } from '../../core/loop/side.ts';
-import type { ThreadStore } from '../../core/project/threads.ts';
-import { reviewSubject, subjectTitle } from '../../core/project/ultrareview.ts';
+import type { ThreadStore } from '../../core/threads/threads.ts';
+import { reviewSubject, subjectTitle } from '../../core/review/ultrareview.ts';
 import { sideModel, threadWriter } from '../../core/side-model.ts';
 import { askedReviewPrompt, fixPrompt, parseVerdict } from '../../core/trust/review.ts';
 import type { SessionEvent } from '../../core/types.ts';

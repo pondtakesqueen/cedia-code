@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { changedFilesOfEvents, retentionOf } from '../src/core/project/keep-rate.ts';
+import { changedFilesOfEvents, retentionOf } from '../src/core/threads/keep-rate.ts';
 
 describe('changedFilesOfEvents', () => {
   test('collects unique changed files from snapshot events', () => {

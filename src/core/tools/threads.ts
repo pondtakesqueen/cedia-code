@@ -1,4 +1,4 @@
-import { MAX_RESULT, threadLine, type ThreadStore } from '../project/threads.ts';
+import { MAX_RESULT, threadLine, type ThreadStore } from '../threads/threads.ts';
 import type { SessionEvent } from '../types.ts';
 import { clip, type ToolSpec } from './registry.ts';
 import { inert } from '../trust/frame.ts';

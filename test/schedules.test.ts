@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { minutesOf, ScheduleStore, whenOf } from '../src/core/project/schedules.ts';
+import { minutesOf, ScheduleStore, whenOf } from '../src/core/background/schedules.ts';
 import { scheduleTool } from '../src/core/tools/schedule.ts';
 
 const store = () => new ScheduleStore(join(mkdtempSync(join(tmpdir(), 'cedia-sched-')), 'schedules.jsonl'));

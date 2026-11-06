@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { commitFiles, commitPrompt, defaultBranch } from '../src/core/project/commit.ts';
+import { commitFiles, commitPrompt, defaultBranch } from '../src/core/git/commit.ts';
 
 const BIN = join(import.meta.dir, '..', 'bin', 'cedia');
 const call = (id: string, command: string) => ({ blocks: [{ type: 'tool_use', id, name: 'bash', input: { command } }] });
