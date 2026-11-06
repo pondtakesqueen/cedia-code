@@ -86,7 +86,7 @@ describe.skipIf(!chromium)('browser on a real Chromium', () => {
     });
     base = `http://127.0.0.1:${server.port}`;
     dir = mkdtempSync(join(tmpdir(), 'cedia-chromium-'));
-    proc = Bun.spawn([chromium!, '--headless=new', '--no-sandbox', '--no-first-run', '--remote-debugging-port=0', `--user-data-dir=${dir}`, 'about:blank'], { stdout: 'ignore', stderr: 'ignore' });
+    proc = Bun.spawn([chromium!, '--headless=new', '--no-sandbox', '--no-first-run', '--remote-debugging-port=0', '--host-resolver-rules=MAP off.test 127.0.0.1', `--user-data-dir=${dir}`, 'about:blank'], { stdout: 'ignore', stderr: 'ignore' });
     const portFile = join(dir, 'DevToolsActivePort');
     for (let i = 0; i < 100 && !existsSync(portFile); i++) await Bun.sleep(100);
     endpoint = `http://127.0.0.1:${readFileSync(portFile, 'utf8').split('\n')[0]}`;
@@ -146,6 +146,25 @@ describe.skipIf(!chromium)('browser on a real Chromium', () => {
     expect(r.text).toContain('Not opened: https://blocked.example.net/: blocked.example.net is not among the hosts');
     expect(r.text).toContain('# Shop');
     expect((await run({ action: 'open', url: 'https://blocked.example.net/' })).isError).toBe(true);
+  }, 20_000);
+
+  test('a page the session may not use, opened some other way, is not read or acted on', async () => {
+    // The owner (here a session that may reach it) opens a page off this session's list in the shared view, and the
+    // session attaches to it afresh, as a run does to the page the owner has open.
+    await session.close();
+    const owner = browserTool(endpoint, { anyHost: false, allowedDomains: ['off.test'] });
+    try {
+      expect((await owner.tool.run({ action: 'open', url: `http://off.test:${server.port}/next` } as never, ctx())).text).toContain('You are on page two.');
+      for (const input of [{ action: 'read' }, { action: 'screenshot' }, { action: 'click', control: 1 }, { action: 'key', key: 'Enter' }, { action: 'console' }]) {
+        const r = await run(input);
+        expect(r.isError).toBe(true);
+        expect(r.text).toContain('off.test is not among the hosts');
+        expect(r.text).not.toContain('page two');
+      }
+      expect((await run({ action: 'open', url: `${base}/` })).text).toContain('# Shop');
+    } finally {
+      await owner.close();
+    }
   }, 20_000);
 
   test('links and back move between pages; a stale number says to read again', async () => {
