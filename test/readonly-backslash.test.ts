@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { checkReadOnly } from '../src/core/tools/bash.ts';
+import { checkReadOnly } from '../src/core/safety/shell.ts';
 
 // Read-only bash is judged on the words bash will run. A backslash outside quotes takes away the meaning of the
 // character after it, so the check reads it the way bash does: `\-i` is the flag -i, and `\'` is a plain quote

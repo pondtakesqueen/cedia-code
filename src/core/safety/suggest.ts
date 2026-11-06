@@ -8,7 +8,7 @@ import { isAbsolute, relative, resolve } from 'node:path';
 import { settingsPath, userSettings, writeSettings } from '../config.ts';
 import type { SessionInput } from '../session/usage.ts';
 import { rulePatternMatches } from '../safety/policy.ts';
-import { checkReadOnly } from '../tools/bash.ts';
+import { checkReadOnly } from './shell.ts';
 import { simpleCommands } from '../safety/shell.ts';
 import type { JsonObject } from '../types.ts';
 
