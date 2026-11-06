@@ -1,7 +1,8 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { Snapshots } from '../safety/snapshot.ts';
-import { sessionExists } from '../session/log.ts';
+import { cediaHome } from '../home.ts';
+import { workspaceSnapshots, type Snapshots } from '../safety/snapshot.ts';
+import { sessionExists, sessionPath } from '../session/log.ts';
 import type { Thread, ThreadEvent, ThreadStore } from './threads.ts';
 
 // `/rewind`: the thread goes back to just before one of its runs, conversation and files together. Each run
@@ -65,14 +66,18 @@ export function copySession(from: NonNullable<Run['from']>, to: string): void {
 }
 
 // Rewinds `thread` to just before its run number `n` (from 1, as `threads show` lists them). `open` gives the
-// snapshots of a working directory; `sessionFile` the path for a new session's log. It refuses, changing nothing,
+// snapshots of a working directory; `sessionFile` the path for a new session's log (by default cedia's own: the
+// snapshots under CEDIA_HOME and the session beside the others). It refuses, changing nothing,
 // while the thread is working (a run may still be writing to it) and when a file to put back changed since the
 // run that wrote it; `force` goes ahead in both cases.
 export function rewindThread(
   store: ThreadStore,
   thread: string,
   n: number,
-  deps: { open: (cwd: string) => Snapshots | undefined; sessionFile: (cwd: string, id: string) => string },
+  deps: { open: (cwd: string) => Snapshots | undefined; sessionFile: (cwd: string, id: string) => string } = {
+    open: (cwd) => workspaceSnapshots(cwd, cediaHome()),
+    sessionFile: (cwd, id) => sessionPath(cwd, id),
+  },
   opts: { force?: boolean } = {},
 ): Rewound | RewindRefusal {
   const t = store.read(thread);

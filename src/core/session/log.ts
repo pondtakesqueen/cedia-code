@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
-import { homedir } from 'node:os';
+import { cediaHome } from '../home.ts';
 import type { EventId, NewEvent, SessionEvent } from '../types.ts';
 
 // Append-only JSONL. Each event is on disk before anything acts on it.
@@ -74,7 +74,7 @@ function keyRoot(cwd: string): string {
   return roots.includes(here) ? roots[0]! : here;
 }
 
-export function sessionPath(cwd: string, id: string, home = process.env.CEDIA_HOME ?? join(homedir(), '.cedia')): string {
+export function sessionPath(cwd: string, id: string, home = cediaHome()): string {
   return join(home, 'sessions', projectKey(cwd), `${id}.jsonl`);
 }
 

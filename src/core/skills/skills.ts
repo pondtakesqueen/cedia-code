@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
-import { inside, real, repoRoot, SECRET_NAME } from '../project/instructions.ts';
+import { inside, isSecretFile, realExisting, SECRET_NAME } from '../fs-safety.ts';
+import { repoRoot } from '../project/instructions.ts';
 import { enabledPlugins } from '../plugins/plugins.ts';
 import { redactSecrets } from '../safety/secrets.ts';
 import { inert } from '../trust/frame.ts';
@@ -102,8 +103,8 @@ function readSkill(dir: string, source: Skill['source'], plugin?: { name: string
     // SKILL.md (or the command's file) must be in the folder too: a link to a file elsewhere would put that file's
     // text in the turn.
     const file = plugin?.command ? `${plugin.command}.md` : 'SKILL.md';
-    const path = real(join(dir, file));
-    const folder = real(dir);
+    const path = realExisting(join(dir, file));
+    const folder = realExisting(dir);
     if (!path || !folder || !inside(folder, path)) return undefined;
     const st = statSync(path);
     if (!st.isFile() || st.size > MAX_FILE_BYTES) return undefined;
@@ -136,14 +137,14 @@ function readSkill(dir: string, source: Skill['source'], plugin?: { name: string
 function pluginSkills(home: string, only?: string): Skill[] {
   const found: Skill[] = [];
   for (const p of enabledPlugins(home).filter((x) => only === undefined || x.name === only)) {
-    const root = real(p.installPath);
+    const root = realExisting(p.installPath);
     if (!root) continue;
     for (const d of subdirs(join(root, 'skills'))) {
-      const at = real(d);
+      const at = realExisting(d);
       const skill = at && inside(root, at) ? readSkill(at, 'plugin', { name: p.name }) : undefined;
       if (skill) found.push(skill);
     }
-    const commands = real(join(root, 'commands'));
+    const commands = realExisting(join(root, 'commands'));
     if (!commands || !inside(root, commands)) continue;
     let files: string[] = [];
     try {
@@ -197,13 +198,13 @@ export function loadSkills(cwd: string, home: string, shared: string[] = []): Sk
       const s = readSkill(d, 'user');
       if (s) found.push({ ...s, shared: true });
     }
-  const root = real(repoRoot(resolve(cwd)));
-  const here = real(resolve(cwd));
+  const root = realExisting(repoRoot(resolve(cwd)));
+  const here = realExisting(resolve(cwd));
   if (root && here && inside(root, here)) {
     for (let d = here; ; d = dirname(d)) {
       for (const sub of SKILL_DIRS)
         for (const s of subdirs(join(d, sub))) {
-          const at = real(s);
+          const at = realExisting(s);
           if (!at || !inside(root, at) || relative(root, at).split(sep).includes('.git')) continue;
           const skill = readSkill(at, 'repository');
           if (skill) found.push(skill);
@@ -261,11 +262,11 @@ function skillFiles(dir: string): string[] {
 // A file of the skill, if it may be read: inside the skill's folder once links are resolved, a regular file of
 // bounded size, not named like a secret.
 function skillFile(skill: Skill, file: string): { text: string } | { error: string } {
-  const root = real(skill.dir);
-  const p = real(resolve(skill.dir, file));
+  const root = realExisting(skill.dir);
+  const p = realExisting(resolve(skill.dir, file));
   if (!root || !p) return { error: `no file ${file} in skill ${skill.name}` };
   if (!inside(root, p) || p === root) return { error: `${file} is outside skill ${skill.name}` };
-  if (SECRET_NAME.test(basename(p)) || relative(root, p).split(sep).includes('.git')) return { error: `${file} looks like a secret, so the skill tool does not read it` };
+  if (isSecretFile(root, p)) return { error: `${file} looks like a secret, so the skill tool does not read it` };
   try {
     const st = statSync(p);
     if (!st.isFile()) return { error: `${file} is not a file` };
@@ -313,7 +314,7 @@ export function skillTool(skills: Skill[]): ToolSpec {
       const f = skillFile(skill, skill.file ?? 'SKILL.md');
       if ('error' in f) return { text: f.error, isError: true };
       const body = (frontMatter(f.text)?.body ?? f.text).trim();
-      const files = skill.file ? [] : skillFiles(real(skill.dir) ?? skill.dir);
+      const files = skill.file ? [] : skillFiles(realExisting(skill.dir) ?? skill.dir);
       const where = (skill.source !== 'user' || skill.shared) && !skill.file ? ` Its folder is ${inert(skill.dir)}.` : '';
       const from = skill.source === 'user' ? 'from the user' : skill.source === 'plugin' ? `from the ${inert(skill.plugin ?? '')} plugin` : 'from the repository';
       // A Claude Code command stands for the text after it with $ARGUMENTS,

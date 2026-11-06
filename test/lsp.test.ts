@@ -6,6 +6,7 @@ import { diagnosticsText, findCommand, lspServers, openDiagnoser, type LspServer
 import { loadLsp } from '../src/core/config.ts';
 import { SessionLog } from '../src/core/session/log.ts';
 import { scrubbedEnv } from '../src/core/tools/bash.ts';
+import { noSandbox } from './sandbox-skip.ts';
 
 const FAKE = join(import.meta.dir, 'fixtures', 'fake-lsp.ts');
 const BIN = join(import.meta.dir, '..', 'bin', 'cedia');
@@ -165,7 +166,7 @@ describe('cedia -p with a language server (offline, faux)', () => {
     expect(denied.err).toContain('the fake language server was not started: the permission policy does not let bash run');
   });
 
-  test.skipIf(!process.env.CEDIA_REQUIRE_SANDBOX && !Bun.which('bwrap') && process.platform !== 'darwin')('the server runs in the sandbox, as bash does', () => {
+  test.skipIf(noSandbox)('the server runs in the sandbox, as bash does', () => {
     const outside = mkdtempSync(join(process.env.HOME ?? tmpdir(), '.cedia-lsp-probe-'));
     const probe = join(outside, 'escaped');
     const settings = { lsp: { fake: { command: [process.execPath, FAKE, '--probe', probe], extensions: ['.txt'] } } };

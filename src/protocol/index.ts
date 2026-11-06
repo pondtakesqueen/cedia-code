@@ -1,5 +1,6 @@
-// JSONL protocol between the core and clients. Core -> client: every session event, the stream
-// events of the current attempt, and one result. Client -> core: commands.
+// JSONL protocol between the core and clients. Core -> client: every session event, the stream events of the
+// current attempt, a suggested next prompt when prompt suggestions are on, and one result. Nothing goes the other
+// way yet: a client starts a run with `cedia -p` and its flags, and stops it with a signal.
 import type { HeadlessResult, SessionEvent, StreamEvent } from '../core/types.ts';
 
 // Clients that read cedia's files (the desktop indexes threads and replays sessions) take these shapes from here.
@@ -29,16 +30,15 @@ export type { InlineEdit, InlineEditPosition, InlineEditRange } from '../core/pr
 export type { DesktopLock } from '../core/project/desktop-lock.ts';
 export type { Capability, VersionInfo } from './version.ts';
 
-export type CoreMessage = { type: 'event'; event: SessionEvent } | { type: 'stream'; event: StreamEvent } | HeadlessResult;
+export type CoreMessage =
+  | { type: 'event'; event: SessionEvent }
+  | { type: 'stream'; event: StreamEvent }
+  // The next prompt the owner might send, after the result (--prompt-suggestions on, stream-json only).
+  | { type: 'prompt_suggestion'; suggestion: string }
+  | HeadlessResult;
 
-export type Command =
-  | { type: 'prompt'; text: string }
-  | { type: 'abort' }
-  | { type: 'resume'; sessionId: string }
-  | { type: 'fork'; sessionId: string; at: string };
+export const encode = (m: CoreMessage): string => JSON.stringify(m) + '\n';
 
-export const encode = (m: CoreMessage | Command): string => JSON.stringify(m) + '\n';
-
-export function decode<T extends CoreMessage | Command>(line: string): T {
+export function decode<T extends CoreMessage>(line: string): T {
   return JSON.parse(line) as T;
 }

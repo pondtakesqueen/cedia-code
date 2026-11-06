@@ -163,3 +163,25 @@ describe('the thread fold after a rewind', () => {
     expect(t.rewound).toEqual(['s3']);
   });
 });
+
+describe('rewind with cedia\'s own paths', () => {
+  test('the copied session goes under the sessions folder, never into the working directory', async () => {
+    const { rewindThread } = await import('../src/core/project/rewind.ts');
+    const w = setup();
+    const first = w.prompt('first: write one', [call('c1', 'echo one > one.txt'), reply('done one')]);
+    const thread = JSON.parse(first.out).thread as string;
+    w.prompt('second: write two', [call('c2', 'echo two > two.txt'), reply('done two')], thread);
+    const before = process.env.CEDIA_HOME;
+    process.env.CEDIA_HOME = w.home;
+    try {
+      const r = rewindThread(w.store, thread, 2);
+      expect('error' in r).toBe(false);
+      const copy = w.store.read(thread).sessions.at(-1)!;
+      expect(copy.path!.startsWith(join(w.home, 'sessions'))).toBe(true);
+      expect(existsSync(copy.path!)).toBe(true);
+    } finally {
+      if (before === undefined) delete process.env.CEDIA_HOME;
+      else process.env.CEDIA_HOME = before;
+    }
+  });
+});

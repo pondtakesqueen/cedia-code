@@ -417,8 +417,8 @@ Rules that go with the shapes:
   It computes `usage` by hashing the prefix it was sent, so `cacheRead` is nonzero exactly when the prefix repeats.
   Shape modeled on pi's faux provider (MIT); add a NOTICE entry if code is adapted.
 
-Protocol events (core → client): every session event, plus `stream` (the `StreamEvent`s of the current attempt), `turn_end` and `result`.
-Commands (client → core): `prompt`, `abort`, `resume`, `fork`.
+Protocol events (core → client): every session event, plus `stream` (the `StreamEvent`s of the current attempt), `turn_end`, `prompt_suggestion` (with prompt suggestions on) and `result`.
+Nothing goes client → core yet: a client starts a run with `cedia -p` and its flags and stops it with a signal. Commands (`prompt`, `abort`, `resume`, `fork`) are planned, and get a type when a client first sends one.
 There is no permission reply: cedia never stops to ask for permission.
 A question for the owner ends the run instead (Questions, above).
 

@@ -1,6 +1,6 @@
 import { lstatSync, readFileSync } from 'node:fs';
-import { basename, isAbsolute, join, relative, sep } from 'node:path';
-import { inside, real, SECRET_NAME } from '../project/instructions.ts';
+import { basename, isAbsolute, join, relative } from 'node:path';
+import { inside, isSecretFile, realExisting } from '../fs-safety.ts';
 import { redactSecrets } from '../safety/secrets.ts';
 import type { JsonObject } from '../types.ts';
 import { inert } from './frame.ts';
@@ -55,7 +55,7 @@ const IMPLIED: Record<string, string[]> = {
 // The files in the working directory a command names, or implies, as they are now: regular files inside it, not
 // named like a secret, outside .git, redacted, the start of each.
 export function namedFiles(command: string, cwd: string): CallFile[] {
-  const root = real(cwd);
+  const root = realExisting(cwd);
   if (!root) return [];
   const words = command.split(/[\s;|&()<>`$"'=]+/).filter((w) => w && !w.startsWith('-') && !/[*?[\]{}~]/.test(w));
   const firsts = command.split(/&&|\|\||[;|&\n]/).map((seg) => seg.trim().split(/\s+/)[0] ?? '');
@@ -64,11 +64,11 @@ export function namedFiles(command: string, cwd: string): CallFile[] {
   const seen = new Set<string>();
   for (const w of candidates) {
     if (out.length >= MAX_FILES) break;
-    const full = real(isAbsolute(w) ? w : join(cwd, w));
+    const full = realExisting(isAbsolute(w) ? w : join(cwd, w));
     if (!full || seen.has(full) || !inside(root, full)) continue;
     seen.add(full);
     const rel = relative(root, full);
-    if (SECRET_NAME.test(basename(full)) || rel.split(sep).includes('.git')) continue;
+    if (isSecretFile(root, full)) continue;
     try {
       const st = lstatSync(full);
       if (!st.isFile() || st.size > MAX_FILE_BYTES) continue;

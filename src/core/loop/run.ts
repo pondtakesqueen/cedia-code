@@ -17,7 +17,6 @@ import type { Snapshots } from '../safety/snapshot.ts';
 import type { SessionLog } from '../session/log.ts';
 import { evidence, ledgerEntries, matchCheck, repeatCheck, verified } from '../trust/ledger.ts';
 import { endGuards, judgeEnd, type TurnEnd } from './guards.ts';
-export { CONTINUE_AFTER_LIMIT, EMPTY_REPLY, MAX_STOP_REFUSALS, stopHookReminder, unverifiedReminder } from './guards.ts';
 import { findStuck, stuckEnd, stuckReminder } from '../trust/stuck.ts';
 import type { Verdict } from '../trust/classifier.ts';
 import { changesFromCalls, changesFromPatch, findSlop, formatFinding, type SlopFinding } from '../trust/slop.ts';

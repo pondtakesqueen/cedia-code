@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import { installPlugin, listInstalled, loadInstalled, loadManifest, pluginContents, pluginsDir, uninstallPlugin } from '../plugins/plugins.ts';
-import { inside, real } from '../project/instructions.ts';
+import { inside, realExisting } from '../fs-safety.ts';
 import { refreshPluginSkills, type Skill } from '../skills/skills.ts';
 import { inert } from '../trust/frame.ts';
 import type { JsonObject, ToolOutput } from '../types.ts';
@@ -29,8 +29,8 @@ export function pluginCallOf(input: JsonObject): PluginCall | string {
 
 // Whether a plugin came from a folder inside the working directory, so this session may replace or remove it.
 const fromHere = (source: string | undefined, cwd: string): boolean => {
-  const root = real(cwd);
-  const at = source ? real(source) : undefined;
+  const root = realExisting(cwd);
+  const at = source ? realExisting(source) : undefined;
   return !!root && !!at && inside(root, at);
 };
 
@@ -73,8 +73,8 @@ export function pluginTool(opts: { home: string; skills: Skill[] }): ToolSpec {
         refreshPluginSkills(skills, home, call.name);
         return { text: `Uninstalled plugin ${call.name}; its skills are gone from this session.`, isError: false };
       }
-      const dir = real(resolve(ctx.cwd, call.path));
-      const root = real(ctx.cwd);
+      const dir = realExisting(resolve(ctx.cwd, call.path));
+      const root = realExisting(ctx.cwd);
       if (!dir || !root || !inside(root, dir)) return fail(`${call.path} is outside the working directory; install a plugin from a folder you wrote here`);
       const manifest = loadManifest(dir);
       if (!manifest) return fail(`no plugin.json (or .claude-plugin/plugin.json) with a name in ${call.path}; write {"name": "<name>", "version": "0.1.0"} there first`);

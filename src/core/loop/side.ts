@@ -1,8 +1,7 @@
-import { readFileSync } from 'node:fs';
 import { loadPolicy, loadPrivacy } from '../config.ts';
 import { READ_ONLY_SYSTEM } from '../prompts.ts';
 import { providerFor } from '../providers/index.ts';
-import type { FauxStep } from '../providers/faux.ts';
+import { fauxScript } from '../providers/faux.ts';
 import type { Policy } from '../safety/policy.ts';
 import { SessionLog, sessionPath } from '../session/log.ts';
 import { CORE_TOOLS } from '../tools/index.ts';
@@ -42,9 +41,6 @@ export type SideSession = {
   onEvent?: (e: SessionEvent) => void;
 };
 
-export const sideFauxScript = (): FauxStep[] | undefined =>
-  process.env.CEDIA_FAUX_SCRIPT ? JSON.parse(readFileSync(process.env.CEDIA_FAUX_SCRIPT, 'utf8')) : undefined;
-
 // The tools, permission and system a side session gets, for `access`.
 export function sideAccess(cwd: string, access: SideAccess, system?: string): { tools: ToolSpec[]; permission?: Policy; system: string } {
   if (access.kind === 'read-only') {
@@ -67,7 +63,7 @@ export async function runSide(s: SideSession): Promise<HeadlessResult> {
   return runPrompt(
     {
       log,
-      provider: providerFor(s.model, { fauxScript: sideFauxScript() }),
+      provider: providerFor(s.model, { fauxScript: fauxScript() }),
       model: s.model,
       tools,
       system,

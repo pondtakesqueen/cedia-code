@@ -1,37 +1,51 @@
-// Session selection for read-only commands over past logs (`cedia usage`, `cedia permissions suggest`):
-// explicit files, one thread (with its sub-threads), or the newest few sessions of this project.
-// `usage` in cli.ts keeps its own copy with --since/--all; this stays the small shared shape.
+// Session selection for read-only commands over past logs (`cedia usage`, `cedia failures`, `cedia permissions
+// suggest`, the TUI's usage tab): explicit files, one thread (with its sub-threads), or the newest sessions of this
+// project (of every project with `all`), the ones written since `since` when it is given, else the newest `last`.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { ThreadStore, threadsDir } from '../project/threads.ts';
 import { projectKey, sessionPath } from './log.ts';
 import { readEventsLenient, dayOf, usageReport, type SessionInput } from './usage.ts';
 
-export function selectSessions(opts: { cwd: string; home: string; thread?: string; last?: number; files?: string[] }): SessionInput[] {
-  if (opts.files?.length) {
-    return opts.files.filter((p) => existsSync(p)).map((path) => ({ id: basename(path).replace(/\.jsonl$/, ''), events: readEventsLenient(readFileSync(path, 'utf8')) }));
-  }
-  const slug = projectKey(opts.cwd);
-  if (opts.thread) {
-    const store = new ThreadStore(threadsDir(opts.home, slug));
+export type SessionFile = { path: string; project?: string };
+export type SessionQuery = { cwd: string; home: string; files?: string[]; thread?: string; since?: Date; last?: number; all?: boolean };
+
+// The log files a query names, newest first where it picks them. An unknown thread throws.
+export function sessionFiles(q: SessionQuery): SessionFile[] {
+  if (q.files?.length) return q.files.map((path) => ({ path }));
+  if (q.thread) {
+    const project = projectKey(q.cwd);
+    const store = new ThreadStore(threadsDir(q.home, project));
     const all = store.list();
-    const ids = [opts.thread];
+    const ids = [q.thread];
     for (let i = 0; i < ids.length; i++) ids.push(...all.filter((t) => t.parent === ids[i]).map((t) => t.id));
-    return ids.flatMap((id) => {
-      try {
-        return store.read(id).sessions.map((s) => ({ id: s.sessionId, events: readEventsLenient(readFileSync(s.path ?? sessionPath(opts.cwd, s.sessionId, opts.home), 'utf8')) }));
-      } catch {
-        return [];
-      }
-    });
+    return ids.flatMap((id) => store.read(id).sessions.map((s) => ({ path: s.path ?? sessionPath(q.cwd, s.sessionId, q.home), project })));
   }
-  const dir = join(opts.home, 'sessions', slug);
-  if (!existsSync(dir)) return [];
-  const found = readdirSync(dir)
-    .filter((f) => f.endsWith('.jsonl'))
-    .map((f) => ({ path: join(dir, f), mtime: statSync(join(dir, f)).mtimeMs }));
+  const root = join(q.home, 'sessions');
+  const keys = q.all ? (existsSync(root) ? readdirSync(root) : []) : [projectKey(q.cwd)];
+  const found = keys.flatMap((project) => {
+    const dir = join(root, project);
+    if (!existsSync(dir) || !statSync(dir).isDirectory()) return [];
+    return readdirSync(dir)
+      .filter((f) => f.endsWith('.jsonl'))
+      .map((f) => ({ path: join(dir, f), project, mtime: statSync(join(dir, f)).mtimeMs }));
+  });
   found.sort((a, b) => b.mtime - a.mtime);
-  return found.slice(0, opts.last ?? 20).map((f) => ({ id: basename(f.path).replace(/\.jsonl$/, ''), events: readEventsLenient(readFileSync(f.path, 'utf8')) }));
+  const picked = q.since ? found.filter((f) => f.mtime >= q.since!.getTime()) : found.slice(0, q.last ?? 20);
+  return picked.map(({ path, project }) => ({ path, project }));
+}
+
+export const sessionId = (path: string) => basename(path).replace(/\.jsonl$/, '');
+
+// The sessions a query names, read; a file that is gone is skipped, and so is an unknown thread.
+export function selectSessions(q: SessionQuery): SessionInput[] {
+  let files: SessionFile[];
+  try {
+    files = sessionFiles(q);
+  } catch {
+    return [];
+  }
+  return files.filter((f) => existsSync(f.path)).map((f) => ({ id: sessionId(f.path), events: readEventsLenient(readFileSync(f.path, 'utf8')) }));
 }
 
 // Spend in this project today (local day), read from its session logs: the live half of the $20/day rule

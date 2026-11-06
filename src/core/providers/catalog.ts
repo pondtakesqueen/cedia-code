@@ -1,5 +1,5 @@
 import { EFFORTS, type ModelCapabilities, type ModelSpec, type Price, type Usage } from '../types.ts';
-import { cediaHome, readSettings } from '../config.ts';
+import { cediaHome, userSettings } from '../config.ts';
 import { join } from 'node:path';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
@@ -380,12 +380,7 @@ export async function refreshLocalModelCache(home = cediaHome()): Promise<ModelS
 
 export function localModels(): ModelSpec[] {
   const cached = loadLocalModelCache();
-  let raw: unknown;
-  try {
-    raw = (readSettings as (p: string) => { localModels?: unknown[] })(join(cediaHome(), 'settings.json')).localModels;
-  } catch {
-    raw = undefined;
-  }
+  const raw = userSettings().localModels;
   if (!Array.isArray(raw)) return [];
   const out: ModelSpec[] = [];
   for (const e of raw) {

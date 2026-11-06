@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { stableJson } from '../hash.ts';
 import type { AssistantBlock, AttemptError, JsonObject, Provider, Refusal, StopReason, StreamEvent, Usage, WireRequest } from '../types.ts';
 
@@ -9,6 +10,13 @@ import type { AssistantBlock, AttemptError, JsonObject, Provider, Refusal, StopR
 
 export type FauxReply = ({ blocks: AssistantBlock[]; stop?: StopReason; refusal?: Refusal; served?: string } | { error: AttemptError } | { hang: true }) & { when?: string };
 export type FauxStep = FauxReply | ((req: WireRequest, state: FauxState) => FauxReply);
+
+// Offline runs (tests, e2e) set CEDIA_FAUX_SCRIPT to a JSON file of steps: the faux model is then in the catalog,
+// and the side tasks that pick a model of their own (memory gathering, consolidation, side sessions) pick it. The
+// one place that reads the variable.
+export const fauxActive = (env: Record<string, string | undefined> = process.env): boolean => !!env.CEDIA_FAUX_SCRIPT;
+export const fauxScript = (env: Record<string, string | undefined> = process.env): FauxStep[] | undefined =>
+  env.CEDIA_FAUX_SCRIPT ? (JSON.parse(readFileSync(env.CEDIA_FAUX_SCRIPT, 'utf8')) as FauxStep[]) : undefined;
 export type FauxState = { callCount: number; prompts: string[]; bodies: JsonObject[] };
 
 export function fauxProvider(script: FauxStep[] | ((req: WireRequest, state: FauxState) => FauxReply), opts: { chunk?: number } = {}) {

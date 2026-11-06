@@ -1,4 +1,5 @@
 import { relative } from 'node:path';
+import { SECRET_GLOBS } from '../fs-safety.ts';
 import { clip, MAX_SHELL_OUTPUT_CHARS, toolPath, type ToolSpec } from './registry.ts';
 
 // Search file contents with ripgrep, which skips what .gitignore and .ignore list (build output, dependencies,
@@ -7,9 +8,8 @@ import { clip, MAX_SHELL_OUTPUT_CHARS, toolPath, type ToolSpec } from './registr
 // files too; elsewhere the tool says to use bash.
 
 const MAX_LINES = 200;
-// Files named like credentials (SECRET_NAME in core/project/instructions.ts) are never searched, as read never
-// opens them; what a match shows is redacted like any result.
-const SECRET_GLOBS = ['.env', '.env.*', '*.pem', '*.key', '*.p12', '*.pfx', '*.keystore', '*.jks', 'id_rsa*', 'id_dsa*', 'id_ecdsa*', 'id_ed25519*', '.netrc', '.npmrc', '.pypirc', 'credentials', 'credentials.json'];
+// Files named like credentials (SECRET_GLOBS in core/fs-safety.ts, in any case) are never searched; what a match
+// shows is redacted like any result.
 const MAX_COLUMNS = 300;
 
 export const rgPath = () => Bun.which('rg') ?? undefined;
@@ -47,11 +47,11 @@ export const grepTool: ToolSpec = {
     let argv: string[];
     if (rg) {
       // The later --glob wins in ripgrep, so cedia's exclusions come after the model's glob.
-      argv = [rg, '--no-config', '--color', 'never', '--no-heading', '--line-number', '--max-columns', String(MAX_COLUMNS), '--max-columns-preview', '--hidden', ...(icase ? ['-i'] : []), ...(files ? ['-l'] : []), ...(glob ? ['--glob', glob] : []), '--glob', '!.git', ...SECRET_GLOBS.flatMap((g) => ['--glob', `!${g}`]), '-e', pattern, ...(target === '.' ? [] : ['--', target])];
+      argv = [rg, '--no-config', '--color', 'never', '--no-heading', '--line-number', '--max-columns', String(MAX_COLUMNS), '--max-columns-preview', '--hidden', ...(icase ? ['-i'] : []), ...(files ? ['-l'] : []), ...(glob ? ['--glob', glob] : []), '--glob', '!.git', ...SECRET_GLOBS.flatMap((g) => ['--iglob', `!${g}`]), '-e', pattern, ...(target === '.' ? [] : ['--', target])];
     } else {
       const inRepo = Bun.spawnSync(['git', 'rev-parse', '--is-inside-work-tree'], { cwd: ctx.cwd, stdout: 'pipe', stderr: 'ignore' }).stdout.toString().trim() === 'true';
       if (!inRepo) return { text: 'ripgrep (rg) is not installed and this is not a git repository: search with grep in bash', isError: true };
-      argv = ['git', '--no-pager', 'grep', '-n', '-I', '--untracked', '-E', ...(icase ? ['-i'] : []), ...(files ? ['-l'] : []), '-e', pattern, '--', glob ? `${target === '.' ? '' : `${target}/`}${glob}` : target, ...SECRET_GLOBS.map((g) => `:(exclude,glob)**/${g}`)];
+      argv = ['git', '--no-pager', 'grep', '-n', '-I', '--untracked', '-E', ...(icase ? ['-i'] : []), ...(files ? ['-l'] : []), '-e', pattern, '--', glob ? `${target === '.' ? '' : `${target}/`}${glob}` : target, ...SECRET_GLOBS.map((g) => `:(exclude,glob,icase)**/${g}`)];
     }
     const p = Bun.spawn(argv, { cwd: ctx.cwd, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', signal: ctx.signal });
     const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);

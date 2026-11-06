@@ -1,6 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { cediaHome, checkMcpServer, checkSettings, writeSettings, type Settings } from '../config.ts';
+import { checkMcpServer, settingsPath, userSettings, writeSettings, type Settings } from '../config.ts';
 import { McpClient, type McpToolRule } from './client.ts';
 
 // `cedia mcp`: the user's MCP servers (`mcpServers` in ~/.cedia/settings.json) for a client's settings page, which
@@ -35,18 +33,8 @@ export type McpAdd =
   | { command: string; args?: string[]; env?: Record<string, string>; cwd?: string; readOnly?: boolean; tools?: Record<string, McpToolRule>; timeoutSec?: number }
   | { url: string; headers?: Record<string, string>; readOnly?: boolean; tools?: Record<string, McpToolRule>; timeoutSec?: number };
 
-const settingsPath = () => join(cediaHome(), 'settings.json');
-
-function readRaw(path = settingsPath()): Record<string, unknown> {
-  if (!existsSync(path)) return {};
-  try {
-    return checkSettings(JSON.parse(readFileSync(path, 'utf8'))) as Record<string, unknown>;
-  } catch (e) {
-    throw new Error(`${path}: ${(e as Error).message}`);
-  }
-}
-
-const writeRaw = (settings: Record<string, unknown>, path = settingsPath()) => writeSettings(settings as Settings, path);
+const readRaw = (): Record<string, unknown> => userSettings() as Record<string, unknown>;
+const writeRaw = (settings: Record<string, unknown>) => writeSettings(settings as Settings, settingsPath());
 
 const servers = (s: Record<string, unknown>) => (s.mcpServers ?? {}) as Record<string, unknown>;
 

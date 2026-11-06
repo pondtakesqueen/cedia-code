@@ -10,6 +10,7 @@ import { authHeaders, missingKeyNote } from '../src/core/providers/http.ts';
 import { securityKeychain, systemKeychain } from '../src/core/providers/keychain.ts';
 import { SessionLog } from '../src/core/session/log.ts';
 import type { SessionEvent } from '../src/core/types.ts';
+import { noSandbox } from './sandbox-skip.ts';
 
 const BIN = join(import.meta.dir, '..', 'bin', 'cedia');
 
@@ -79,7 +80,7 @@ describe('cedia -p (offline, faux)', () => {
   });
 
   // CI sets CEDIA_REQUIRE_SANDBOX=1; elsewhere this runs only where the sandbox opens.
-  test.skipIf(!process.env.CEDIA_REQUIRE_SANDBOX && !Bun.which('bwrap') && process.platform !== 'darwin')('auto is workspace inside the sandbox, with no prompt', () => {
+  test.skipIf(noSandbox)('auto is workspace inside the sandbox, with no prompt', () => {
     const r = cedia([call('c1', 'echo hi > out.txt'), reply('done')], ['-p', 'write it', '--sandbox', 'on']);
     expect(r.code).toBe(0);
     expect(existsSync(join(r.dir, 'out.txt'))).toBe(true);
@@ -89,7 +90,7 @@ describe('cedia -p (offline, faux)', () => {
   // trusts the exit code of the declared check. cedia runs bash inside the sandbox whatever $SHELL says (neither
   // the bash tool nor the sandbox wrapper reads it), and this keeps it so: a change that took the login shell
   // would have to keep a failing check a failure under each of these.
-  test.skipIf(!process.env.CEDIA_REQUIRE_SANDBOX && !Bun.which('bwrap') && process.platform !== 'darwin')('a failing check inside the sandbox stays a failure whatever the login shell', () => {
+  test.skipIf(noSandbox)('a failing check inside the sandbox stays a failure whatever the login shell', () => {
     for (const shell of ['/bin/bash', '/usr/bin/zsh', '/bin/sh']) {
       if (!existsSync(shell)) continue;
       const script = [call('c1', 'echo hi > out.txt'), call('c2', 'false'), reply('done'), reply('done')];
@@ -509,7 +510,7 @@ describe('cedia -p (offline, faux)', () => {
       expect(userTexts(writer)).toEqual([expect.stringContaining('<plan by="claude-code:opus@medium">'), expect.stringContaining('<review>\nf.txt:1 needs a period.\n</review>')]);
     });
 
-    test.skipIf(!process.env.CEDIA_REQUIRE_SANDBOX && !Bun.which('bwrap') && process.platform !== 'darwin')('inside the sandbox a Claude Code review probes with bun -e in its own sandbox', () => {
+    test.skipIf(noSandbox)('inside the sandbox a Claude Code review probes with bun -e in its own sandbox', () => {
       const dir = mkdtempSync(join(tmpdir(), 'cedia-probe-claude-'));
       const bin = join(dir, 'claude');
       const result = JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'FINDINGS: none\nVERDICT: approve', session_id: 'cc-1', total_cost_usd: 0.5, num_turns: 3, duration_api_ms: 1200 });
@@ -525,7 +526,7 @@ describe('cedia -p (offline, faux)', () => {
       expect(JSON.parse(readFileSync(join(dir, 'prompt'), 'utf8')).message.content).toContain('Probe the change before you judge it');
     });
 
-    test.skipIf(!process.env.CEDIA_REQUIRE_SANDBOX && !Bun.which('bwrap') && process.platform !== 'darwin')('inside the sandbox a Claude Code planner tries the code with bun -e in its own sandbox', () => {
+    test.skipIf(noSandbox)('inside the sandbox a Claude Code planner tries the code with bun -e in its own sandbox', () => {
       const dir = mkdtempSync(join(tmpdir(), 'cedia-plan-probe-'));
       const bin = join(dir, 'claude');
       writeFileSync(join(dir, 'plan'), JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'Write good to f.txt.', session_id: 'cc-1', total_cost_usd: 0.5, num_turns: 3, duration_api_ms: 1200 }));

@@ -21,9 +21,11 @@ import { resolveModel } from '../../core/providers/catalog.ts';
 import { decode, type CoreMessage } from '../../protocol/index.ts';
 import type { TuiArgs } from './args.ts';
 import type { JsonObject, SessionEvent } from '../../core/types.ts';
-import { cediaHome, loadHandoffAt, loadPromptSuggestions, loadRoles, isMode, modeFlags, readSettings } from '../../core/config.ts';
+import { cediaHome, sharedSkillDirs, loadHandoffAt, loadPromptSuggestions, loadRoles, isMode, modeFlags, readSettings, updateSettings, userSettings, type Settings } from '../../core/config.ts';
 import { modelLabel, modelList } from '../../core/providers/models.ts';
 import { processKeychain } from '../../core/providers/keychain.ts';
+import { doctorReport } from '../../core/doctor.ts';
+import { printable } from '../../core/printable.ts';
 import { versionInfo } from '../../protocol/version.ts';
 import { runStatusLineCommand } from './statusline.ts';
 import { loadKeybindings, watchKeybindings } from './keybindings/loader.ts';
@@ -47,21 +49,22 @@ import { reviewCommand, type CommandCtx } from './command-review.ts';
 import { MemoryStore, memoryPath } from '../../core/project/memory.ts';
 import { loadSkills } from '../../core/skills/skills.ts';
 import { listMcp } from '../../core/mcp/manage.ts';
-import { threadChanges, commitFiles, prBlocked, currentBranch, defaultBranch, pushAndOpenPr } from '../../core/project/commit.ts';
+import { threadFiles, NOTHING_CHANGED, commitFiles, currentBranch, prPlan, pushAndOpenPr } from '../../core/project/commit.ts';
 import { draftCommitMessage } from '../../core/project/draft.ts';
 import { workspaceSnapshots } from '../../core/safety/snapshot.ts';
 import { allowRuleFor, applyAllowRules } from '../../core/safety/suggest.ts';
-import { restoreTurn } from '../../core/project/undo.ts';
+import { restoredText, restoreTurn } from '../../core/project/undo.ts';
 import { rewindThread, rewoundText, runLines } from '../../core/project/rewind.ts';
 import { forkThread } from '../../core/project/fork.ts';
 import { ThreadStore, threadsDir } from '../../core/project/threads.ts';
 import { projectKey } from '../../core/session/log.ts';
 import { isAbsolute, join } from 'node:path';
-import { readFileSync as fsRead, writeFileSync as fsWrite, existsSync as fsExists, unlinkSync as fsUnlink, mkdirSync as fsMkdir } from 'node:fs';
+import { readFileSync as fsRead, writeFileSync as fsWrite, existsSync as fsExists, unlinkSync as fsUnlink } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { loadProjectUsage } from './usage-summary.ts';
 import { awayText, ownerPresent, presentIn, recapWhen, type PendingRecap } from './away.ts';
-import { contextBreakdown, formatContext, writerSessionOf } from '../../core/context/breakdown.ts';
+import { formatContext, writerSessionOf } from '../../core/context/breakdown.ts';
+import { threadContext } from '../../core/context/thread-context.ts';
 import { readEventsLenient } from '../../core/session/usage.ts';
 import type { VimMode } from './vim-input.tsx';
 
@@ -578,7 +581,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
   const [autoSelected, setAutoSelected] = useState(0);
   const [autoDismissed, setAutoDismissed] = useState(false);
   const skillsList = React.useMemo(() => {
-    try { return loadSkills(args.cwd, cediaHome()); } catch { return []; }
+    try { return loadSkills(args.cwd, cediaHome(), sharedSkillDirs()); } catch { return []; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [args.cwd]);
   const autoQuery = input.trim().startsWith('/') && !running ? input.trim().slice(1).toLowerCase() : null;
@@ -650,14 +653,11 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         return;
       case 'context': {
         // What fills the thread's writer session now, from its log (core/context/breakdown.ts).
-        const s = thread && store.has(thread) ? writerSessionOf(store.read(thread), args.cwd, cediaHome()) : undefined;
-        if (s && fsExists(s.path)) {
+        if (thread && store.has(thread) && writerSessionOf(store.read(thread), args.cwd, cediaHome())) {
           try {
-            const events = readEventsLenient(fsRead(s.path, 'utf8'));
-            const spec = events[0]?.kind === 'session' ? resolveModel(events[0].model) : undefined;
-            say(formatContext(contextBreakdown(events, { sessionId: s.sessionId, ...(spec ? { handoffAt: loadHandoffAt(spec) } : {}) })));
-            return;
-          } catch {}
+            say(formatContext(threadContext(store, args.cwd, cediaHome(), { thread })));
+          } catch (e) { say(`context: ${(e as Error).message}`, 'red'); }
+          return;
         }
         say(`context: ${context} tokens${context ? ` (~${Math.round(context / 1000)}k)` : ''}`);
         return;
@@ -693,18 +693,18 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         const text = rest.join(' ').trim();
         if (!text) {
           const notes = store.notes();
-          say(notes.length ? notes.map((n) => `${n.id}  ${n.text}`).join('\n') : 'no memory notes for this project');
+          say(notes.length ? notes.map((n) => `${n.id}  ${printable(n.text)}`).join('\n') : 'no memory notes for this project');
           return;
         }
         try {
           const n = store.add(text, 'tui');
-          say(`remembered ${n.id}: ${n.text}`);
+          say(`remembered ${n.id}: ${printable(n.text)}`);
         } catch (e) { say((e as Error).message); }
         return;
       }
       case 'skills': {
-        const skills = loadSkills(args.cwd, cediaHome());
-        say(skills.length ? skills.map((s) => `${s.name}  ${s.description}`).join('\n') : 'no skills for this project');
+        const skills = loadSkills(args.cwd, cediaHome(), sharedSkillDirs());
+        say(skills.length ? skills.map((s) => `${s.name}  ${printable(s.description)}`).join('\n') : 'no skills for this project');
         return;
       }
       case 'mcp': {
@@ -730,10 +730,10 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       }
       case 'commit': {
         if (!thread) { say('no thread yet: nothing to commit'); return; }
-        const snaps = workspaceSnapshots(args.cwd, cediaHome());
-        if (!snaps) { say('no snapshots for this directory, so cedia cannot tell which files the thread changed'); return; }
-        const files = threadChanges(store, thread, args.cwd, snaps);
-        if (!files.length) { say('nothing this thread changed differs from HEAD'); return; }
+        const found = threadFiles(store, thread, args.cwd, cediaHome());
+        if ('error' in found) { say(found.error); return; }
+        const { files } = found;
+        if (!files.length) { say(NOTHING_CHANGED); return; }
         const own = rest.join(' ').trim();
         busyRef.current = true;
         void (async () => {
@@ -745,7 +745,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
               const drafted = await draftCommitMessage({ cwd: args.cwd, model: writerModel, files, signal: new AbortController().signal });
               message = drafted.message;
               setSpent((s) => s + drafted.costUsd);
-            } catch (e) { say(`git commit failed: ${(e as Error).message}`, 'red'); return; }
+            } catch (e) { say(`could not draft the commit message: ${(e as Error).message}`, 'red'); return; }
           }
           if (!message) { say('the message came back empty: write one with /commit <message>'); return; }
           say([`commit ${files.length} file${files.length === 1 ? '' : 's'}: ${files.join(', ')}`, '', message, '', 'commit this? y to commit; n, or anything else you type, cancels'].join('\n'));
@@ -758,16 +758,14 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         return;
       }
       case 'pr': {
-        const blocked = prBlocked(args.cwd);
+        const { blocked, branch, base } = prPlan(args.cwd);
         if (blocked) { say(blocked); return; }
-        const branch = currentBranch(args.cwd);
-        const base = defaultBranch(args.cwd);
         say(`push ${branch} to origin and open a pull request${base ? ` into ${base}` : ''}? y to go on; n, or anything else you type, cancels`);
         pendingRef.current = { what: 'the push', yes: async (signal) => {
           busyRef.current = true;
           try {
             const r = await pushAndOpenPr(args.cwd, undefined, signal);
-            say(r.ok ? r.out : r.out, r.ok ? undefined : 'red');
+            say(r.out, r.ok ? undefined : 'red');
           } finally { busyRef.current = false; }
         } };
         return;
@@ -814,15 +812,14 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       }
       case 'undo': {
         if (!thread) { say('no thread yet'); return; }
-        const t = store.read(thread);
         const r = restoreTurn(store, thread, (cwd) => workspaceSnapshots(cwd, cediaHome()), 'undo', { force: rest[0] === 'force' });
-        say('undo: ' + JSON.stringify(r).slice(0, 200));
+        say('error' in r ? r.error : restoredText(r), 'error' in r ? 'red' : undefined);
         return;
       }
       case 'redo': {
         if (!thread) { say('no thread yet'); return; }
         const r = restoreTurn(store, thread, (cwd) => workspaceSnapshots(cwd, cediaHome()), 'redo', { force: rest[0] === 'force' });
-        say('redo: ' + JSON.stringify(r).slice(0, 200));
+        say('error' in r ? r.error : restoredText(r), 'error' in r ? 'red' : undefined);
         return;
       }
       case 'rewind': {
@@ -831,7 +828,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         if (!rest[0]) { say(runs.length ? runs.join('\n') : 'no runs'); return; }
         const n = Number(rest[0]);
         if (!Number.isInteger(n)) { say('/rewind <n>'); return; }
-        const r = rewindThread(store, thread, n, { open: (cwd) => workspaceSnapshots(cwd, cediaHome()), sessionFile: (c, sid) => `${c}/${sid}.jsonl` }, { force: rest[1] === 'force' });
+        const r = rewindThread(store, thread, n, undefined, { force: rest[1] === 'force' });
         if ('error' in r) { say('error: ' + r.error); return; }
         say(rewoundText(r));
         setContext(0);
@@ -908,11 +905,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
           const items = styles.map((s: any) => ({ value: s.name, label: `${s.name === cur ? '*' : ' '} ${s.name}  ${s.description ?? ''}` }));
           setPicker({ title: 'output styles', items, onPick: (v) => {
             try {
-              const pp = join(cediaHome(), 'settings.json');
-              let raw: Record<string, unknown> = {};
-              try { raw = JSON.parse(fsRead(pp, 'utf8')); } catch {}
-              raw.outputStyle = v;
-              fsWrite(pp, JSON.stringify(raw, null, 2) + '\n');
+              updateSettings((settings) => ({ ...settings, outputStyle: v }));
               push({ role: "system", text: `output style: ${v} (takes effect next turn)` });
             } catch (e) { push({ role: "system", text: `error: ${(e as Error).message}` }); }
           } });
@@ -1029,7 +1022,13 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       case 'copy': {
         const last = [...messages].reverse().find((m) => m.role === 'assistant');
         if (!last) { say('nothing to copy'); return; }
-        try { const proc = Bun.spawn(['pbcopy'], { stdin: new TextEncoder().encode(last.text) }); void proc.exited; say('copied the last reply'); } catch (e) { say((e as Error).message); }
+        // pbcopy on macOS; elsewhere the terminal's own clipboard (OSC 52), which works over ssh too where the
+        // terminal allows it.
+        try {
+          if (process.platform === 'darwin') void Bun.spawn(['pbcopy'], { stdin: new TextEncoder().encode(last.text) }).exited;
+          else process.stdout.write(`\x1b]52;c;${Buffer.from(last.text).toString('base64')}\x07`);
+          say('copied the last reply');
+        } catch (e) { say((e as Error).message); }
         return;
       }
       case 'btw': {
@@ -1044,13 +1043,8 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         if (t && t !== 'dark' && t !== 'light' && t !== 'auto') { say(`unknown theme: ${t} (dark | light | auto)`); return; }
         if (t) {
           // auto leaves the choice to the terminal's background; settings.json is made when there is none yet.
-          const pp = join(cediaHome(), 'settings.json');
           try {
-            const raw = fsExists(pp) ? JSON.parse(fsRead(pp, 'utf8')) as Record<string, unknown> : {};
-            if (t === 'auto') delete raw.theme;
-            else raw.theme = t;
-            fsMkdir(cediaHome(), { recursive: true });
-            fsWrite(pp, JSON.stringify(raw, null, 2) + '\n');
+            updateSettings(({ theme: _, ...rest }) => (t === 'auto' ? rest : { ...rest, theme: t as 'dark' | 'light' }));
           } catch (e) { say(`could not save the theme: ${(e as Error).message}`, 'red'); return; }
           setThemeTick((n) => n + 1);
           syncOnboardingRef.current();
@@ -1065,10 +1059,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         if (m && !(NOTIFY_MODES as readonly string[]).includes(m)) { say(`unknown notify mode: ${m} (${NOTIFY_MODES.join(' | ')})`); return; }
         if (m) {
           try {
-            const pp = join(cediaHome(), 'settings.json');
-            const raw = fsExists(pp) ? JSON.parse(fsRead(pp, 'utf8')) as Record<string, unknown> : {};
-            raw.notify = m;
-            fsWrite(pp, JSON.stringify(raw, null, 2) + '\n');
+            updateSettings((settings) => ({ ...settings, notify: m as Settings['notify'] }));
           } catch (e) { say((e as Error).message, 'red'); return; }
         }
         const mode = notifyModeFrom(cediaHome());
@@ -1134,7 +1125,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       }
       case 'palette': {
         // One column of names and one of descriptions, as the `/` menu has, and a search over both.
-        const skills = (() => { try { return loadSkills(args.cwd, cediaHome()); } catch { return []; } })();
+        const skills = (() => { try { return loadSkills(args.cwd, cediaHome(), sharedSkillDirs()); } catch { return []; } })();
         const rowsOf = [...INK_COMMANDS.map((c) => ({ name: c.name, about: c.description })), ...skills.map((sk) => ({ name: sk.name, about: `skill · ${sk.description}` }))];
         const nameWidth = Math.max(...rowsOf.map((r) => r.name.length + 1));
         const items = rowsOf.map((r) => ({ value: r.name, label: `${`/${r.name}`.padEnd(nameWidth)}  ${r.about}` }));
@@ -1152,17 +1143,14 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
           if (sha) lines.push(`build: ${sha}`);
         } catch { /* not a git checkout */ }
         lines.push(`cwd: ${args.cwd}`);
-        try {
-          JSON.parse(fsRead(join(cediaHome(), 'settings.json'), 'utf8'));
-          lines.push(`settings: ok`);
-        } catch (e) { lines.push(`settings: unreadable (${(e as Error).message})`); }
+        // What `cedia doctor` checks, from the same report (core/doctor.ts).
+        const report = doctorReport(args.cwd);
+        const user = report.settings.user;
+        lines.push(`settings: ${!user.present ? 'none yet' : user.ok ? 'ok' : `unreadable (${user.error})`}`);
         lines.push(`keybindings: ${loadedKeybindings.length} loaded`);
-        try {
-          const { servers } = listMcp();
-          lines.push(`mcp: ${servers.length ? servers.map((s) => s.name).join(', ') : 'none configured'}`);
-        } catch (e) { lines.push(`mcp: error (${(e as Error).message})`); }
-        const sandbox = Bun.which('bwrap') ?? Bun.which('sandbox-exec');
-        lines.push(`sandbox: ${sandbox ?? 'unavailable'}`);
+        const servers = report.mcp.servers;
+        lines.push(`mcp: ${servers.length ? servers.map((s) => (s.error ? `${s.name} (${s.error})` : s.name)).join(', ') : 'none configured'}`);
+        lines.push(`sandbox: ${report.sandbox.tool ?? 'unavailable'}`);
         const keys = ['ANTHROPIC_API_KEY', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY'].filter((k) => !!process.env[k]);
         lines.push(`api keys: ${keys.length ? keys.join(', ') : 'none in env'} (names only)`);
         lines.push(`onboarding: ${isComplete(cediaHome()) ? 'complete' : 'pending'}`);
@@ -1394,7 +1382,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
     turnStartRef.current = turnStart;
     try {
       const result = await runHeadless(
-        { ...args, model: model ?? args.model, permission: permission ?? args.permission, ...(effort ? { effort } : {}), cacheTtl: args.cacheTtl ?? '1h', streamingTools: true, prompt: takeShellNote() + expandPastes(text, pastesRef.current), outputFormat: 'stream-json', note: (t: string) => { if (t.trim()) push({ role: 'system', text: `▲ ${t.trim().replace(/^cedia: /, '')}`, tone: 'accent' }); }, onPermission: (took: string) => setRunPermission({ setting: permission ?? args.permission ?? 'auto', took }), ...(thread ? { thread } : {}), ...(goal ? { goal } : {}), ...(planWhen ? { planWhen } : {}), present: () => ownerPresent(seenRef.current, Date.now()), signal: stop.signal },
+        { ...args, model: model ?? args.model, permission: permission ?? args.permission, ...(effort ? { effort } : {}), cacheTtl: args.cacheTtl ?? '1h', streamingTools: true, promptSuggestions: 'off', prompt: takeShellNote() + expandPastes(text, pastesRef.current), outputFormat: 'stream-json', note: (t: string) => { if (t.trim()) push({ role: 'system', text: `▲ ${t.trim().replace(/^cedia: /, '')}`, tone: 'accent' }); }, onPermission: (took: string) => setRunPermission({ setting: permission ?? args.permission ?? 'auto', took }), ...(thread ? { thread } : {}), ...(goal ? { goal } : {}), ...(planWhen ? { planWhen } : {}), present: () => ownerPresent(seenRef.current, Date.now()), signal: stop.signal },
         handleChunk,
       );
       setThread(result.thread ?? thread);
@@ -1974,13 +1962,9 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
           if (editingKey) {
             if (key.return) {
               try {
-                const pp = join(cediaHome(), 'settings.json');
-                let raw: Record<string, unknown> = {};
-                try { raw = JSON.parse(fsRead(pp, 'utf8')) as Record<string, unknown>; } catch {}
                 let v: unknown = editValue;
                 try { v = JSON.parse(editValue); } catch {}
-                raw[editingKey] = v;
-                fsWrite(pp, JSON.stringify(raw, null, 2) + '\n');
+                updateSettings((settings) => ({ ...settings, [editingKey]: v }) as Settings);
                 push({ role: 'system', text: `setting ${editingKey} updated` });
               } catch (e) { push({ role: 'system', text: `could not save settings: ${(e as Error).message}` }); }
               setEditingKey(null); setEditValue(''); setSettingsQuery('');
@@ -2008,15 +1992,14 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
           }
           if (input === ' ') {
             try {
-              const pp = join(cediaHome(), 'settings.json');
-              const raw = readSettings(pp) as Record<string, unknown>;
+              const raw = userSettings() as Record<string, unknown>;
               const q = settingsQuery.toLowerCase();
               const keys = Object.keys(raw).filter((k) => !q || k.toLowerCase().includes(q));
               const target = keys[Math.min(configSelected, Math.max(0, keys.length - 1))];
               if (target && typeof raw[target] === 'boolean') {
-                raw[target] = !raw[target];
-                fsWrite(pp, JSON.stringify(raw, null, 2) + '\n');
-                push({ role: 'system', text: `setting ${target} = ${String(raw[target])}` });
+                const next = !raw[target];
+                updateSettings((settings) => ({ ...settings, [target]: next }) as Settings);
+                push({ role: 'system', text: `setting ${target} = ${String(next)}` });
               }
             } catch {}
             return;
@@ -2058,7 +2041,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
           const n = messageSelector.selected + 1;
           if (!runs.length) { push({ role: 'system', text: 'no runs to rewind to' }); setMessageSelector({ open: false, selected: 0 });
           closeDialog('messageSelector'); return; }
-          const r = rewindThread(store, thread, n, { open: (cwd) => workspaceSnapshots(cwd, cediaHome()), sessionFile: (c, sid) => `${c}/${sid}.jsonl` }, {});
+          const r = rewindThread(store, thread, n);
           if ('error' in r) push({ role: 'system', text: 'error: ' + r.error });
           else { push({ role: 'system', text: rewoundText(r) }); setContext(0); }
           setMessageSelector({ open: false, selected: 0 });

@@ -9,7 +9,7 @@ import type { TuiArgs } from './clients/tui-ink/args.ts';
 import { ALIASES, resolveModel } from './core/providers/catalog.ts';
 import { GUARDS, PERMISSION_ENTRIES, type PermissionList } from './core/safety/policy.ts';
 import { applyAllowRules, suggestAllowRules } from './core/safety/suggest.ts';
-import { cediaHome, sharedSkillDirs, loadCompleteModel, loadHandoffAt, loadPermissionSetting, loadPolicy, loadRoles } from './core/config.ts';
+import { cediaHome, sharedSkillDirs, loadCompleteModel, loadHandoffAt, loadPermissionSetting, loadPolicy, loadRoles, updateSettings } from './core/config.ts';
 import { processKeychain } from './core/providers/keychain.ts';
 import { modelLine, modelList } from './core/providers/models.ts';
 import { threadLine, threadsDir, ThreadStore, type Rating } from './core/project/threads.ts';
@@ -36,7 +36,7 @@ import { getEditable, setEditable } from './core/settings-edit.ts';
 import type { McpToolRule } from './core/mcp/client.ts';
 import { codeReview, type CodeReview } from './core/project/code-review.ts';
 import { changeGuide, DIFF_BASES, guideText, threadDiff, type ChangeGuide, type DiffBase } from './core/project/change-guide.ts';
-import { commitFiles, commitPatch, currentBranch, headCommit, prPlan, pushAndOpenPr, threadChanges, type CommitDraft, type Committed, type PrOpened } from './core/project/commit.ts';
+import { commitFiles, commitPatch, currentBranch, headCommit, NOTHING_CHANGED, prPlan, pushAndOpenPr, threadFiles, type CommitDraft, type Committed, type PrOpened } from './core/project/commit.ts';
 import { draftCommitMessage } from './core/project/draft.ts';
 import { reviewSubject, ultraReview } from './core/project/ultrareview.ts';
 import { sideModel, threadWriter } from './core/side-model.ts';
@@ -46,18 +46,36 @@ import { workspaceSnapshots } from './core/safety/snapshot.ts';
 import { lintSession } from './core/session/lint.ts';
 import { projectKey, sessionPath, SessionLog } from './core/session/log.ts';
 import { formatUsage, isUsageEvent, readEventsLenient, sinceOf, usageReport, type SessionInput } from './core/session/usage.ts';
-import { selectSessions } from './core/session/select.ts';
-import { contextBreakdown, formatContext, writerSessionOf } from './core/context/breakdown.ts';
+import { selectSessions, sessionFiles } from './core/session/select.ts';
+import { printable } from './core/printable.ts';
+import { formatContext } from './core/context/breakdown.ts';
+import { threadContext } from './core/context/thread-context.ts';
 import { awayRecap, formatRecap, lastRunStart, recapSince } from './core/project/recap.ts';
 import { searchText, searchThreads } from './core/project/search.ts';
 import { EFFORTS, type Effort } from './core/types.ts';
 import { doctorReport } from './core/doctor.ts';
 import { versionInfo } from './protocol/version.ts';
 
-// Multi-repo workspace: --project <key> overrides the project key for this invocation, so threads in different
-// repositories can file under one workspace. Set early, before any command parses args.
-const _projectFlagIndex = process.argv.indexOf('--project');
-if (_projectFlagIndex >= 0 && process.argv[_projectFlagIndex + 1]) process.env.CEDIA_PROJECT = process.argv[_projectFlagIndex + 1];
+// Multi-repo workspace: --project <key> (anywhere in the line) overrides the project key for this invocation, so
+// threads in different repositories file under one workspace. It is taken out of argv here, before any command
+// parses its own options, and passed on as CEDIA_PROJECT, which projectKey reads and child cedia processes inherit.
+export function takeProject(argv: string[]): { argv: string[]; project?: string } | { error: string } {
+  const rest: string[] = [];
+  let project: string | undefined;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!;
+    if (a === '--') {
+      rest.push(...argv.slice(i));
+      break;
+    }
+    if (a === '--project' || a.startsWith('--project=')) {
+      const v = a === '--project' ? argv[++i] : a.slice('--project='.length);
+      if (!v || v.startsWith('-')) return { error: '--project takes a workspace key' };
+      project = v;
+    } else rest.push(a);
+  }
+  return { argv: rest, ...(project ? { project } : {}) };
+}
 
 // bin/cedia starts Bun with NODE_ENV=production when it was unset, for the TUI's React (see the TUI's import below).
 // Nothing else wants it, and the commands cedia runs must not inherit it, so it goes before anything runs.
@@ -258,48 +276,95 @@ const USAGE = `usage: cedia [options]                 the TUI, at a terminal: ea
                                             /<skill> asks the writer to load it first
        cedia skills [--cwd <dir>]           the skills a session here can load: the user's (~/.cedia/skills) and the
                                             repository's (.agents/skills, .claude/skills, .cursor/skills)
+       cedia inline-edit --file <path> --range <line:col-line:col> --instruction <text> [--stdin] [--model <ref>] [--json]
+                                            the desktop's inline edit: the replacement for a range
+       cedia complete --file <path> --at <line:col> [--stdin] [--model <ref>] [--json]
+                                            the desktop's tab completion: the text to insert at a point
+       cedia usage [<file.jsonl>... | --thread <id> | --last <n> | --since <date|Nd>] [--all] [--json]
+                                            spend by day, model and thread
+       cedia failures [the same selection] [--json]
+                                            the tool calls that failed, by tool and kind
+       cedia settings [get | set <key> <value> | unset <key>] [--json]
+                                            print or edit ~/.cedia/settings.json, each value checked as a run reads it
+       cedia plugin [list | install <source> | show | mcp | enable | disable | update | uninstall <name>] [--json]
+       cedia marketplace [list | add <name> <source> | remove <name>] [--json]
+                                            plugins and where they come from
+       cedia doctor [--cwd <dir>] [--json]  what cedia can see here: settings, sandbox, MCP servers
+       cedia onboarding [--accept | --step <name>] [--json]
+                                            the TUI's first-run state
+       cedia teams [list | create | show | add-task | set-status | delete]
+                                            teams and their task lists
+       cedia living-docs [list] [<root>]    the living docs under a folder
+       cedia voice [--seconds <n>]          record and print what was said
 
 models: ${Object.keys(ALIASES).join(', ')}`;
 
-export async function main(argv: string[]): Promise<number> {
+// The subcommands: each takes the words after its name and returns the exit code. docs/CLI.md and the usage
+// text list every one (test/cli-errors.test.ts).
+export const subcommands = (): Record<string, (args: string[]) => number | Promise<number>> => ({
+  'lint-session': lintFiles,
+  threads,
+  memory,
+  teams: teamsCmd,
+  'living-docs': livingDocsCmd,
+  'magic-docs': (args) => {
+    console.error('cedia: magic-docs is now living-docs; the old name still works for now');
+    return livingDocsCmd(args);
+  },
+  voice: voiceCmd,
+  'output-style': outputStyle,
+  doctor,
+  onboarding,
+  daemon: daemonCmd,
+  plugin,
+  marketplace,
+  settings,
+  schedules,
+  skills,
+  commands,
+  permissions,
+  models,
+  mcp,
+  commit,
+  review: reviewCmd,
+  ultrareview: ultrareviewCmd,
+  'explain-change': explainChangeCmd,
+  'inline-edit': inlineEditCmd,
+  complete: completeCmd,
+  pr,
+  usage,
+  failures: failuresCmd,
+  context,
+});
+
+// One error path for every subcommand: a bad flag (parseArgs' ERR_PARSE_ARGS_* errors) is a usage error, exit 2;
+// anything else one throws is one line on stderr, exit 1. CEDIA_DEBUG=1 adds the stack.
+async function runCommand(command: (args: string[]) => number | Promise<number>, args: string[]): Promise<number> {
+  try {
+    return await command(args);
+  } catch (e) {
+    console.error(`cedia: ${(e as Error).message.split('\n')[0]}`);
+    if (process.env.CEDIA_DEBUG) console.error((e as Error).stack);
+    return String((e as { code?: unknown }).code ?? '').startsWith('ERR_PARSE_ARGS') ? 2 : 1;
+  }
+}
+
+export async function main(given: string[]): Promise<number> {
+  const taken = takeProject(given);
+  if ('error' in taken) {
+    console.error(`cedia: ${taken.error}`);
+    return 2;
+  }
+  if (taken.project) process.env.CEDIA_PROJECT = taken.project;
+  const argv = taken.argv;
   if (argv[0] === '--version' || argv[0] === '-v') {
     const info = versionInfo();
     console.log(argv.slice(1).includes('--json') ? JSON.stringify(info) : `cedia ${info.version}`);
     return 0;
   }
-  if (argv[0] === 'lint-session') return lintFiles(argv.slice(1));
-  if (argv[0] === 'threads') return threads(argv.slice(1));
-  if (argv[0] === 'memory') return memory(argv.slice(1));
-  if (argv[0] === 'teams') return teamsCmd(argv.slice(1));
-  if (argv[0] === 'living-docs') return livingDocsCmd(argv.slice(1));
-  if (argv[0] === 'magic-docs') {
-    console.error('cedia: magic-docs is now living-docs; the old name still works for now');
-    return livingDocsCmd(argv.slice(1));
-  }
-  if (argv[0] === 'voice') return voiceCmd(argv.slice(1));
-  if (argv[0] === 'output-style') return outputStyle(argv.slice(1));
-  if (argv[0] === 'doctor') return doctor(argv.slice(1));
-  if (argv[0] === 'onboarding') return onboarding(argv.slice(1));
-  if (argv[0] === 'daemon') return daemonCmd(argv.slice(1));
-  if (argv[0] === 'plugin') return plugin(argv.slice(1));
-  if (argv[0] === 'marketplace') return marketplace(argv.slice(1));
-  if (argv[0] === 'settings') return settings(argv.slice(1));
-  if (argv[0] === 'schedules') return schedules(argv.slice(1));
-  if (argv[0] === 'skills') return skills(argv.slice(1));
-  if (argv[0] === 'commands') return commands(argv.slice(1));
-  if (argv[0] === 'permissions') return permissions(argv.slice(1));
-  if (argv[0] === 'models') return await models(argv.slice(1));
-  if (argv[0] === 'mcp') return mcp(argv.slice(1));
-  if (argv[0] === 'commit') return commit(argv.slice(1));
-  if (argv[0] === 'review') return reviewCmd(argv.slice(1));
-  if (argv[0] === 'ultrareview') return ultrareviewCmd(argv.slice(1));
-  if (argv[0] === 'explain-change') return explainChangeCmd(argv.slice(1));
-  if (argv[0] === 'inline-edit') return inlineEditCmd(argv.slice(1));
-  if (argv[0] === 'complete') return completeCmd(argv.slice(1));
-  if (argv[0] === 'pr') return pr(argv.slice(1));
-  if (argv[0] === 'usage') return usage(argv.slice(1));
-  if (argv[0] === 'failures') return failuresCmd(argv.slice(1));
-  if (argv[0] === 'context') return context(argv.slice(1));
+  const table = subcommands();
+  const command = argv[0] !== undefined && Object.hasOwn(table, argv[0]) ? table[argv[0]] : undefined;
+  if (command) return runCommand(command, argv.slice(1));
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
@@ -492,28 +557,7 @@ function usage(argv: string[]): number {
   const home = cediaHome();
   try {
     const since = values.since === undefined ? undefined : sinceOf(values.since);
-    let inputs: { path: string; project?: string }[] = positionals.map((path) => ({ path }));
-    if (!inputs.length && values.thread) {
-      const store = new ThreadStore(threadsDir(home, projectKey(cwd)));
-      // The thread and every sub-thread under it, however deep.
-      const all = store.list();
-      const ids = [values.thread];
-      for (let i = 0; i < ids.length; i++) ids.push(...all.filter((t) => t.parent === ids[i]).map((t) => t.id));
-      inputs = ids.flatMap((id) => store.read(id).sessions.map((s) => ({ path: s.path ?? sessionPath(cwd, s.sessionId, home), project: projectKey(cwd) })));
-    } else if (!inputs.length) {
-      const root = join(home, 'sessions');
-      const keys = values.all ? (existsSync(root) ? readdirSync(root) : []) : [projectKey(cwd)];
-      const found = keys.flatMap((project) => {
-        const dir = join(root, project);
-        if (!existsSync(dir) || !statSync(dir).isDirectory()) return [];
-        return readdirSync(dir)
-          .filter((f) => f.endsWith('.jsonl'))
-          .map((f) => ({ path: join(dir, f), project, mtime: statSync(join(dir, f)).mtimeMs }));
-      });
-      found.sort((a, b) => b.mtime - a.mtime);
-      // A range reads every session written in it; otherwise the newest few.
-      inputs = since ? found.filter((f) => f.mtime >= since.getTime()) : found.slice(0, Number(values.last ?? 20));
-    }
+    const inputs = sessionFiles({ cwd, home, files: positionals, ...(values.thread ? { thread: values.thread } : {}), ...(since ? { since } : {}), last: Number(values.last ?? 20), all: values.all ?? false });
     // Which thread each session is part of, from each project's threads.
     const threadOf = new Map<string, { thread: string; title: string }>();
     for (const project of new Set(inputs.map((i) => i.project).filter((p) => p !== undefined))) {
@@ -582,26 +626,7 @@ function failuresCmd(argv: string[]): number {
   const home = cediaHome();
   try {
     const since = values.since === undefined ? undefined : sinceOf(values.since);
-    let inputs: { path: string; project?: string }[] = positionals.map((path) => ({ path }));
-    if (!inputs.length && values.thread) {
-      const store = new ThreadStore(threadsDir(home, projectKey(cwd)));
-      const all = store.list();
-      const ids = [values.thread];
-      for (let i = 0; i < ids.length; i++) ids.push(...all.filter((t) => t.parent === ids[i]).map((t) => t.id));
-      inputs = ids.flatMap((id) => store.read(id).sessions.map((s) => ({ path: s.path ?? sessionPath(cwd, s.sessionId, home), project: projectKey(cwd) })));
-    } else if (!inputs.length) {
-      const root = join(home, 'sessions');
-      const keys = values.all ? (existsSync(root) ? readdirSync(root) : []) : [projectKey(cwd)];
-      const found = keys.flatMap((project) => {
-        const dir = join(root, project);
-        if (!existsSync(dir) || !statSync(dir).isDirectory()) return [];
-        return readdirSync(dir)
-          .filter((f) => f.endsWith('.jsonl'))
-          .map((f) => ({ path: join(dir, f), project, mtime: statSync(join(dir, f)).mtimeMs }));
-      });
-      found.sort((a, b) => b.mtime - a.mtime);
-      inputs = since ? found.filter((f) => f.mtime >= since.getTime()) : found.slice(0, Number(values.last ?? 20));
-    }
+    const inputs = sessionFiles({ cwd, home, files: positionals, ...(values.thread ? { thread: values.thread } : {}), ...(since ? { since } : {}), last: Number(values.last ?? 20), all: values.all ?? false });
     const records = inputs
       .filter((i) => existsSync(i.path))
       .flatMap((i) => mineToolFailures(readEventsLenient(readFileSync(i.path, 'utf8'))));
@@ -621,23 +646,8 @@ function context(argv: string[]): number {
   const cwd = values.cwd ?? process.cwd();
   const home = cediaHome();
   try {
-    let found: { sessionId: string; path: string } | undefined;
-    if (positionals[0]) found = { sessionId: basename(positionals[0]).replace(/\.jsonl$/, ''), path: positionals[0] };
-    else {
-      const store = new ThreadStore(threadsDir(home, projectKey(cwd)));
-      const t = values.thread ? store.read(values.thread) : store.list().find((x) => !x.archived && !x.side && !x.parent && writerSessionOf(x, cwd, home));
-      if (!t) throw new Error('no thread with a session in this project');
-      found = writerSessionOf(t, cwd, home);
-      if (!found) throw new Error(`thread ${t.id} has no writer session yet`);
-    }
-    if (!existsSync(found.path)) throw new Error(`no session log at ${found.path}`);
-    const events = readEventsLenient(readFileSync(found.path, 'utf8'));
-    if (events[0]?.kind !== 'session') throw new Error(`${found.path} does not start with a session event`);
-    let handoffAt: number | undefined;
-    try {
-      handoffAt = loadHandoffAt(resolveModel(events[0].model));
-    } catch {}
-    const c = contextBreakdown(events, { sessionId: found.sessionId, ...(handoffAt ? { handoffAt } : {}) });
+    const store = new ThreadStore(threadsDir(home, projectKey(cwd)));
+    const c = threadContext(store, cwd, home, { ...(positionals[0] ? { path: positionals[0] } : {}), ...(values.thread ? { thread: values.thread } : {}) });
     console.log(values.json ? JSON.stringify(c) : formatContext(c));
     return 0;
   } catch (e) {
@@ -771,7 +781,7 @@ function threads(argv: string[]): number {
         console.log(runs.length ? runs.join('\n') : `thread ${id} has no run to rewind to`);
         return 0;
       }
-      const r = rewindThread(store, id, Number(rest[0]), { open: (cwd) => workspaceSnapshots(cwd, cediaHome()), sessionFile: (cwd, sid) => sessionPath(cwd, sid) }, { force: values.force ?? false });
+      const r = rewindThread(store, id, Number(rest[0]), undefined, { force: values.force ?? false });
       // A refusal is the answer too: the client offers --force when it goes past it.
       if (values.json) {
         const out: RewindResult = 'error' in r ? r : { run: r.run.id, restored: r.restored, ...(r.sessionId ? { sessionId: r.sessionId } : {}) };
@@ -828,7 +838,7 @@ function skills(argv: string[]): number {
   }
   const found = loadSkills(resolve(parsed.values.cwd ?? process.cwd()), cediaHome(), sharedSkillDirs());
   // A repository's description could carry terminal escapes; they are shown as text.
-  const shown = (t: string) => t.replace(/[\x00-\x1f\x7f-\x9f‪-‮⁦-⁩]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+  const shown = printable;
   console.log(found.length ? found.map((s) => `${s.name}  (${s.source}${s.manual ? ', / only' : ''})  ${s.dir ? shown(s.dir) : 'built in'}\n    ${shown(s.description)}`).join('\n') : 'no skills here');
   return 0;
 }
@@ -968,11 +978,10 @@ async function commit(argv: string[]): Promise<number> {
   };
   const cwd = resolve(values.cwd ?? process.cwd());
   const store = new ThreadStore(threadsDir(cediaHome(), projectKey(cwd)));
-  if (!store.has(values.thread)) return fail(`no thread ${values.thread} in this project`);
-  const snaps = workspaceSnapshots(cwd, cediaHome());
-  if (!snaps) return fail('no snapshots for this directory, so cedia cannot tell which files the thread changed');
-  const files = threadChanges(store, values.thread, cwd, snaps);
-  if (!files.length) return fail('nothing this thread changed differs from HEAD');
+  const found = threadFiles(store, values.thread, cwd, cediaHome());
+  if ('error' in found) return fail(found.error);
+  const { files } = found;
+  if (!files.length) return fail(NOTHING_CHANGED);
   try {
     if (values.message === undefined) {
       const model = sideModel('write', { explicit: values.model, threadWriter: threadWriter(store, values.thread) });
@@ -1054,10 +1063,9 @@ async function reviewCmd(argv: string[]): Promise<number> {
   };
   const cwd = resolve(values.cwd ?? process.cwd());
   const store = new ThreadStore(threadsDir(cediaHome(), projectKey(cwd)));
-  if (!store.has(values.thread)) return fail(`no thread ${values.thread} in this project`);
-  const snaps = workspaceSnapshots(cwd, cediaHome());
-  if (!snaps) return fail('no snapshots for this directory, so cedia cannot tell which files the thread changed');
-  const files = threadChanges(store, values.thread, cwd, snaps);
+  const found = threadFiles(store, values.thread, cwd, cediaHome());
+  if ('error' in found) return fail(found.error);
+  const { files } = found;
   const model = sideModel('review', { explicit: values.model, threadWriter: threadWriter(store, values.thread) }).ref;
   const r = await codeReview({ cwd, files, patch: files.length ? commitPatch(cwd, files) : '', model }).catch((e: Error): CodeReview => ({ error: e.message }));
   if ('error' in r) return fail(r.error);
@@ -1253,7 +1261,7 @@ function commands(argv: string[]): number {
     return 2;
   }
   const list = commandList(loadSkills(resolve(parsed.values.cwd ?? process.cwd()), cediaHome(), sharedSkillDirs()));
-  const shown = (t: string) => t.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ');
+  const shown = printable;
   console.log(parsed.values.json ? JSON.stringify(list) : list.commands.map((c) => `/${c.name}${c.argumentHint ? ` ${shown(c.argumentHint)}` : ''}  ${shown(c.description)}`).join('\n') || 'no commands here');
   return 0;
 }
@@ -1324,7 +1332,7 @@ async function memory(argv: string[]): Promise<number> {
     if (cmd === 'list') {
       const notes = store.notes();
       // A session's note could carry terminal escapes; they are shown as text.
-      const shown = (t: string) => t.replace(/[\x00-\x1f\x7f\x9b]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
+      const shown = printable;
       console.log(notes.length ? notes.map((n) => `${n.id}  ${n.at.slice(0, 10)}  ${n.from}: ${shown(n.text)}`).join('\n') : 'no notes for this project');
       return 0;
     }
@@ -1344,7 +1352,7 @@ async function memory(argv: string[]): Promise<number> {
       return 0;
     }
     if (cmd === 'extract' && rest.length === 0) {
-      const r = await gatherNotes({ cwd, ...(values.model ? { model: values.model } : {}), ...(values.thread ? { thread: values.thread } : {}), force: true });
+      const r = await gatherNotes({ cwd, ...(values.model ? { model: values.model } : {}), force: true });
       if (values.json) console.log(JSON.stringify(r));
       else console.log(`extracted: ${r.added} note${r.added === 1 ? '' : 's'} added (${r.sessionsScanned} session${r.sessionsScanned === 1 ? '' : 's'} scanned)`);
       return 0;
@@ -1537,12 +1545,7 @@ function outputStyle(argv: string[]): number {
   if (name) {
     const s = getStyle(name, home);
     if (!s) { console.error(`unknown style ${name}`); return 1; }
-    // persist to settings
-    const settingsPath = join(home, 'settings.json');
-    let settings: Record<string, unknown> = {};
-    try { settings = JSON.parse(readFileSync(settingsPath, 'utf8')); } catch {}
-    settings.outputStyle = name;
-    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+    try { updateSettings((settings) => ({ ...settings, outputStyle: name }), home); } catch (e) { console.error(`cedia: ${(e as Error).message}`); return 1; }
     console.log(parsed.values.json ? JSON.stringify(s) : `switched to ${name}`);
     return 0;
   }

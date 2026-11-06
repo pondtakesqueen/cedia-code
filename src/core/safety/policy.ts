@@ -1,8 +1,8 @@
-import { existsSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { relative } from 'node:path';
 import { checkReadOnly, redirectsOutput } from '../tools/bash.ts';
-import { effectOf, toolPath, type ToolSpec } from '../tools/registry.ts';
+import { effectOf, type ToolSpec } from '../tools/registry.ts';
+import { inside, realPrefix, toolPath } from '../fs-safety.ts';
 import type { JsonObject } from '../types.ts';
 import { REDACTED } from './secrets.ts';
 import { simpleCommands } from './shell.ts';
@@ -175,7 +175,7 @@ function writesDenied(rule: string, command: string, commands: string[][], cwd: 
   const targets = [...command.matchAll(/>>?\|?\s*([^\s;|&<>()]+)/g)].map((t) => t[1]!.replace(/^['"]|['"]$/g, ''));
   const words = commands.flatMap((argv) => argv.slice(1)).filter((w) => !w.startsWith('-'));
   return [...words, ...targets].some((w) => {
-    const full = resolve(cwd, expandHome(w));
+    const full = toolPath(w, cwd);
     return re.test(w) || re.test(full) || re.test(relative(cwd, full));
   });
 }
@@ -186,7 +186,7 @@ function writesDenied(rule: string, command: string, commands: string[][], cwd: 
 function commandWrites(file: string, command: string, commands: string[][], cwd: string): boolean {
   const re = glob(file);
   const hit = (w: string) => {
-    const full = resolve(cwd, expandHome(w));
+    const full = toolPath(w, cwd);
     return re.test(w) || re.test(full) || re.test(relative(cwd, full));
   };
   const targets = [...command.matchAll(/>>?\|?\s*([^\s;|&<>()]+)/g)].map((t) => t[1]!.replace(/^['"]|['"]$/g, ''));
@@ -204,13 +204,13 @@ function writesProtected(command: string, commands: string[][], cwd: string): st
   const targets = [...command.matchAll(/>>?\|?\s*([^\s;|&<>()]+)/g)].map((t) => t[1]!.replace(/^['"]|['"]$/g, ''));
   const words = commands.flatMap((argv) => argv.slice(1)).filter((w) => !w.startsWith('-'));
   if (!words.length && !targets.length) return undefined;
-  const root = real(cwd);
+  const root = realPrefix(cwd);
   const hooks = hooksDir(cwd);
-  const hooksReal = hooks === undefined ? undefined : real(hooks);
+  const hooksReal = hooks === undefined ? undefined : realPrefix(hooks);
   for (const w of [...words, ...targets]) {
-    const full = real(resolve(cwd, expandHome(w)));
+    const full = realPrefix(toolPath(w, cwd));
     if (/^(\.git|\.cedia)(\/|$)/.test(relative(root, full))) return w;
-    if (hooksReal !== undefined && within(full, hooksReal)) return w;
+    if (hooksReal !== undefined && inside(hooksReal, full)) return w;
     if (sandboxGuarded(relative(root, full))) return w;
   }
   return undefined;
@@ -221,38 +221,17 @@ function glob(pattern: string): RegExp {
 }
 
 export function insideWorkspace(path: string, cwd: string): boolean {
-  const root = real(cwd);
-  const full = real(toolPath(path, cwd));
-  const rel = relative(root, full);
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+  return inside(realPrefix(cwd), realPrefix(toolPath(path, cwd)));
 }
 
-// Resolves symlinks on the part of the path that exists, so a link out of the workspace is caught. A part that
-// cannot be read (EPERM under the OS sandbox, which denies ~/.ssh even a stat) counts as one that does not exist:
-// nothing can follow a link through it either, and throwing here failed every call that named such a path.
-export function real(path: string, realpath: (p: string) => string = realpathSync): string {
-  let head = path;
-  const tail: string[] = [];
-  for (;;) {
-    if (existsSync(head)) {
-      try {
-        return resolve(realpath(head), ...tail);
-      } catch {}
-    }
-    const up = dirname(head);
-    if (up === head) return path;
-    tail.unshift(head.slice(up.length).replace(/^\//, ''));
-    head = up;
-  }
-}
 
 // .git (hooks and config run code later, outside any sandbox), a hooks directory set by core.hooksPath (.husky)
 // and .cedia (cedia's rules and checks).
 export function protectedPath(path: string, cwd: string): boolean {
-  const full = real(toolPath(path, cwd));
-  if (/^(\.git|\.cedia)(\/|$)/.test(relative(real(cwd), full))) return true;
+  const full = realPrefix(toolPath(path, cwd));
+  if (/^(\.git|\.cedia)(\/|$)/.test(relative(realPrefix(cwd), full))) return true;
   const hooks = hooksDir(cwd);
-  return hooks !== undefined && within(full, real(hooks));
+  return hooks !== undefined && inside(realPrefix(hooks), full);
 }
 
 // The first secret store `path` falls under, if any. A store that holds the working directory is skipped, so
@@ -260,11 +239,11 @@ export function protectedPath(path: string, cwd: string): boolean {
 // `from` is the directory a relative path is read from: the working directory, or where a `cd` before it went.
 // `tree`: the tool reads everything under the path (grep), so a store inside it counts as well.
 function secretUnder(path: string, secrets: string[], cwd: string, from = cwd, tree = false): string | undefined {
-  const full = real(toolPath(path, from));
-  const root = real(cwd);
+  const full = realPrefix(toolPath(path, from));
+  const root = realPrefix(cwd);
   return secrets.find((s) => {
-    const store = real(s);
-    return !within(root, store) && (within(full, store) || (tree && within(store, full)));
+    const store = realPrefix(s);
+    return !inside(store, root) && (inside(store, full) || (tree && inside(full, store)));
   });
 }
 
@@ -274,7 +253,7 @@ function secretInCommand(command: string, commands: string[][], secrets: string[
   const home = homedir();
   const text = command.replace(/\$\{?HOME\}?(?=\/|\b)/g, home).replace(/(^|[\s=<>'"(])~(?=\/)/g, `$1${home}`);
   for (const s of secrets) {
-    if (within(real(cwd), real(s))) continue;
+    if (inside(realPrefix(s), realPrefix(cwd))) continue;
     const forms = [s, s.startsWith(home + '/') ? '~' + s.slice(home.length) : s];
     if (forms.some((f) => new RegExp(`${f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w.-])`).test(text))) return s;
   }
@@ -287,17 +266,11 @@ function secretInCommand(command: string, commands: string[][], secrets: string[
       const hit = secretUnder(word, secrets, cwd) ?? secretUnder(word, secrets, cwd, from);
       if (hit) return hit;
     }
-    if (argv[0] === 'cd') from = resolve(from, expandHome(argv[1] ?? homedir()));
+    if (argv[0] === 'cd') from = toolPath(argv[1] ?? homedir(), from);
   }
   return undefined;
 }
 
-const within = (path: string, dir: string) => {
-  const rel = relative(dir, path);
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
-};
-
-const expandHome = (p: string) => (p === '~' || p.startsWith('~/') ? homedir() + p.slice(1) : p);
 
 // The deny list holds what a weak model will not pause for on its own (pstack "Always pause").
 // No allow rule or mode overrides it.
@@ -500,4 +473,4 @@ function rmHit(args: string[], cwd: string): Hit | undefined {
 // Variables and ~user cannot be resolved before the shell runs; `*` is fine because it stays under its parent.
 const resolvable = (p: string) => !p.includes('$') && !/^~[^/]/.test(p);
 // Removing the working directory itself is outside it; removing what is in it (`*`) is not.
-const sameDir = (p: string, cwd: string) => !p.endsWith('*') && relative(real(cwd), real(resolve(cwd, expandHome(p)))) === '';
+const sameDir = (p: string, cwd: string) => !p.endsWith('*') && relative(realPrefix(cwd), realPrefix(toolPath(p, cwd))) === '';
