@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { foldThread, ThreadStore, threadsDir, type ThreadEvent } from '../src/core/project/threads.ts';
+import { foldThread, ThreadStore, threadsDir, type ThreadEvent } from '../src/core/threads/threads.ts';
 import { projectKey, SessionLog } from '../src/core/session/log.ts';
 import { lintSession } from '../src/core/session/lint.ts';
 
@@ -166,7 +166,7 @@ describe('the thread fold after a rewind', () => {
 
 describe('rewind with cedia\'s own paths', () => {
   test('the copied session goes under the sessions folder, never into the working directory', async () => {
-    const { rewindThread } = await import('../src/core/project/rewind.ts');
+    const { rewindThread } = await import('../src/core/threads/rewind.ts');
     const w = setup();
     const first = w.prompt('first: write one', [call('c1', 'echo one > one.txt'), reply('done one')]);
     const thread = JSON.parse(first.out).thread as string;

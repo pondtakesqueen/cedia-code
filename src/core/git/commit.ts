@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { workspaceSnapshots, type Snapshots } from '../safety/snapshot.ts';
 import { inert } from '../trust/frame.ts';
-import type { ThreadStore } from './threads.ts';
+import type { ThreadStore } from '../threads/threads.ts';
 
 // `/commit` and `/pr`. cedia is not a git client (SPEC "Git"): these cover the two steps a session ends with. A
 // commit takes only the files the thread changed that still differ from HEAD, so the user's own work in progress

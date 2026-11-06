@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { childThreads, recentCalls, subthreadLines } from '../src/clients/tui-ink/subthreads.ts';
 import { rowText } from '../src/clients/tui-ink/rows.ts';
-import { ThreadStore } from '../src/core/project/threads.ts';
+import { ThreadStore } from '../src/core/threads/threads.ts';
 import { findCommand, resolveBindings } from '../src/clients/tui-ink/keybindings/resolver.ts';
 
 const event = (n: number, body: Record<string, unknown>) => JSON.stringify({ id: `e${n}`, parentId: null, at: '2026-01-01T00:00:00Z', ...body });

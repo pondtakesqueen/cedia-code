@@ -9,7 +9,7 @@ import { App } from '../src/clients/tui-ink/app.tsx';
 import { acceptTrust } from '../src/clients/tui-ink/onboarding.ts';
 import type { TuiArgs } from '../src/clients/tui-ink/args.ts';
 import { inkRenderOptions } from '../src/clients/tui-ink/render-options.ts';
-import { ThreadStore, threadsDir } from '../src/core/project/threads.ts';
+import { ThreadStore, threadsDir } from '../src/core/threads/threads.ts';
 import { mascot } from '../src/clients/tui-ink/splash.ts';
 import { projectKey } from '../src/core/session/log.ts';
 

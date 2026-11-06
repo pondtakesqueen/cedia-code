@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { cloneTree } from '../src/core/project/clone.ts';
+import { cloneTree } from '../src/core/git/clone.ts';
 
 function tree() {
   const dir = mkdtempSync(join(tmpdir(), 'cedia-clone-'));

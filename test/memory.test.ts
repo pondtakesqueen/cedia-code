@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { MAX_NOTE, memoryBlock, MemoryStore } from '../src/core/project/memory.ts';
+import { MAX_NOTE, memoryBlock, MemoryStore } from '../src/core/memory/memory.ts';
 import { SessionLog } from '../src/core/session/log.ts';
 import type { SessionEvent } from '../src/core/types.ts';
 

@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ThreadStore, threadsDir } from '../src/core/project/threads.ts';
+import { ThreadStore, threadsDir } from '../src/core/threads/threads.ts';
 import { projectKey } from '../src/core/session/log.ts';
 
 const BIN = join(import.meta.dir, '..', 'bin', 'cedia');

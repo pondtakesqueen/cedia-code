@@ -1,8 +1,8 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { storeAttachment } from './core/video.ts';
-import { complete, type Completion } from './core/project/complete.ts';
-import { inlineEdit, parseRange, type InlineEdit } from './core/project/inline-edit.ts';
+import { complete, type Completion } from './core/editor/complete.ts';
+import { inlineEdit, parseRange, type InlineEdit } from './core/editor/inline-edit.ts';
 import { parseArgs } from 'node:util';
 import { runHeadless } from './clients/headless/main.ts';
 import type { TuiArgs } from './clients/tui-ink/args.ts';
@@ -12,10 +12,10 @@ import { applyAllowRules, suggestAllowRules } from './core/safety/suggest.ts';
 import { cediaHome, sharedSkillDirs, loadCompleteModel, loadHandoffAt, loadPermissionSetting, loadPolicy, loadRoles, updateSettings } from './core/config.ts';
 import { processKeychain } from './core/providers/keychain.ts';
 import { modelLine, modelList } from './core/providers/models.ts';
-import { threadLine, threadsDir, ThreadStore, type Rating } from './core/project/threads.ts';
-import { changedFilesOfEvents, retentionOf } from './core/project/keep-rate.ts';
+import { threadLine, threadsDir, ThreadStore, type Rating } from './core/threads/threads.ts';
+import { changedFilesOfEvents, retentionOf } from './core/threads/keep-rate.ts';
 import { mineToolFailures, summarizeFailures } from './core/trust/failures.ts';
-import { memoryPath, MemoryStore } from './core/project/memory.ts';
+import { memoryPath, MemoryStore } from './core/memory/memory.ts';
 import { TeamStore, teamLine } from './core/project/teams.ts';
 import { findLivingDocs } from './core/project/livingdocs.ts';
 import { voiceInput } from './core/project/voice.ts';
@@ -24,24 +24,24 @@ import { daemonCmd } from './clients/daemon/cmd.ts';
 import { loadOnboarding, saveOnboarding, acceptTrust, markStep, isComplete } from './clients/tui-ink/onboarding.ts';
 import { loadOutputStyles, getStyle, stylesDir } from './core/output-styles/styles.ts';
 import { installPlugin, uninstallPlugin, setPluginEnabled, updatePlugin, listInstalled, loadInstalled, pluginContents, addPluginMcp, addMarketplace, removeMarketplace, loadMarketplaces } from './core/plugins/plugins.ts';
-import { consolidateMemory } from './core/project/consolidate.ts';
+import { consolidateMemory } from './core/memory/consolidate.ts';
 import { MCP_PRESETS, mcpPreset } from './core/mcp/presets.ts';
 import { gatherNotes } from './core/memory/gather.ts';
-import { minutesOf, scheduleLine, ScheduleStore, schedulesPath, whenOf, type Schedule } from './core/project/schedules.ts';
+import { minutesOf, scheduleLine, ScheduleStore, schedulesPath, whenOf, type Schedule } from './core/background/schedules.ts';
 import { commandList, loadSkills } from './core/skills/skills.ts';
-import { restoredText, restoreTurn, threadTurn } from './core/project/undo.ts';
-import { rewindThread, rewoundText, runLines, type RewindResult } from './core/project/rewind.ts';
+import { restoredText, restoreTurn, threadTurn } from './core/threads/undo.ts';
+import { rewindThread, rewoundText, runLines, type RewindResult } from './core/threads/rewind.ts';
 import { addMcp, checkMcp, listMcp, removeMcp, type McpCheckTool } from './core/mcp/manage.ts';
 import { getEditable, setEditable } from './core/settings-edit.ts';
 import type { McpToolRule } from './core/mcp/client.ts';
-import { codeReview, type CodeReview } from './core/project/code-review.ts';
-import { changeGuide, DIFF_BASES, guideText, threadDiff, type ChangeGuide, type DiffBase } from './core/project/change-guide.ts';
-import { commitFiles, commitPatch, currentBranch, headCommit, NOTHING_CHANGED, prPlan, pushAndOpenPr, threadFiles, type CommitDraft, type Committed, type PrOpened } from './core/project/commit.ts';
-import { draftCommitMessage } from './core/project/draft.ts';
-import { reviewSubject, ultraReview } from './core/project/ultrareview.ts';
+import { codeReview, type CodeReview } from './core/review/code-review.ts';
+import { changeGuide, DIFF_BASES, guideText, threadDiff, type ChangeGuide, type DiffBase } from './core/git/change-guide.ts';
+import { commitFiles, commitPatch, currentBranch, headCommit, NOTHING_CHANGED, prPlan, pushAndOpenPr, threadFiles, type CommitDraft, type Committed, type PrOpened } from './core/git/commit.ts';
+import { draftCommitMessage } from './core/git/draft.ts';
+import { reviewSubject, ultraReview } from './core/review/ultrareview.ts';
 import { sideModel, threadWriter } from './core/side-model.ts';
-import { deleteThread } from './core/project/delete.ts';
-import { type ForkResult, forkThread } from './core/project/fork.ts';
+import { deleteThread } from './core/threads/delete.ts';
+import { type ForkResult, forkThread } from './core/threads/fork.ts';
 import { workspaceSnapshots } from './core/safety/snapshot.ts';
 import { lintSession } from './core/session/lint.ts';
 import { projectKey, sessionPath, SessionLog } from './core/session/log.ts';
@@ -50,8 +50,8 @@ import { selectSessions, sessionFiles } from './core/session/select.ts';
 import { printable } from './core/printable.ts';
 import { formatContext } from './core/context/breakdown.ts';
 import { threadContext } from './core/context/thread-context.ts';
-import { awayRecap, formatRecap, lastRunStart, recapSince } from './core/project/recap.ts';
-import { searchText, searchThreads } from './core/project/search.ts';
+import { awayRecap, formatRecap, lastRunStart, recapSince } from './core/threads/recap.ts';
+import { searchText, searchThreads } from './core/threads/search.ts';
 import { EFFORTS, type Effort } from './core/types.ts';
 import { doctorReport } from './core/doctor.ts';
 import { versionInfo } from './protocol/version.ts';
@@ -1016,7 +1016,7 @@ async function commit(argv: string[]): Promise<number> {
 // by the review role when it runs on cedia, else the thread's writer model, else the code role's; --model wins.
 // Its findings come back with their file and line (CodeReview). Nothing is written.
 // `cedia explain-change`: the desktop's change guide, a walkthrough of what the thread changed in the order that
-// explains it (core/project/change-guide.ts).
+// explains it (core/git/change-guide.ts).
 async function explainChangeCmd(argv: string[]): Promise<number> {
   let parsed;
   try {
@@ -1083,7 +1083,7 @@ async function reviewCmd(argv: string[]): Promise<number> {
   return 0;
 }
 
-// `cedia ultrareview`: the asked review once per focus, side by side (core/project/ultrareview.ts); read-only.
+// `cedia ultrareview`: the asked review once per focus, side by side (core/review/ultrareview.ts); read-only.
 async function ultrareviewCmd(argv: string[]): Promise<number> {
   let parsed;
   try {

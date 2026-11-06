@@ -2,8 +2,8 @@ import { runSide } from '../loop/side.ts';
 import { askedReviewPrompt, parseVerdict, type ReviewSubject } from '../trust/review.ts';
 import type { ModelSpec, SessionEvent } from '../types.ts';
 import { parseFindings, type CodeFinding } from './code-review.ts';
-import { pullRequest } from './commit.ts';
-import { workingDiff } from './git.ts';
+import { pullRequest } from '../git/commit.ts';
+import { workingDiff } from '../git/git.ts';
 
 // `cedia ultrareview` and the TUI's /ultrareview: the asked review (/review) run once per focus, side by side, each
 // a read-only session of its own, and their FINDING lines gathered under the focus that found them.

@@ -10,7 +10,7 @@ import { fauxProvider, text, toolUse } from '../src/core/providers/faux.ts';
 import { lintSession } from '../src/core/session/lint.ts';
 import { CORE_TOOLS } from '../src/core/tools/index.ts';
 import { threadTools } from '../src/core/tools/threads.ts';
-import { ThreadStore } from '../src/core/project/threads.ts';
+import { ThreadStore } from '../src/core/threads/threads.ts';
 import type { SessionEvent } from '../src/core/types.ts';
 
 const BIN = join(import.meta.dir, '..', 'bin', 'cedia');

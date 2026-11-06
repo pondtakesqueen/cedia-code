@@ -2,7 +2,7 @@
 // latest session log while they run (like OpenCode's child sessions: ← → between them, ↑ or Esc back to the
 // thread). It only reads; Enter goes on with the one shown, as /thread <id> does.
 import { closeSync, openSync, readSync, statSync } from 'node:fs';
-import type { Thread, ThreadState, TodoState } from '../../core/project/threads.ts';
+import type { Thread, ThreadState, TodoState } from '../../core/threads/threads.ts';
 import type { SessionEvent } from '../../core/types.ts';
 import { toolName, toolTarget, type RowLine, type RowStyle } from './rows.ts';
 import { sinceLabel } from './when.ts';

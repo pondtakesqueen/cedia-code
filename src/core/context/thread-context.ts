@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { loadHandoffAt } from '../config.ts';
 import { resolveModel } from '../providers/catalog.ts';
-import type { ThreadStore } from '../project/threads.ts';
+import type { ThreadStore } from '../threads/threads.ts';
 import { readEventsLenient } from '../session/usage.ts';
 import { contextBreakdown, writerSessionOf, type ContextBreakdown } from './breakdown.ts';
 

@@ -134,7 +134,7 @@ export function preamble(
   const user = opts.context?.trim() ? `\n<user_context>\n${opts.context.trim()}\n</user_context>` : '';
   // The repository's AGENTS.md files (core/project/instructions.ts), already framed.
   const repo = opts.instructions?.trim() ? `\n${opts.instructions.trim()}` : '';
-  // The project's memory notes (core/project/memory.ts), already framed.
+  // The project's memory notes (core/memory/memory.ts), already framed.
   const kept = opts.memory?.trim() ? `\n${opts.memory.trim()}` : '';
   // The skills the session can load (core/skills/skills.ts), already framed.
   const skills = opts.skills?.trim() ? `\n${opts.skills.trim()}` : '';

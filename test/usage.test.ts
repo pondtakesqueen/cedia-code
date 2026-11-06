@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { dayOf, formatUsage, sinceOf, usageReport } from '../src/core/session/usage.ts';
-import { threadsDir, ThreadStore } from '../src/core/project/threads.ts';
+import { threadsDir, ThreadStore } from '../src/core/threads/threads.ts';
 import type { SessionEvent, Usage } from '../src/core/types.ts';
 
 const BIN = join(import.meta.dir, '..', 'bin', 'cedia');

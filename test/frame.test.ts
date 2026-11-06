@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { inboxReminder } from '../src/core/project/threads.ts';
+import { inboxReminder } from '../src/core/threads/threads.ts';
 import { spawnReport } from '../src/core/tools/spawn.ts';
 import { reviewPrompt } from '../src/core/trust/review.ts';
 import { inert } from '../src/core/trust/frame.ts';

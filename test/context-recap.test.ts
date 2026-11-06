@@ -3,8 +3,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { contextBar, contextBreakdown, formatContext, writerSessionOf } from '../src/core/context/breakdown.ts';
-import { awayRecap, formatRecap, lastRunStart, recapSince, spanText } from '../src/core/project/recap.ts';
-import { threadsDir, ThreadStore } from '../src/core/project/threads.ts';
+import { awayRecap, formatRecap, lastRunStart, recapSince, spanText } from '../src/core/threads/recap.ts';
+import { threadsDir, ThreadStore } from '../src/core/threads/threads.ts';
 import { AWAY_MS, awayText, ownerPresent, presentIn, recapWhen } from '../src/clients/tui-ink/away.ts';
 import type { HeadlessResult, SessionEvent, Usage } from '../src/core/types.ts';
 

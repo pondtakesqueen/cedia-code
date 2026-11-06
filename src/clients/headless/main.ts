@@ -12,19 +12,19 @@ import { dayOf } from '../../core/session/usage.ts';
 import { cediaHome, sharedSkillDirs, detectChecks, loadChecks, loadOwnerChecks, loadContext, loadFallback, loadMedia, loadHandoff, loadHandoffAt, loadHooks, loadMcp, loadMaxEffort, loadSubthreadEffort, capEffort, loadPolicy, loadPrivacy, loadQuotaWait, loadRoles, loadSandbox, loadSpawn, loadAsk, loadJobs, loadTodo, loadCreator, loadProfiles, loadLsp, loadPlanWhen, loadPlanOverlap, loadThorough, loadPromptSuggestions, isMode, modeFlags, type Mode, type RoleChoice } from '../../core/config.ts';
 import { attachedNote, blobDir, STORED_IMAGE, storedImage, type ImageRef } from '../../core/images.ts';
 import { storeAttachment } from '../../core/video.ts';
-import { claimThread } from '../../core/project/busy.ts';
+import { claimThread } from '../../core/background/busy.ts';
 import { learnSecrets, secretsToKnow } from '../../core/safety/secrets.ts';
-import { defaultHandoffAt, handoffNote, MAX_HANDOFFS, resumeChoice } from '../../core/project/handoff.ts';
-import { compactedNote, compactPlan, seedCompacted } from '../../core/project/compact.ts';
+import { defaultHandoffAt, handoffNote, MAX_HANDOFFS, resumeChoice } from '../../core/context/handoff.ts';
+import { compactedNote, compactPlan, seedCompacted } from '../../core/context/compact.ts';
 import { instructionsBlock, loadInstructions, nestedInstructions, nestedNote } from '../../core/project/instructions.ts';
-import { memoryBlock, memoryPath, MemoryStore, rememberTool } from '../../core/project/memory.ts';
+import { memoryBlock, memoryPath, MemoryStore, rememberTool } from '../../core/memory/memory.ts';
 import { carriedSkills, carriedSkillsNote, loadSkills, skillCommand, skillsBlock, skillTool } from '../../core/skills/skills.ts';
 import { getStyle, loadOutputStyleSetting } from '../../core/output-styles/styles.ts';
 import { MCP_CALL_TOOL, mcpCallTool, mcpStub, startMcp, type McpServers } from '../../core/mcp/tools.ts';
 import { clearDeferred, registerDeferred } from '../../core/tools/tool-search.ts';
 import { webFetchTool } from '../../core/tools/web.ts';
-import { runTurn } from '../../core/project/undo.ts';
-import { inboxReminder, MAX_RESULT, threadsDir, ThreadStore, type SessionWhy, type Thread } from '../../core/project/threads.ts';
+import { runTurn } from '../../core/threads/undo.ts';
+import { inboxReminder, MAX_RESULT, threadsDir, ThreadStore, type SessionWhy, type Thread } from '../../core/threads/threads.ts';
 import { spawnNudgeAt, spawnPool, spawnReport, spawnTool, subtaskPrompt, type SpawnKind, type SpawnOutcome, type Spawner } from '../../core/tools/spawn.ts';
 import { recallTool, threadTools, type EarlierSession } from '../../core/tools/threads.ts';
 import { answerPrompt, askTool, askToolFor } from '../../core/tools/ask.ts';
@@ -36,14 +36,14 @@ import { TeamStore } from '../../core/project/teams.ts';
 import { BROWSER_TOOL, browserAccess as browserAccessOf, browserSites, browserStub, browserTool } from '../../core/tools/browser.ts';
 import { openThreadTool } from '../../core/tools/open.ts';
 import { scheduleTool } from '../../core/tools/schedule.ts';
-import { ScheduleStore, schedulesPath } from '../../core/project/schedules.ts';
+import { ScheduleStore, schedulesPath } from '../../core/background/schedules.ts';
 import { resolveProfile, withProfile } from '../../core/profiles.ts';
 import { needsPlan, planArrived, planComing, planParts, planPrompt, triagePrompt, withParts, withPlan, type Part, type Split } from '../../core/roles.ts';
 import { openSandbox } from '../../core/safety/sandbox.ts';
 import { lspServers, openDiagnoser } from '../../core/lsp/diagnose.ts';
 import { bashTool, scrubbedEnv } from '../../core/tools/bash.ts';
 import { workspaceSnapshots } from '../../core/safety/snapshot.ts';
-import { applyWorktree, openWorktree, type Worktree } from '../../core/project/worktree.ts';
+import { applyWorktree, openWorktree, type Worktree } from '../../core/git/worktree.ts';
 import { approachBrief, bestTry, type Try } from '../../core/project/bestof.ts';
 import { decide, type RunPermission } from '../../core/safety/policy.ts';
 import { editTool } from '../../core/tools/edit.ts';
@@ -430,7 +430,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
   const resumed = args.thread ? store!.read(args.thread) : undefined;
   const threadId = resumed?.id ?? store?.open(args.prompt, profile ? { profile: profile.name } : {});
   // This run's id: every thread event it writes carries it, so a rewind past the run drops them even when they are
-  // written after it (core/project/rewind.ts).
+  // written after it (core/threads/rewind.ts).
   const runId = `r-${crypto.randomUUID().slice(0, 8)}`;
   // Chosen once per run, so every new session of the run sees the same tools: thread tools when the project has
   // another thread to talk to.
@@ -526,7 +526,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
       return undefined;
     }
   };
-  // What /undo and /diff take as this run's turn (core/project/undo.ts), however the run ended.
+  // What /undo and /diff take as this run's turn (core/threads/undo.ts), however the run ended.
   const recordTurn = () => {
     const trees = turnTrees();
     if (store && threadId && trees) store.append(threadId, { run: runId, kind: 'turn', cwd: args.cwd, ...trees, sessions: [...new Set(writerRuns.map((w) => w.log.id))] });
@@ -580,7 +580,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
     child?: { thread?: string; handoff?: boolean; part?: true; recall?: ToolSpec; place?: { cwd: string; preamble: string; snapshots: Snapshots; wrap: (command: string) => Promise<string> } };
     // The plan still being written, for the writer that reads while it is (plan overlap).
     plan?: NonNullable<RunOptions['plan']>;
-    // Starts the session from another one's summary and the turns it kept (core/project/compact.ts).
+    // Starts the session from another one's summary and the turns it kept (core/context/compact.ts).
     seed?: { from: SessionLog; compaction: NonNullable<HeadlessResult['compaction']> };
   };
   // What the session after a handoff starts from: the summary and kept turns, or the task and the note. Either way
@@ -875,7 +875,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
   // hands off to a new session of the sub-thread, as the writer does: on Haiku a sub-thread past 100k tokens would
   // pay the long-context price on every turn. Explore never hands off, since a session that only read cannot
   // (core/loop/run.ts).
-  // A work sub-thread with worktrees on runs in a git worktree of its own (core/project/worktree.ts), beside the
+  // A work sub-thread with worktrees on runs in a git worktree of its own (core/git/worktree.ts), beside the
   // others; only applying its changes runs alone, through ctx.write. Where no worktree can be made (no git, no
   // commit yet) it runs in place as it would without them, through ctx.write as a whole.
   const openWt = () => {
@@ -1087,7 +1087,7 @@ export async function runHeadless(given: HeadlessArgs, out: (s: string) => void 
     return r;
   };
   // Where this run starts, for /rewind: the working tree, and the conversation as the thread's last writer session
-  // has it now (core/project/rewind.ts).
+  // has it now (core/threads/rewind.ts).
   if (store && threadId) {
     const last = resumed?.sessions.findLast((s) => s.role === 'code' && !resumed.rewound.includes(s.sessionId));
     const tree = snapshots?.take();

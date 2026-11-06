@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { COMPACT_INSTRUCTIONS } from '../src/core/project/compact.ts';
-import { HANDOFF_PROMPT, resumeChoice } from '../src/core/project/handoff.ts';
+import { COMPACT_INSTRUCTIONS } from '../src/core/context/compact.ts';
+import { HANDOFF_PROMPT, resumeChoice } from '../src/core/context/handoff.ts';
 import type { SessionEvent, Usage } from '../src/core/types.ts';
 import { resolveModel } from '../src/core/providers/catalog.ts';
 

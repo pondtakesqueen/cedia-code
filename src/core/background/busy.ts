@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { isAlive } from './background.ts';
-import type { Thread, ThreadStore } from './threads.ts';
+import type { Thread, ThreadStore } from '../threads/threads.ts';
 
 // One run of a thread at a time. A thread can be driven from the TUI, the desktop, the daemon and `cedia -p
 // --thread`, and its writer session's log takes one writer: two runs resuming the same session would both append

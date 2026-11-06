@@ -1,9 +1,9 @@
-import { minutesOf, MIN_EVERY, scheduleLine, whenOf, type ScheduleStore } from '../project/schedules.ts';
+import { minutesOf, MIN_EVERY, scheduleLine, whenOf, type ScheduleStore } from '../background/schedules.ts';
 import type { ToolSpec } from './registry.ts';
 
 // schedule: a coordinator (core/profiles.ts) sets a prompt for its own thread to get at a time, once or again every
 // so often, when the owner asks for one in the project chat ("check the nightly build every morning"). The daemon
-// starts the run at the time (core/project/schedules.ts). It also cancels one, and each call answers with the
+// starts the run at the time (core/background/schedules.ts). It also cancels one, and each call answers with the
 // thread's schedules as they stand.
 
 export const SCHEDULE_TOOL = 'schedule';

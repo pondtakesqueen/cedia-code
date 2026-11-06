@@ -41,22 +41,22 @@ import { runOwnerShell, shellCommand, shellEnd, shellNote, type ShellRun } from 
 import { FOCUS_OFF, FOCUS_ON, NOTIFY_MODES, channelFor, focusFrom, notifyModeFrom, notifySequence, shouldNotify, turnNotice, type Focus } from './notify.ts';
 import { matchesKey } from '@mariozechner/pi-tui';
 import { acceptTrust, completedNames, isComplete, loadOnboarding, markStep, ONBOARDING_STEPS, reconcileOnboarding, saveOnboarding } from './onboarding.ts';
-import { workingDiff } from '../../core/project/git.ts';
-import { FOCUSES, reviewSubject, subjectTitle, ultraReview } from '../../core/project/ultrareview.ts';
+import { workingDiff } from '../../core/git/git.ts';
+import { FOCUSES, reviewSubject, subjectTitle, ultraReview } from '../../core/review/ultrareview.ts';
 import { sideModel, threadWriter } from '../../core/side-model.ts';
 import { helpGroups, INK_COMMANDS } from './commands.ts';
 import { reviewCommand, type CommandCtx } from './command-review.ts';
-import { MemoryStore, memoryPath } from '../../core/project/memory.ts';
+import { MemoryStore, memoryPath } from '../../core/memory/memory.ts';
 import { loadSkills } from '../../core/skills/skills.ts';
 import { listMcp } from '../../core/mcp/manage.ts';
-import { threadFiles, NOTHING_CHANGED, commitFiles, currentBranch, prPlan, pushAndOpenPr } from '../../core/project/commit.ts';
-import { draftCommitMessage } from '../../core/project/draft.ts';
+import { threadFiles, NOTHING_CHANGED, commitFiles, currentBranch, prPlan, pushAndOpenPr } from '../../core/git/commit.ts';
+import { draftCommitMessage } from '../../core/git/draft.ts';
 import { workspaceSnapshots } from '../../core/safety/snapshot.ts';
 import { allowRuleFor, applyAllowRules } from '../../core/safety/suggest.ts';
-import { restoredText, restoreTurn } from '../../core/project/undo.ts';
-import { rewindThread, rewoundText, runLines } from '../../core/project/rewind.ts';
-import { forkThread } from '../../core/project/fork.ts';
-import { ThreadStore, threadsDir } from '../../core/project/threads.ts';
+import { restoredText, restoreTurn } from '../../core/threads/undo.ts';
+import { rewindThread, rewoundText, runLines } from '../../core/threads/rewind.ts';
+import { forkThread } from '../../core/threads/fork.ts';
+import { ThreadStore, threadsDir } from '../../core/threads/threads.ts';
 import { projectKey } from '../../core/session/log.ts';
 import { isAbsolute, join } from 'node:path';
 import { readFileSync as fsRead, writeFileSync as fsWrite, existsSync as fsExists, unlinkSync as fsUnlink } from 'node:fs';
@@ -771,7 +771,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         return;
       }
       case 'ultrareview': {
-        // The asked review once per focus, side by side (core/project/ultrareview.ts, as `cedia ultrareview`); Esc stops it.
+        // The asked review once per focus, side by side (core/review/ultrareview.ts, as `cedia ultrareview`); Esc stops it.
         busyRef.current = true;
         const stop = new AbortController();
         stopRef.current = stop;

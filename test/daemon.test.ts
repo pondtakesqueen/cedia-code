@@ -2,11 +2,11 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { listBgSessions, recordStart } from '../src/core/project/background.ts';
-import { pumpDaemon } from '../src/core/project/daemon.ts';
-import { desktopLockHolder, desktopLockPath } from '../src/core/project/desktop-lock.ts';
-import { schedulesPath, ScheduleStore } from '../src/core/project/schedules.ts';
-import { threadsDir, ThreadStore } from '../src/core/project/threads.ts';
+import { listBgSessions, recordStart } from '../src/core/background/background.ts';
+import { pumpDaemon } from '../src/core/background/daemon.ts';
+import { desktopLockHolder, desktopLockPath } from '../src/core/background/desktop-lock.ts';
+import { schedulesPath, ScheduleStore } from '../src/core/background/schedules.ts';
+import { threadsDir, ThreadStore } from '../src/core/threads/threads.ts';
 
 const setup = () => {
   const home = mkdtempSync(join(tmpdir(), 'cedia-daemon-'));
@@ -142,7 +142,7 @@ describe('cedia daemon (offline)', () => {
     expect(run(['daemon', 'bogus']).code).toBe(2);
   });
   test('spawnDetached starts a detached child and returns its pid', async () => {
-    const { spawnDetached } = await import('../src/core/project/daemon.ts');
+    const { spawnDetached } = await import('../src/core/background/daemon.ts');
     const pid = spawnDetached([process.execPath, '--version']);
     expect(pid).toBeGreaterThan(0);
   });

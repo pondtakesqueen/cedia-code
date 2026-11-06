@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { inlineEditPrompt, parseRange, rangeOffsets, replacementText, selectionPatch } from '../src/core/project/inline-edit.ts';
+import { inlineEditPrompt, parseRange, rangeOffsets, replacementText, selectionPatch } from '../src/core/editor/inline-edit.ts';
 import { SessionLog } from '../src/core/session/log.ts';
 
 const BIN = join(import.meta.dir, '..', 'bin', 'cedia');

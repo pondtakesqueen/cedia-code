@@ -96,7 +96,7 @@ type EventBody =
   // A call's input came in a known wrong shape and was put into the schema's (ToolSpec.repair). The assistant
   // event keeps what the model sent; the intent holds the repaired input.
   | { kind: 'input_repaired'; callId: string; tool: string; repairs: string[] }
-  // A compaction request, sent with the messages of the request `of` (core/project/compact.ts), and its outcome:
+  // A compaction request, sent with the messages of the request `of` (core/context/compact.ts), and its outcome:
   // the summary block, or why there is none.
   | { kind: 'compact_request'; of: EventId; bodyHash: string; headers: Record<string, string> }
   | { kind: 'compaction'; requestId: EventId; stop: StopReason; usage: Usage; block?: CompactionBlock; error?: AttemptError; ms?: number }
@@ -294,7 +294,7 @@ export type HeadlessResult = {
   subthreads?: number;
   spawned?: Spawned;
   // A 'handoff' by compaction: the summary, and the request it summarized, after which the session's events are
-  // kept word for word in the next session (core/project/compact.ts).
+  // kept word for word in the next session (core/context/compact.ts).
   compaction?: { block: CompactionBlock; of: EventId };
   // An 'asked' run's question for the owner (core/tools/ask.ts).
   question?: Question;

@@ -104,7 +104,7 @@ export function record(s: Scenario): Recording {
       for (const [id] of text.matchAll(/\bt-[0-9a-f]{8}\b/g)) if (!ids.has(id)) ids.set(id, `t-${String(ids.size + 1).padStart(8, '0')}`);
     const norm = (text: string) =>
       text.split(slug!).join('fixture-repo').split(repo).join('/fixture/repo').split(home).join('/fixture/home').split(dir).join('/fixture').replace(/\bt-[0-9a-f]{8}\b/g, (id) => ids.get(id) ?? id);
-    // The threads dir also holds per-thread `<id>.summary.md` sidecars (core/project/threads.ts): derived from
+    // The threads dir also holds per-thread `<id>.summary.md` sidecars (core/threads/threads.ts): derived from
     // the handoff events already in the .jsonl, covered by unit tests, and not part of the replay contract.
     const filesIn = (d: string, only?: (f: string) => boolean) => Object.fromEntries(readdirSync(d).sort().filter((f) => !only || only(f)).map((f) => [norm(f), norm(readFileSync(join(d, f), 'utf8'))]));
     return { stream: norm(stream), threads: filesIn(threadsRoot, (f) => f.endsWith('.jsonl')), sessions: filesIn(join(home, 'sessions', slug!)) };

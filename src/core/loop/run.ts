@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildMessages, sessionHeader } from '../context/build.ts';
 import { cacheMissesOf } from '../context/cache.ts';
-import { contextSize, fixedTokens, HANDOFF_NO_TOOLS, HANDOFF_PROMPT, handoffDue, handoffFloor } from '../project/handoff.ts';
-import { COMPACT_INSTRUCTIONS, compactionCut, compactPlan, firstReply } from '../project/compact.ts';
+import { contextSize, fixedTokens, HANDOFF_NO_TOOLS, HANDOFF_PROMPT, handoffDue, handoffFloor } from '../context/handoff.ts';
+import { COMPACT_INSTRUCTIONS, compactionCut, compactPlan, firstReply } from '../context/compact.ts';
 import { hash, stableJson } from '../hash.ts';
 import { MAX_IMAGES_PER_SESSION, type ImageRef } from '../images.ts';
 import { costUsd } from '../providers/catalog.ts';
@@ -89,12 +89,12 @@ export type RunOptions = {
   // Files changed before this session by someone else in the run (the parts of a split plan): the done gate
   // wants a passing check after them, as after the session's own writes.
   inherited?: string[];
-  // The thread the session belongs to (core/project/threads.ts).
+  // The thread the session belongs to (core/threads/threads.ts).
   thread?: string;
   // Once a turn leaves the context at this many tokens, the session writes a handoff note and ends with subtype
-  // 'handoff'; the client goes on in a new session (core/project/handoff.ts). Absent means never.
+  // 'handoff'; the client goes on in a new session (core/context/handoff.ts). Absent means never.
   handoffAt?: number;
-  // Hand off by compaction instead of a note, on a model that takes compaction requests (core/project/compact.ts).
+  // Hand off by compaction instead of a note, on a model that takes compaction requests (core/context/compact.ts).
   // Once a turn leaves the context at startAt tokens, the provider summarizes the session up to an earlier request
   // in the background, keeping at least keepTokens of the newest context, while the session goes on. The session
   // ends with subtype 'handoff' at the first turn boundary after the summary arrives, waiting for it if the context

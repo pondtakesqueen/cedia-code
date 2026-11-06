@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { titleOf, type ThreadStore } from '../project/threads.ts';
+import { titleOf, type ThreadStore } from '../threads/threads.ts';
 import type { ToolSpec } from './registry.ts';
 
 // open_thread: a coordinator (core/profiles.ts) opens a thread of the project for a piece of the work. cedia only

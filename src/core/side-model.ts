@@ -1,5 +1,5 @@
 import { isMode, loadRoles, type RoleChoice } from './config.ts';
-import type { ThreadStore } from './project/threads.ts';
+import type { ThreadStore } from './threads/threads.ts';
 import { resolveModel } from './providers/catalog.ts';
 import type { ModelSpec } from './types.ts';
 

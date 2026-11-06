@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readdirSync } from 'node:fs';
-import { scanTranscripts } from '../src/core/project/consolidate.ts';
+import { scanTranscripts } from '../src/core/memory/consolidate.ts';
 
 const BIN = join(import.meta.dir, '..', 'bin', 'cedia');
 
