@@ -53,7 +53,7 @@ import { threadFiles, NOTHING_CHANGED, commitFiles, currentBranch, prPlan, pushA
 import { draftCommitMessage } from '../../core/project/draft.ts';
 import { workspaceSnapshots } from '../../core/safety/snapshot.ts';
 import { allowRuleFor, applyAllowRules } from '../../core/safety/suggest.ts';
-import { restoreTurn } from '../../core/project/undo.ts';
+import { restoredText, restoreTurn } from '../../core/project/undo.ts';
 import { rewindThread, rewoundText, runLines } from '../../core/project/rewind.ts';
 import { forkThread } from '../../core/project/fork.ts';
 import { ThreadStore, threadsDir } from '../../core/project/threads.ts';
@@ -812,15 +812,14 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       }
       case 'undo': {
         if (!thread) { say('no thread yet'); return; }
-        const t = store.read(thread);
         const r = restoreTurn(store, thread, (cwd) => workspaceSnapshots(cwd, cediaHome()), 'undo', { force: rest[0] === 'force' });
-        say('undo: ' + JSON.stringify(r).slice(0, 200));
+        say('error' in r ? r.error : restoredText(r), 'error' in r ? 'red' : undefined);
         return;
       }
       case 'redo': {
         if (!thread) { say('no thread yet'); return; }
         const r = restoreTurn(store, thread, (cwd) => workspaceSnapshots(cwd, cediaHome()), 'redo', { force: rest[0] === 'force' });
-        say('redo: ' + JSON.stringify(r).slice(0, 200));
+        say('error' in r ? r.error : restoredText(r), 'error' in r ? 'red' : undefined);
         return;
       }
       case 'rewind': {
@@ -1023,7 +1022,13 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       case 'copy': {
         const last = [...messages].reverse().find((m) => m.role === 'assistant');
         if (!last) { say('nothing to copy'); return; }
-        try { const proc = Bun.spawn(['pbcopy'], { stdin: new TextEncoder().encode(last.text) }); void proc.exited; say('copied the last reply'); } catch (e) { say((e as Error).message); }
+        // pbcopy on macOS; elsewhere the terminal's own clipboard (OSC 52), which works over ssh too where the
+        // terminal allows it.
+        try {
+          if (process.platform === 'darwin') void Bun.spawn(['pbcopy'], { stdin: new TextEncoder().encode(last.text) }).exited;
+          else process.stdout.write(`\x1b]52;c;${Buffer.from(last.text).toString('base64')}\x07`);
+          say('copied the last reply');
+        } catch (e) { say((e as Error).message); }
         return;
       }
       case 'btw': {
