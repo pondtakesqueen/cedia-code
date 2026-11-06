@@ -123,51 +123,70 @@ export async function consolidateMemory(opts: {
   signal?: AbortSignal;
 }): Promise<ConsolidationResult> {
   const home = opts.home ?? cediaHome();
+  // Time gate for automatic runs; explicit runs force.
+  if (opts.auto && !opts.force && !shouldConsolidate(home, projectKey(opts.cwd), opts.now ?? new Date())) {
+    const before = new MemoryStore(memoryPath(home, projectKey(opts.cwd))).notes().length;
+    return { consolidated: false, skipped: 'too soon since last consolidation', notesBefore: before, notesAfter: before, added: 0, lockPath: consolidateLockPath(home, projectKey(opts.cwd)), sessionsScanned: 0 };
+  }
+  const r = await notesPass({ ...opts, home }, {
+    role: 'consolidate',
+    from: 'dream',
+    system: SYSTEM,
+    prompt: (text) => `Consolidate memory for this project. Here are the recent session transcripts:\n\n${text}\n\nKeep the durable facts with the remember tool.`,
+    maxTurns: 8,
+    model: () => loadRoles({}).code.ref,
+    busy: 'consolidation already running or just finished',
+  });
+  const { ran, ...rest } = r;
+  return { consolidated: ran, ...rest };
+}
+
+// One pass of a model over the project's recent transcripts, keeping what it finds with the remember tool:
+// `cedia memory consolidate` and `cedia memory extract` differ only in what they ask, how long they may take and
+// which model they default to. A pass held by another one under a minute old is skipped unless forced.
+export type NotesPassSpec = {
+  role: 'consolidate' | 'extract';
+  from: string;
+  system: string;
+  prompt: (transcripts: string) => string;
+  maxTurns: number;
+  model: () => string;
+  busy: string;
+};
+export type NotesPassResult = Omit<ConsolidationResult, 'consolidated'> & { ran: boolean };
+export async function notesPass(
+  opts: { cwd: string; home: string; model?: string; force?: boolean; now?: Date; signal?: AbortSignal },
+  spec: NotesPassSpec,
+): Promise<NotesPassResult> {
   const slug = projectKey(opts.cwd);
-  const lockPath = consolidateLockPath(home, slug);
-  const store = new MemoryStore(memoryPath(home, slug));
+  const lockPath = consolidateLockPath(opts.home, slug);
+  const store = new MemoryStore(memoryPath(opts.home, slug));
   const now = opts.now ?? new Date();
   const before = store.notes().length;
-
-  // Time gate for automatic runs; explicit runs force.
-  if (opts.auto && !opts.force && !shouldConsolidate(home, slug, now)) {
-    return { consolidated: false, skipped: 'too soon since last consolidation', notesBefore: before, notesAfter: before, added: 0, lockPath, sessionsScanned: 0 };
-  }
-
-  // Concurrent-run guard: if a lock is held very recently, skip (unless forced).
   const existing = readLock(lockPath);
   if (!opts.force && existing) {
     const age = now.getTime() - Date.parse(existing.lastConsolidatedAt);
-    if (age >= 0 && age < 60_000) {
-      return { consolidated: false, skipped: 'consolidation already running or just finished', notesBefore: before, notesAfter: before, added: 0, lockPath, sessionsScanned: 0 };
-    }
+    if (age >= 0 && age < 60_000) return { ran: false, skipped: spec.busy, notesBefore: before, notesAfter: before, added: 0, lockPath, sessionsScanned: 0 };
   }
-
-  const scan = scanTranscripts(home, slug);
+  const scan = scanTranscripts(opts.home, slug);
   if (!scan.text.trim()) {
     writeLock(lockPath, now);
-    return { consolidated: true, notesBefore: before, notesAfter: before, added: 0, lockPath, sessionsScanned: scan.count };
+    return { ran: true, notesBefore: before, notesAfter: before, added: 0, lockPath, sessionsScanned: scan.count };
   }
-
-  const modelRef = opts.model ?? (fauxActive() ? 'faux' : loadRoles({}).code.ref);
-  const model = resolveModel(modelRef);
-
-  const prompt = `Consolidate memory for this project. Here are the recent session transcripts:\n\n${scan.text}\n\nKeep the durable facts with the remember tool.`;
-
+  const model = resolveModel(opts.model ?? (fauxActive() ? 'faux' : spec.model()));
   // Logged like any session, so `cedia usage` counts what it cost; scanTranscripts leaves its role out.
   await runSide({
     cwd: opts.cwd,
-    home,
+    home: opts.home,
     model,
-    role: 'consolidate',
-    access: { kind: 'tools', tools: [rememberTool(store, 'dream')], permission: { mode: 'workspace', allow: [], deny: [] } },
-    system: SYSTEM,
-    prompt,
-    maxTurns: 8,
+    role: spec.role,
+    access: { kind: 'tools', tools: [rememberTool(store, spec.from)], permission: { mode: 'workspace', allow: [], deny: [] } },
+    system: spec.system,
+    prompt: spec.prompt(scan.text),
+    maxTurns: spec.maxTurns,
     ...(opts.signal ? { signal: opts.signal } : {}),
   });
-
   writeLock(lockPath, now);
   const after = store.notes().length;
-  return { consolidated: true, notesBefore: before, notesAfter: after, added: after - before, lockPath, sessionsScanned: scan.count };
+  return { ran: true, notesBefore: before, notesAfter: after, added: after - before, lockPath, sessionsScanned: scan.count };
 }

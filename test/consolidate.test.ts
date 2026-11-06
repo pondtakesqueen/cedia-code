@@ -28,6 +28,22 @@ describe('memory consolidate (offline, faux)', () => {
     const [project] = readdirSync(sessions);
     expect(project).toBeTruthy();
   });
+
+  test('extract keeps a note the same way, through the shared pass', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cedia-extr-'));
+    const home = join(dir, '.home');
+    const run = (script: unknown[], args: string[]) => {
+      const sp = join(dir, `.s-${Math.random()}.json`);
+      writeFileSync(sp, JSON.stringify(script));
+      const p = Bun.spawnSync([BIN, ...args, '--cwd', dir], { env: { ...process.env, CEDIA_FAUX_SCRIPT: sp, CEDIA_HOME: home } });
+      return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString() };
+    };
+    expect(run([{ blocks: [{ type: 'text', text: 'ok' }] }], ['-m', 'faux', '-p', 'hello', '--permission', 'workspace', '--sandbox', 'off']).code).toBe(0);
+    const r = run([{ blocks: [{ type: 'tool_use', id: 'c1', name: 'remember', input: { note: 'lint with bun run typecheck' } }] }, { blocks: [{ type: 'text', text: 'done' }] }], ['memory', 'extract', '--json']);
+    expect(r.code).toBe(0);
+    expect(JSON.parse(r.out)).toMatchObject({ extracted: true, added: 1, sessionsScanned: 1 });
+    expect(run([], ['memory', 'list']).out).toContain('lint with bun run typecheck');
+  });
 });
 describe('memory transcript scan', () => {
   const write = (dir: string, name: string, events: unknown[], mtime: number) => {

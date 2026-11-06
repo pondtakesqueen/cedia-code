@@ -1352,7 +1352,7 @@ async function memory(argv: string[]): Promise<number> {
       return 0;
     }
     if (cmd === 'extract' && rest.length === 0) {
-      const r = await gatherNotes({ cwd, ...(values.model ? { model: values.model } : {}), ...(values.thread ? { thread: values.thread } : {}), force: true });
+      const r = await gatherNotes({ cwd, ...(values.model ? { model: values.model } : {}), force: true });
       if (values.json) console.log(JSON.stringify(r));
       else console.log(`extracted: ${r.added} note${r.added === 1 ? '' : 's'} added (${r.sessionsScanned} session${r.sessionsScanned === 1 ? '' : 's'} scanned)`);
       return 0;
