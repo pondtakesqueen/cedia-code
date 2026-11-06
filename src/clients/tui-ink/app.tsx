@@ -21,9 +21,10 @@ import { resolveModel } from '../../core/providers/catalog.ts';
 import { decode, type CoreMessage } from '../../protocol/index.ts';
 import type { TuiArgs } from './args.ts';
 import type { JsonObject, SessionEvent } from '../../core/types.ts';
-import { cediaHome, loadHandoffAt, loadPromptSuggestions, loadRoles, isMode, modeFlags, readSettings, updateSettings, userSettings, type Settings } from '../../core/config.ts';
+import { cediaHome, sharedSkillDirs, loadHandoffAt, loadPromptSuggestions, loadRoles, isMode, modeFlags, readSettings, updateSettings, userSettings, type Settings } from '../../core/config.ts';
 import { modelLabel, modelList } from '../../core/providers/models.ts';
 import { processKeychain } from '../../core/providers/keychain.ts';
+import { doctorReport } from '../../core/doctor.ts';
 import { versionInfo } from '../../protocol/version.ts';
 import { runStatusLineCommand } from './statusline.ts';
 import { loadKeybindings, watchKeybindings } from './keybindings/loader.ts';
@@ -61,7 +62,8 @@ import { readFileSync as fsRead, writeFileSync as fsWrite, existsSync as fsExist
 import { tmpdir } from 'node:os';
 import { loadProjectUsage } from './usage-summary.ts';
 import { awayText, ownerPresent, presentIn, recapWhen, type PendingRecap } from './away.ts';
-import { contextBreakdown, formatContext, writerSessionOf } from '../../core/context/breakdown.ts';
+import { formatContext, writerSessionOf } from '../../core/context/breakdown.ts';
+import { threadContext } from '../../core/context/thread-context.ts';
 import { readEventsLenient } from '../../core/session/usage.ts';
 import type { VimMode } from './vim-input.tsx';
 
@@ -578,7 +580,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
   const [autoSelected, setAutoSelected] = useState(0);
   const [autoDismissed, setAutoDismissed] = useState(false);
   const skillsList = React.useMemo(() => {
-    try { return loadSkills(args.cwd, cediaHome()); } catch { return []; }
+    try { return loadSkills(args.cwd, cediaHome(), sharedSkillDirs()); } catch { return []; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [args.cwd]);
   const autoQuery = input.trim().startsWith('/') && !running ? input.trim().slice(1).toLowerCase() : null;
@@ -650,14 +652,11 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         return;
       case 'context': {
         // What fills the thread's writer session now, from its log (core/context/breakdown.ts).
-        const s = thread && store.has(thread) ? writerSessionOf(store.read(thread), args.cwd, cediaHome()) : undefined;
-        if (s && fsExists(s.path)) {
+        if (thread && store.has(thread) && writerSessionOf(store.read(thread), args.cwd, cediaHome())) {
           try {
-            const events = readEventsLenient(fsRead(s.path, 'utf8'));
-            const spec = events[0]?.kind === 'session' ? resolveModel(events[0].model) : undefined;
-            say(formatContext(contextBreakdown(events, { sessionId: s.sessionId, ...(spec ? { handoffAt: loadHandoffAt(spec) } : {}) })));
-            return;
-          } catch {}
+            say(formatContext(threadContext(store, args.cwd, cediaHome(), { thread })));
+          } catch (e) { say(`context: ${(e as Error).message}`, 'red'); }
+          return;
         }
         say(`context: ${context} tokens${context ? ` (~${Math.round(context / 1000)}k)` : ''}`);
         return;
@@ -703,7 +702,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         return;
       }
       case 'skills': {
-        const skills = loadSkills(args.cwd, cediaHome());
+        const skills = loadSkills(args.cwd, cediaHome(), sharedSkillDirs());
         say(skills.length ? skills.map((s) => `${s.name}  ${s.description}`).join('\n') : 'no skills for this project');
         return;
       }
@@ -1120,7 +1119,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       }
       case 'palette': {
         // One column of names and one of descriptions, as the `/` menu has, and a search over both.
-        const skills = (() => { try { return loadSkills(args.cwd, cediaHome()); } catch { return []; } })();
+        const skills = (() => { try { return loadSkills(args.cwd, cediaHome(), sharedSkillDirs()); } catch { return []; } })();
         const rowsOf = [...INK_COMMANDS.map((c) => ({ name: c.name, about: c.description })), ...skills.map((sk) => ({ name: sk.name, about: `skill · ${sk.description}` }))];
         const nameWidth = Math.max(...rowsOf.map((r) => r.name.length + 1));
         const items = rowsOf.map((r) => ({ value: r.name, label: `${`/${r.name}`.padEnd(nameWidth)}  ${r.about}` }));
@@ -1138,17 +1137,14 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
           if (sha) lines.push(`build: ${sha}`);
         } catch { /* not a git checkout */ }
         lines.push(`cwd: ${args.cwd}`);
-        try {
-          JSON.parse(fsRead(join(cediaHome(), 'settings.json'), 'utf8'));
-          lines.push(`settings: ok`);
-        } catch (e) { lines.push(`settings: unreadable (${(e as Error).message})`); }
+        // What `cedia doctor` checks, from the same report (core/doctor.ts).
+        const report = doctorReport(args.cwd);
+        const user = report.settings.user;
+        lines.push(`settings: ${!user.present ? 'none yet' : user.ok ? 'ok' : `unreadable (${user.error})`}`);
         lines.push(`keybindings: ${loadedKeybindings.length} loaded`);
-        try {
-          const { servers } = listMcp();
-          lines.push(`mcp: ${servers.length ? servers.map((s) => s.name).join(', ') : 'none configured'}`);
-        } catch (e) { lines.push(`mcp: error (${(e as Error).message})`); }
-        const sandbox = Bun.which('bwrap') ?? Bun.which('sandbox-exec');
-        lines.push(`sandbox: ${sandbox ?? 'unavailable'}`);
+        const servers = report.mcp.servers;
+        lines.push(`mcp: ${servers.length ? servers.map((s) => (s.error ? `${s.name} (${s.error})` : s.name)).join(', ') : 'none configured'}`);
+        lines.push(`sandbox: ${report.sandbox.tool ?? 'unavailable'}`);
         const keys = ['ANTHROPIC_API_KEY', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY'].filter((k) => !!process.env[k]);
         lines.push(`api keys: ${keys.length ? keys.join(', ') : 'none in env'} (names only)`);
         lines.push(`onboarding: ${isComplete(cediaHome()) ? 'complete' : 'pending'}`);

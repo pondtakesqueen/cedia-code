@@ -47,7 +47,8 @@ import { lintSession } from './core/session/lint.ts';
 import { projectKey, sessionPath, SessionLog } from './core/session/log.ts';
 import { formatUsage, isUsageEvent, readEventsLenient, sinceOf, usageReport, type SessionInput } from './core/session/usage.ts';
 import { selectSessions } from './core/session/select.ts';
-import { contextBreakdown, formatContext, writerSessionOf } from './core/context/breakdown.ts';
+import { formatContext } from './core/context/breakdown.ts';
+import { threadContext } from './core/context/thread-context.ts';
 import { awayRecap, formatRecap, lastRunStart, recapSince } from './core/project/recap.ts';
 import { searchText, searchThreads } from './core/project/search.ts';
 import { EFFORTS, type Effort } from './core/types.ts';
@@ -644,23 +645,8 @@ function context(argv: string[]): number {
   const cwd = values.cwd ?? process.cwd();
   const home = cediaHome();
   try {
-    let found: { sessionId: string; path: string } | undefined;
-    if (positionals[0]) found = { sessionId: basename(positionals[0]).replace(/\.jsonl$/, ''), path: positionals[0] };
-    else {
-      const store = new ThreadStore(threadsDir(home, projectKey(cwd)));
-      const t = values.thread ? store.read(values.thread) : store.list().find((x) => !x.archived && !x.side && !x.parent && writerSessionOf(x, cwd, home));
-      if (!t) throw new Error('no thread with a session in this project');
-      found = writerSessionOf(t, cwd, home);
-      if (!found) throw new Error(`thread ${t.id} has no writer session yet`);
-    }
-    if (!existsSync(found.path)) throw new Error(`no session log at ${found.path}`);
-    const events = readEventsLenient(readFileSync(found.path, 'utf8'));
-    if (events[0]?.kind !== 'session') throw new Error(`${found.path} does not start with a session event`);
-    let handoffAt: number | undefined;
-    try {
-      handoffAt = loadHandoffAt(resolveModel(events[0].model));
-    } catch {}
-    const c = contextBreakdown(events, { sessionId: found.sessionId, ...(handoffAt ? { handoffAt } : {}) });
+    const store = new ThreadStore(threadsDir(home, projectKey(cwd)));
+    const c = threadContext(store, cwd, home, { ...(positionals[0] ? { path: positionals[0] } : {}), ...(values.thread ? { thread: values.thread } : {}) });
     console.log(values.json ? JSON.stringify(c) : formatContext(c));
     return 0;
   } catch (e) {
