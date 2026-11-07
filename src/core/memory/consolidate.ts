@@ -164,7 +164,7 @@ Keep the notes few and true:
 - A note that the transcripts or the code show is wrong or out of date: revise it, or forget it.
 - Two notes that say the same thing: revise one to hold both, then forget the other.
 - Something new and durable: remember it, one fact per note, at most ${MAX_NOTE} characters.
-Check a note against the code with read and grep before you change it on a hunch. Notes kept by the user are theirs: leave them. Make at most 10 changes in all. If nothing needs changing, change nothing.`;
+Check every note that names a file, a path, a command or how something works against the working tree with read or grep before you keep, revise or forget it, the project's own tooling included: the tree may be the source of the very tool these notes are for. A note you could not check stays as it is; never say a note was checked unless a read or grep in this pass checked it. Notes kept by the user are theirs: leave them. Make at most 10 changes in all. If nothing needs changing, change nothing.`;
 
 export async function consolidateMemory(opts: {
   cwd: string;
