@@ -1123,6 +1123,13 @@
             "off"
           ]
         },
+        "dream": {
+          "type": "string",
+          "enum": [
+            "on",
+            "off"
+          ]
+        },
         "outputStyle": {
           "type": "string"
         },

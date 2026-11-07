@@ -9,7 +9,8 @@ import { providerFor } from '../providers/index.ts';
 import { projectKey, projectRoot, projectSlug, SessionLog, sessionExists, sessionPath, workspaceRoots } from '../session/log.ts';
 import { DAILY_SPEND_WARN_USD, daySpendUsd } from '../session/select.ts';
 import { dayOf } from '../session/usage.ts';
-import { cediaHome, sharedSkillDirs, detectChecks, loadChecks, loadOwnerChecks, loadContext, loadFallback, loadMedia, loadHandoff, loadHandoffAt, loadHooks, loadMcp, loadMaxEffort, loadSubthreadEffort, capEffort, loadPolicy, loadPrivacy, loadQuotaWait, loadRoles, loadSandbox, loadSpawn, loadAsk, loadJobs, loadTodo, loadCreator, loadProfiles, loadLsp, loadPlanWhen, loadPlanOverlap, loadThorough, loadPromptSuggestions, isMode, modeFlags, type Mode, type RoleChoice } from '../config.ts';
+import { cediaHome, sharedSkillDirs, detectChecks, loadChecks, loadOwnerChecks, loadContext, loadFallback, loadMedia, loadHandoff, loadHandoffAt, loadHooks, loadMcp, loadMaxEffort, loadSubthreadEffort, capEffort, loadPolicy, loadPrivacy, loadQuotaWait, loadRoles, loadSandbox, loadSpawn, loadAsk, loadJobs, loadTodo, loadCreator, loadProfiles, loadLsp, loadPlanWhen, loadPlanOverlap, loadThorough, loadPromptSuggestions, loadDream, isMode, modeFlags, type Mode, type RoleChoice } from '../config.ts';
+import { startDream } from '../memory/consolidate.ts';
 import { attachedNote, blobDir, STORED_IMAGE, storedImage, type ImageRef } from '../images.ts';
 import { storeAttachment } from '../video.ts';
 import { claimThread } from '../background/busy.ts';
@@ -1360,6 +1361,12 @@ export async function runThread(given: ThreadArgs, emit: (m: CoreMessage) => voi
         const { generateSuggestion } = await import('../suggestions/prompt-suggestion.ts');
         const sug = await generateSuggestion({ cwd: args.cwd, lastResult: result.result });
         if (sug) emit({ type: 'prompt_suggestion', suggestion: sug.text });
+      } catch {}
+    }
+    // Dreaming: a writer run that kept a session may start the day's memory pass, in a process of its own.
+    if (loadDream() && !args.noSessionFile) {
+      try {
+        if (startDream(args.cwd, cediaHome())) say('cedia: tending project memory in the background (dream is on)\n');
       } catch {}
     }
     return result;
