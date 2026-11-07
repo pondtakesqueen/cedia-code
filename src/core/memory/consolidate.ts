@@ -163,7 +163,7 @@ You get the current notes, each with its id, and the newest session transcripts.
 Keep the notes few and true:
 - A note that the transcripts or the code show is wrong or out of date: revise it, or forget it.
 - Two notes that say the same thing: revise one to hold both, then forget the other.
-- Something new and durable: remember it, one fact per note, at most ${MAX_NOTE} characters.
+- Something new and durable that the transcripts show: remember it, one fact per note, at most ${MAX_NOTE} characters. Reading the code is for checking notes, not for finding new ones: a later session can read the code itself.
 Check every note that names a file, a path, a command or how something works against the working tree with read or grep before you keep, revise or forget it, the project's own tooling included: the tree may be the source of the very tool these notes are for. A path outside the tree (under the home folder, say) is checkable too when the tree's code is what reads or writes it. When a grep finds no trace of a file, path, command or mechanism a note relies on, that is evidence against the note: forget or revise it. Never say a note was checked unless a read or grep in this pass checked it. Every session already reads the repository's AGENTS.md or CLAUDE.md, so do not copy what they say into a note. Notes kept by the user are theirs: leave them. Make at most 10 changes in all. If nothing needs changing, change nothing.`;
 
 export async function consolidateMemory(opts: {
