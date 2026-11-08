@@ -37,6 +37,8 @@ export type EditableSettings = {
   lsp?: 'on' | 'off' | 'custom';
   jobs?: OnOff;
   promptSuggestions?: OnOff;
+  // After a writer run, at most once a day, tend the project's memory notes in the background.
+  dream?: OnOff;
   outputStyle?: string;
   sandbox: { mode?: SandboxSetting; allowedDomains: string[] };
   permissions: { allow: string[]; deny: string[]; unlock: Guard[] };
@@ -110,6 +112,7 @@ const FIELDS: Record<string, Field> = {
   },
   jobs: { path: ['jobs'], store: (v) => v === 'on', check: onOff('jobs') },
   promptSuggestions: { path: ['promptSuggestions'], store: (v) => v === 'on', check: onOff('promptSuggestions') },
+  dream: { path: ['dream'], store: (v) => v === 'on', check: onOff('dream') },
   outputStyle: plain('outputStyle', (v) => {
     const names = loadOutputStyles().map((s) => s.name);
     if (!names.includes(v)) throw new Error(`no output style ${v} (have ${names.join(', ')})`);
@@ -154,6 +157,7 @@ export function getEditable(): EditableSettings {
       lsp: typeof s.lsp === 'object' && s.lsp !== null ? ('custom' as const) : sw(s.lsp),
       jobs: sw(s.jobs),
       promptSuggestions: sw(s.promptSuggestions),
+      dream: sw(s.dream),
       outputStyle: str(s.outputStyle),
     }),
     sandbox: drop({ mode: s.sandbox?.mode, allowedDomains: strs(s.sandbox?.allowedDomains) }),

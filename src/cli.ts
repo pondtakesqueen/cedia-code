@@ -1351,7 +1351,7 @@ async function memory(argv: string[]): Promise<number> {
     if (cmd === 'consolidate' && rest.length === 0) {
       const r = await consolidateMemory({ cwd, ...(values.model ? { model: values.model } : {}), force: true });
       if (values.json) console.log(JSON.stringify(r));
-      else console.log(`consolidated: ${r.added} note${r.added === 1 ? '' : 's'} added (${r.sessionsScanned} session${r.sessionsScanned === 1 ? '' : 's'} scanned)`);
+      else console.log(`consolidated: ${r.added} note${r.added === 1 ? '' : 's'} added, ${r.forgotten} forgotten or rewritten (${r.sessionsScanned} session${r.sessionsScanned === 1 ? '' : 's'} scanned)`);
       return 0;
     }
     if (cmd === 'extract' && rest.length === 0) {

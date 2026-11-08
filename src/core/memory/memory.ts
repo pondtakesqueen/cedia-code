@@ -21,6 +21,9 @@ export const MAX_MEMORY = 8_000;
 
 export const memoryPath = (home: string, slug: string) => join(home, 'projects', slug, 'memory.jsonl');
 
+// One line: every kind of line break becomes a space, so a note cannot start a line of its own.
+const oneLine = (text: string) => text.replace(/[\r\n\v\f\u0085\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim();
+
 export class MemoryStore {
   constructor(readonly path: string) {}
 
@@ -48,8 +51,7 @@ export class MemoryStore {
   }
 
   add(text: string, from: string, now = new Date()): MemoryNote {
-    // One line: every kind of line break becomes a space, so a note cannot start a line of its own.
-    const t = text.replace(/[\r\n\v\f\u0085\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim();
+    const t = oneLine(text);
     if (!t) throw new Error('a note needs text');
     if (t.length > MAX_NOTE) throw new Error(`a note is at most ${MAX_NOTE} characters; this one is ${t.length}`);
     const note = { id: crypto.randomUUID().slice(0, 8), text: t, from, at: now.toISOString() };
@@ -60,6 +62,17 @@ export class MemoryStore {
   forget(id: string, now = new Date()): void {
     if (!this.notes().some((n) => n.id === id)) throw new Error(`no note ${id}`);
     this.append({ kind: 'forget', id, at: now.toISOString() });
+  }
+
+  // A note rewritten: the old one forgotten and the new text kept under a new id, so the log stays append-only and
+  // shows what the note said before. The text is checked before anything is written.
+  revise(id: string, text: string, from: string, now = new Date()): MemoryNote {
+    if (!this.notes().some((n) => n.id === id)) throw new Error(`no note ${id}`);
+    const t = oneLine(text);
+    if (!t) throw new Error('a note needs text');
+    if (t.length > MAX_NOTE) throw new Error(`a note is at most ${MAX_NOTE} characters; this one is ${t.length}`);
+    this.forget(id, now);
+    return this.add(t, from, now);
   }
 
   private append(e: MemoryEvent) {
@@ -99,6 +112,66 @@ export function rememberTool(store: MemoryStore, from: string): ToolSpec {
       try {
         const n = store.add(String(input.note ?? ''), from);
         return { text: `kept as note ${n.id}`, isError: false };
+      } catch (e) {
+        return { text: (e as Error).message, isError: true };
+      }
+    },
+  };
+}
+
+// The notes as a memory pass sees them: each with its id, so the pass can forget or revise it. Redacted and made
+// inert like the block every session gets.
+export function notesForPass(notes: MemoryNote[]): string {
+  if (!notes.length) return '(no notes yet)';
+  return notes.map((n) => `- [${n.id}] ${n.at.slice(0, 10)} (${n.from === 'user' ? 'from the user' : 'from a session'}): ${inert(redactSecrets(n.text).text)}`).join('\n');
+}
+
+// A memory pass's ways to correct what is kept: forget a note that is wrong, out of date or repeats another, or
+// rewrite one (merging two is a revise of one and a forget of the other). Only memory passes get them: a writer
+// mid-task keeps notes and does not tend them. A note the user kept is the user's, so a pass leaves it alone.
+export function forgetTool(store: MemoryStore): ToolSpec {
+  return {
+    name: 'forget',
+    description: 'Drop a note that is wrong, out of date, or says what another note already says. Name the note by its id.',
+    schema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'The note to drop' }, reason: { type: 'string', description: 'Why, in one line' } },
+      required: ['id', 'reason'],
+      additionalProperties: false,
+    },
+    effect: 'write_workspace',
+    replay: 'unsafe',
+    async run(input) {
+      const id = String(input.id ?? '');
+      const note = store.notes().find((n) => n.id === id);
+      if (!note) return { text: `no note ${id}`, isError: true };
+      if (note.from === 'user') return { text: `note ${id} was kept by the user; leave it`, isError: true };
+      store.forget(id);
+      return { text: `forgot note ${id}`, isError: false };
+    },
+  };
+}
+
+export function reviseTool(store: MemoryStore, from: string): ToolSpec {
+  return {
+    name: 'revise',
+    description: `Rewrite a note that is partly wrong or out of date, or merge another note into it (then forget the other). At most ${MAX_NOTE} characters.`,
+    schema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'The note to rewrite' }, note: { type: 'string', description: 'Its new text, written to be read without this session' } },
+      required: ['id', 'note'],
+      additionalProperties: false,
+    },
+    effect: 'write_workspace',
+    replay: 'unsafe',
+    async run(input) {
+      const id = String(input.id ?? '');
+      const old = store.notes().find((n) => n.id === id);
+      if (!old) return { text: `no note ${id}`, isError: true };
+      if (old.from === 'user') return { text: `note ${id} was kept by the user; leave it`, isError: true };
+      try {
+        const n = store.revise(id, String(input.note ?? ''), from);
+        return { text: `note ${id} is now note ${n.id}`, isError: false };
       } catch (e) {
         return { text: (e as Error).message, isError: true };
       }

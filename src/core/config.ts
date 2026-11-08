@@ -73,8 +73,11 @@ export type Settings = {
   desktop?: Record<string, unknown>;
   // The user's hooks (core/hooks.ts). User settings only: a repo must not run code outside the sandbox.
   hooks?: Hooks;
-  // Retired: memory is consolidated only by `cedia memory consolidate`; nothing ever read these. Still accepted, and
-  // ignored, so a settings file that holds them loads.
+  // Dreaming: after a writer run, at most once a day, a pass in a process of its own tends the project's memory
+  // notes (core/memory/consolidate.ts, startDream). Default off: it spends tokens nobody asked for. User settings only.
+  dream?: boolean;
+  // Retired: nothing ever read these, and `dream` replaces them under a new name so a file that still holds them does
+  // not start spending. Still accepted, and ignored, so a settings file that holds them loads.
   consolidateMemory?: unknown;
   autoDream?: unknown;
   // Output style name (default/explanatory/learning or user style).
@@ -124,6 +127,7 @@ const SETTINGS_KEYS: Record<keyof Settings, readonly string[] | 'any'> = {
   mcpServers: 'any',
   desktop: 'any',
   hooks: 'any',
+  dream: 'any',
   consolidateMemory: 'any',
   autoDream: 'any',
   outputStyle: 'any',
@@ -378,6 +382,11 @@ export function loadJobs(flag?: string): boolean {
 // todo: flag > user settings > off.
 export function loadTodo(flag?: string): boolean {
   return switchOf('todo', flag, userSettings().todo);
+}
+
+// dream: user settings > off.
+export function loadDream(): boolean {
+  return switchOf('dream', undefined, userSettings().dream);
 }
 
 // promptSuggestions: flag > user settings > off.
