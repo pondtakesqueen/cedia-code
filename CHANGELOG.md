@@ -1,32 +1,149 @@
 # Changelog
 
 ## Unreleased
-- Security: cedia's own git commands (the status line, /diff, commits, worktrees, the change guide) run with `core.fsmonitor=false`, so a repository whose config names an fsmonitor program no longer runs it when cedia opens the repository and shows its status.
-- `cedia ultrareview` and the TUI's /ultrareview drop a finding that names a file the change does not touch, as /code-review does, and list it under `dropped` in `--json`. A new untracked file counts as part of the change.
-- Removed: the `consolidateMemory` setting (and `autoDream`, its older name) and `--consolidate-memory`, which nothing ever read; memory is consolidated by `cedia memory consolidate`. A settings file that still holds either key loads, and the key is ignored.
-- Security: a repository's `.cedia/settings.json` checks and the detected test command no longer become commands plan, review and explore sessions may run; only the owner's checks (`--check`, `~/.cedia/settings.json`) do, each as the exact command. Before, a repo check of `*` let a read-only run's explore sub-thread run any command.
-- Security: a call decided before an earlier call of the same reply ran is decided again once a writing call has run, so a symlink made by bash in that reply no longer carries a write out of the workspace (or into `.git/hooks`) or a read into a credential store.
-- Security: the policy and the file tools read a path the same way (`~` is home), so `~/../../.ssh/config` is no longer judged as one path and opened as another.
-- Security: grep is denied when a credential store lies under the directory it searches, and the model's glob can no longer bring back files named like credentials.
-- Security: the browser refuses a host name that resolves to a private address unless the user named it, as web_fetch does.
-- Security: the policy reads a backslash as bash does, as the read-only check already did, and both now use one rule (`unescape` in `safety/shell.ts`, held together by `test/shell-agree.test.ts`). Before, the policy read `"a\|b"` as `a|b` and a backslash-newline as a newline, so `rm -r\<newline>f x` was judged with a flag `-r<newline>f` rather than `-rf`. The read-only check moved from `tools/bash.ts` into `safety/shell.ts`.
-- Security: read-only bash reads a backslash as bash does. Before, `sed \-i s/a/b/ f` and `rg \--pre=sh x` passed as read-only though bash runs them with the flag, and `echo \'; touch x; echo \'` hid its middle command inside what the check took for a quoted string.
-- Creator mode (`--creator on`, `creator` in settings; off by default): the writer gets the `plugin` tool, installs a plugin it wrote in the working directory (Claude Code layout) and loads its skills in the same run without touching the cached prefix; it cannot replace or remove the user's own plugins, and the plugin's MCP servers and hooks do not start. `/make-plugin` is the procedure (capability `creator`).
-- `--browser-sites <hosts|none>`: the only hosts the browser tool opens besides loopback, whatever the sandbox or allow rules say, so the desktop's per-project site allowlist is the agent's too (capability `browser.sites`).
-- Skills honor `disable-model-invocation: true`: such a skill is a `/` command only, left out of the first turn's skill list and counted apart from its cap of 50, so pstack (`cedia marketplace add cursor github:cursor/plugins`, `cedia plugin install pstack@cursor`) adds one listed skill rather than 58. A bare name such as `/statechart` finds the one plugin skill named `<plugin>:statechart`; `cedia skills` marks the `/`-only ones.
-- Plugins load: Claude Code-layout plugins (`.claude-plugin/plugin.json`, `skills/`, `commands/`, `.mcp.json`) install from a folder, a git URL, `github:owner/repo` or `<plugin>@<marketplace>`; their skills and commands are skills named `<plugin>:<name>`; `cedia plugin show` lists what a plugin has and `cedia plugin mcp` adds its MCP servers; `update` installs from the same source again; hooks and agents are not run. `cedia marketplace update` is gone (a marketplace is read when a plugin installs).
-- Removed: managed settings and MDM (`cedia mdm`, `policy-limits`, `settings --source managed|resolved|policy`, doctor's managed and mdm lines), since the permission policy never read them; `--bg`, `agents`, `logs`, `attach`, `stop`, `kill` and `respawn`, since queued threads and `cedia daemon` run work in the background; `serve`, `remote` and `teleport`, since the desktop does this work. `cedia settings` prints the user settings.
-- Security: `cedia serve` listens on 127.0.0.1 only and answers only a request with its token (`CEDIA_SERVE_TOKEN`, or one printed at start; `cedia remote` sends `CEDIA_REMOTE_TOKEN`), and its runs keep the OS sandbox. Before, it took prompts in workspace mode with the sandbox off from anyone who could reach port 8787, a web page in the owner's browser included.
-- Security: a plugin whose `name` is not one path segment is refused (`../x` had install delete a directory outside `~/.cedia/plugins`); the `team` tool takes only team ids of its own shape (`../settings` read and rewrote JSON files outside `~/.cedia/teams`, in read-only mode too).
-- Prompt suggestions hold to the privacy level (under `zdr` nothing goes to a model that keeps prompts), and the TUI suggests from the last reply rather than from the word "success".
-- `sleep` ends on a stop; `Monitor` output is clipped like bash's (the whole in a file) and a watch holds at most 4M characters.
-- `cedia daemon` yields to the desktop's daemon while it holds `~/.cedia/desktop.lock` (`daemon.desktop-lock`).
-- `cedia threads send --image`: images on a thread message, shown with it at the next turn; a fork returns the forked run's images and `-p --image sha256:<hex>` shows a stored one again (`threads.send-images`).
-- `cedia context [--thread <id>] [--json]` and the TUI's `/context`: what fills a session's context now, by part: the system prompt, built-in tools and each MCP server's, AGENTS.md, memory, the skills list, and the history by kind, with the largest tool results and a bar of the window (`context`, `ContextBreakdown`).
-- Away recap: `cedia threads recap <id> [--since <time|30m>] [--json]`, and in the TUI "while you were away" when turns end three minutes or more after you last touched the terminal (held until focus comes back when it reports blur): the runs and how each ended, files changed, checks, cost, todo, messages from other threads and an open question. Read from the logs, no model call (`threads.recap`, `AwayRecap`).
-- `cedia inline-edit`: a selection and an instruction, answered with the new text and its patch; nothing is written (`inline-edit`).
+
+- Added a new terminal UI with a framed prompt, one row per tool call, side-by-side edit diffs with code colors, and dark and light themes picked from the terminal's background
+- Added a searchable command palette to the TUI, with Tab completion for commands and skills ranked by what you pick most
+- Added vim mode to the prompt, with motions, counts, operators, text objects and visual mode
+- Added a keybindings file with multi-key chords, an external editor for long prompts, and undo in the prompt
+- Added history search, a resume picker, a transcript toggle and a message picker for rewinding to the TUI
+- Added a screen-reader mode to the TUI
+- Added queued prompts: a message typed during a turn runs when the turn ends
+- Added `!` to the TUI to run a command in your own shell and send its output with the next prompt
+- Added `/agents`, a live view of a thread's sub-threads
+- Added a notification when a turn ends while the terminal is in the background
+- Added a "while you were away" recap to the TUI and `cedia threads recap`
+- Added `cedia context` and `/context` to show what fills a session's context window
+- Added `cedia ultrareview` and `/ultrareview`, a review run once per focus (correctness, security, tests, performance) side by side
+- Added `cedia review --thread` for a review of what one thread changed
+- Added `cedia explain-change`, a guide through a thread's change in the order that explains it
+- Added `cedia threads search` to find threads by what they did or edited
+- Added `cedia threads diff --base turn|head|upstream`
+- Added `cedia inline-edit` and `cedia complete` for editor integrations
+- Added `cedia settings get|set|unset` to edit settings from the command line
+- Added `cedia failures` and `cedia threads keep-rate` to see which tool calls fail and how much of a thread's work was kept
+- Added `--satisfaction-judge` to judge from your follow-up message whether the previous run helped
+- Added support for Claude Code-layout plugins, installed from a folder, a git URL, GitHub or a marketplace
+- Added creator mode (`--creator on`), where the agent can write a plugin and use it in the same run
+- Added an `/init` skill that writes or trims a repository's AGENTS.md
+- Added skills from `~/.agents/skills` and `~/.claude/skills`, and support for `disable-model-invocation`
+- Added the `Job` tool (`--jobs on`) for long commands that keep running after the session ends
+- Added `--ask auto`, which asks you a question only while you are at the terminal and otherwise decides and goes on
+- Added video input: `--image` takes a video as frames, and a run with images on a text-only model goes to the `--media` model
+- Added `--browser-sites` to limit the hosts the browser tool may open
+- Added multi-repository workspaces and `--project` to file threads from several repositories together
+- Added `--no-mcp` to start a run without any MCP server
+- Added search presets and per-tool rules (`--tool <name>=read|exec|deny`) to `cedia mcp add`
+- Added a `terse` output style and the `--output-style` flag
+- Added `--thorough on|off` to choose how carefully the agent checks its work before it stops
+- Added `--plan-overlap`, on by default, so the agent starts reading while the plan is written
+- Added a `ci` profile for fixing failed pull request checks
+- Added `cedia daemon`, which runs queued threads and due schedules in the background
+- Added `--take-over` to stop a thread's running run and start a new one
+- Added images on thread messages (`cedia threads send --image`)
+- Added a single-file release build with a checksummed manifest and an optional GPG signature
+- Added a suggested allow rule to the notice for a blocked call
+- Added a rule that blocks commands that skip the repository's git hooks
+- Added `AI_AGENT=cedia` to the environment of the agent's commands
+- Improved memory: `cedia memory consolidate` now revises, forgets and adds notes from recent sessions, and `dream` runs it once a day
+- Improved MCP: a large setup's tool definitions are sent short and searchable, so a server with hundreds of tools no longer inflates every request
+- Improved long test runs: a failing run reaches the model as its failures instead of a head and tail
+- Improved runs that go round in circles: a stuck guard now ends them
+- Improved long quota waits, which now check every 5 minutes whether the limit has lifted
+- Improved sub-threads, which now share the writer's cached prompt and run at their own model's effort
+- Improved `-m auto`, which now plans with Opus and reviews with Sonnet
+- Improved resumed sessions, which are now told the date when the day changed or hours passed
+- Improved instructions: a folder's AGENTS.md is shown once the agent first opens a file under it
+- Improved tool results, which now show a failed command's error, a search's pattern and a write's real line count
+- Improved redaction, which now hides known secret values as well as secret shapes and tells the model when it did
+- Improved Claude 5.x models, which now return summarized thinking
+- Improved the prompt, which now takes Thai and emoji, pastes whole and edits like readline
+- Improved TUI speed by drawing only what changed on screen
+- Changed the default writer to Haiku 5.5 at effort medium
+- Removed managed settings and MDM (`cedia mdm`, `policy-limits`), which the permission policy never read
+- Removed `--bg`, `agents`, `logs`, `attach`, `stop`, `kill` and `respawn`, since queued threads and `cedia daemon` run work in the background
+- Removed `serve`, `remote` and `teleport`, since the desktop app does this work
+- Removed the `consolidateMemory` setting and `--consolidate-memory`, which nothing read
+- Removed `cedia marketplace update`, since a marketplace is read when a plugin installs
+- Fixed a security issue where a repository's fsmonitor setting could run a program when cedia read the repository's git status
+- Fixed a security issue where a repository's own settings could let a read-only session run any command
+- Fixed a security issue where a symlink made earlier in the same reply could carry a write out of the workspace
+- Fixed a security issue where a path starting with `~` could be checked as one file and opened as another
+- Fixed a security issue where grep could search a credential store from a folder above it
+- Fixed a security issue where the browser could open a host name that resolves to a private address
+- Fixed a security issue where a backslash in a command could hide a flag or a second command from the permission checks
+- Fixed a security issue where a plugin name or team id could point outside cedia's own folders
+- Fixed sandbox gaps around shell startup files, symlinks and planted plugins
+- Fixed read-only commands that could still write through flags of `sed`, `awk`, `sort`, `tree` and `file`
+- Fixed `Monitor` and `NotebookEdit` skipping the permission checks that bash and edit get
+- Fixed prompt suggestions sending text to a model that keeps prompts under the `zdr` privacy level
+- Fixed `sleep` not ending when you stop a run
+- Fixed `/theme`, `/effort` and `/fast` breaking every run after them
+- Fixed `--project` crashing every command
+- Fixed settings writers replacing a settings file they could not read
+- Fixed `cedia daemon` leaving runs whose process had died marked as running
+- Fixed printed text showing a literal `\n` instead of a new line
 
 ## 1.0.0
-- Tier 1 complete: memory consolidation, managed settings tier (file-based), plugin marketplace (local), keybindings/vim/status line/doctor, background agents.
-- Tier 2: Sleep, NotebookEdit, ToolSearch, Monitor, output styles, prompt suggestions.
-- Deferrals documented in docs/history/GAP_ANALYSIS_CC.md.
+
+- Added a TUI where each prompt is a turn of one thread, with `/diff`, `/undo`, `/redo` and a git status line
+- Added `cedia threads rewind`, which takes a thread back to just before one of its runs, conversation and files together
+- Added `/commit` and `/pr` to the TUI, and `cedia commit` and `cedia pr` for other clients
+- Added `/review` for a read-only review of uncommitted changes or a pull request
+- Added `/goal` and `--goal`, which keep a run going until a separate judge finds the goal met
+- Added keybindings, vim mode, a custom status line and `cedia doctor`
+- Added project memory: notes every new session gets, kept by you or the agent, with `cedia memory`
+- Added skills: SKILL.md folders listed in the first turn and loaded with the `skill` tool
+- Added a local plugin marketplace
+- Added MCP servers over stdio or streamable HTTP, managed with `cedia mcp`
+- Added the `web_fetch` tool, which never reaches a private address
+- Added the `browser` tool, with screenshots, on a Chromium the client started
+- Added `--image` and image reading so the agent can see screenshots
+- Added the `Sleep`, `NotebookEdit`, `ToolSearch` and `Monitor` tools
+- Added output styles and prompt suggestions
+- Added hooks: your own commands before and after each tool call and on a claim of done
+- Added language server diagnostics to edit and write results
+- Added the plan, review, advisor and classifier roles, each on any model
+- Added the `auto` and `oplan` modes, effort per role and a ripgrep `grep` tool
+- Added `--spawn worktree`, which runs each work sub-thread in its own git worktree
+- Added best-of-N, where several sub-threads try a task and the one that passes most checks is kept
+- Added split plans, where the planner hands parts of the work to sub-threads
+- Added schedules, a todo list, profiles and coordinator threads that open threads for others
+- Added `cedia threads fork`, side chats with `--side`, and `threads rename` and `threads delete`
+- Added `cedia usage`, which shows where a project's spend went by day, model, project and thread
+- Added `cedia models --json`, `cedia permissions --json` and `cedia commands --json` for client pickers
+- Added the `plan` permission mode
+- Added `ask_user`, so the agent can end a run with one question for you
+- Added DeepSeek V4.1 Flash and Haiku 5.5 through OpenRouter, on zero-retention endpoints only
+- Improved long sessions, which hand off by server compaction on Claude API models
+- Improved prompt caching, which keeps a waiting session's cache warm and caches the TUI's prompt for an hour on Claude API models
+- Improved the agent's effort, which rises once when the done gate refuses a claim
+- Improved long bash output, which goes whole to a file
+- Improved the repository's AGENTS.md, which is now read into the first turn
+- Improved edits, which now repair the input shapes models send by mistake
+- Improved requests that send nothing for 120 seconds, which are now retried
+- Improved the deny list, which now sees through `find`, git aliases, shell flags and `env -S`
+- Fixed a review cut short by a stop being reported as having no verdict
+
+## 0.1.0
+
+- Added headless runs with `cedia -p`, as text, JSON or a stream of JSON events
+- Added providers for the Anthropic Messages, Chat Completions and Responses APIs, and an offline faux provider for tests
+- Added the `read`, `edit`, `write` and `bash` tools
+- Added permission modes, allow and deny rules, and a built-in deny list
+- Added an OS sandbox for bash with a scrubbed environment and protected `.git` and `.cedia` folders
+- Added shadow-git snapshots around every writing tool call
+- Added the done gate, which checks a claim of done against the session log and declared checks (`--check`)
+- Added a receipt at the end of each run that says what changed and what was checked
+- Added `cedia lint-session` to check a session log against cedia's rules
+- Added threads, with automatic handoff to a new session, recall, and threads that message each other
+- Added explore and work sub-threads that run in fresh sessions
+- Added the plan, code and review roles in one run, each on any model
+- Added a quota fallback that continues on another model when a quota runs out, and `--on-quota wait`
+- Added secret redaction, injection defense and the `zdr` privacy level
+- Added the slop guard and detected checks
+- Added threads from every git worktree filed under the main repository's project
+- Added API keys from the macOS Keychain
+- Added `cedia --version --json`, with the protocol schema hash and capabilities for clients
+- Improved the default turn limit to 200, up from 50
+- Fixed a bash command's whole process group not ending on timeout or abort

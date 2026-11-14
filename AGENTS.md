@@ -38,6 +38,7 @@ Work the pstack poteto-mode way:
 - Keep the cached prefix byte-identical (see "Cache rules" in `SPEC.md`). Never edit message 0 mid-session.
 - Every `tool_use` gets a `tool_result`, including denied and not-started calls.
 - API keys only. Never add Claude.ai OAuth, Cursor login, or any request that impersonates another client.
+- A change a user would notice adds one line under `## Unreleased` in `CHANGELOG.md`, in Claude Code's style (`CONTRIBUTING.md`, "Changelog and releases").
 - Never copy code or prompts from `anthropics/claude-code` (no license) or leaked sources, and never port cedia-rs. Adapted Apache-2.0/MIT code needs a `NOTICE` entry.
 - e2e tests use the faux provider and must work offline.
 

@@ -15,6 +15,13 @@ This repository is proprietary (see `LICENSE`): talk to the owner before writing
 - A change to a prompt, a default, the loop, a tool, or the trust layer runs the eval gate first (`bun evals/gate.ts`; `evals/gate/README.md`) and puts its report in the PR description. The `eval-gate` report check fails until the PR's "Eval gate" section holds the report, or "Not needed" and why. A change meant to move the numbers runs `--update-baseline` in the same PR and says why.
 - Protocol types changed? Regenerate with `bun scripts/protocol-schema.ts`. Run output changed? Re-record with `bun scripts/session-fixtures.ts` (`test/fixtures.test.ts` fails when either is stale).
 
+## Changelog and releases
+
+`CHANGELOG.md` follows Claude Code's changelog: `## <version>` headings, newest first, each entry one line a user would understand, starting with Added, Improved, Changed, Fixed, Removed or Deprecated. No file names, function names or internals: say what the user sees, not how it was built. `test/changelog.test.ts` checks the shape.
+
+- A change a user would notice adds one line under `## Unreleased` in the same PR. Refactors, tests, evals and docs-only changes add nothing.
+- To release: pick the version (patch for fixes only, minor for anything Added, major for a breaking change), set it in `package.json`, rename `## Unreleased` to `## <version>`, put a new empty `## Unreleased` above it, then `bun test test/changelog.test.ts` and `bun run build:release` before tagging `v<version>`.
+
 ## Clean room
 
 - Never copy code or prompts from unlicensed or leaked sources, and never port cedia-rs. Adapted Apache-2.0/MIT code needs a `NOTICE` entry.
