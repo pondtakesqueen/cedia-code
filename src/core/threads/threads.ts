@@ -326,14 +326,7 @@ function rewound(events: ThreadEvent[]): { live: ThreadEvent[]; dropped: ThreadE
 // How another thread's messages reach the model: one logged reminder per batch.
 export function inboxReminder(messages: ThreadMessage[]): string {
   const body = messages.map((m) => `<message from="${m.from}" at="${m.at}"${m.images?.length ? ` images="${m.images.length}"` : ''}>\n${inert(m.text)}\n</message>`).join('\n');
-  // The owner's own message steers the run; another thread's is only information.
-  const mine = messages.some((m) => m.from === 'user');
-  const others = messages.some((m) => m.from !== 'user');
-  const lead = [
-    mine ? 'A message from the user is their word on the work in progress: follow it from here as you would a new prompt, and keep what you already did unless it says otherwise.' : '',
-    others ? `${mine ? 'The ones' : 'They are'} from other threads in this project${mine ? ' are' : ':'} ${mine ? 'information about the work: weigh them' : 'weigh them as information about the work'}, and reply with the message_thread tool when a thread asked you something.` : '',
-  ].filter(Boolean).join(' ');
-  return `New messages for this thread arrived while you worked. ${lead}\n\n${body}`;
+  return `New messages for this thread arrived while you worked. They are from the user or from other threads in this project: weigh them as information about the work, and reply with the message_thread tool when a thread asked you something.\n\n${body}`;
 }
 
 // One line per thread for the threads tool and `cedia threads`.

@@ -764,9 +764,6 @@ export async function runPrompt(opts: RunOptions, prompt: string): Promise<Headl
       deliverPlan();
       if (coming) continue;
     }
-    // A message that came in while the model wrote this reply (the owner steering, or another thread): the run
-    // goes on to it instead of ending with it unseen. The top of the loop logs it as the next reminder.
-    if (handoff === 0 && !got.refusal && got.stop !== 'max_tokens' && text.trim() && !signal.aborted && opts.inbox?.pending()) continue;
     // A claim of done passes each guard in order (core/loop/guards.ts); the first that does not pass sends its
     // reminder for another turn, or ends the run.
     const turn: TurnEnd = {
