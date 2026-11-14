@@ -393,6 +393,12 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
   const historyRef = useRef<string[]>([]);
   const queueRef = useRef<{ text: string; at: number }[]>([]);
   const [queued, setQueued] = useState<string[]>([]);
+  // Steering: a prompt sent while a thread's turn runs goes to the thread as a message, which the run shows the
+  // model at its next step (core/loop/run.ts, inbox) without stopping. These are the ones it has not seen yet.
+  const runThreadRef = useRef<string | undefined>(undefined);
+  const steeredRef = useRef<{ id: string; text: string }[]>([]);
+  const lastSteerRef = useRef(0);
+  const [steered, setSteered] = useState<string[]>([]);
   const submitRef = useRef<(text: string, planWhen?: 'always' | 'never', queued?: boolean) => Promise<void>>(async () => {});
   // Long pastes by their token in the prompt (line-edit.ts); kept for the session, so a recalled prompt still expands.
   const pastesRef = useRef(new Map<string, string>());
@@ -1294,6 +1300,22 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
     if (running) {
       const q = queueRef.current;
       if (q.at(-1)?.text === text && Date.now() - (q.at(-1)?.at ?? 0) < 100) return;
+      // Plain words steer the run; a command or a `!` line still waits for the turn to end.
+      const words = expandPastes(text, pastesRef.current).trim();
+      const into = runThreadRef.current;
+      if (into && !words.startsWith('/') && shellCommand(words) === undefined) {
+        const last = steeredRef.current.at(-1);
+        if (last?.text === text && Date.now() - lastSteerRef.current < 100) return;
+        try {
+          const id = store.send(into, 'user', words, new Date());
+          lastSteerRef.current = Date.now();
+          steeredRef.current.push({ id, text });
+          setSteered(steeredRef.current.map((x) => x.text));
+          setInput('');
+          inputRef.current = '';
+          return;
+        } catch {}
+      }
       q.push({ text, at: Date.now() });
       setQueued(q.map((x) => x.text));
       setInput('');
@@ -1416,6 +1438,18 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
           }
         } else if (m.type === 'event') {
           const e = m.event as SessionEvent;
+          if (e.kind === 'session' && e.role === 'code' && e.thread) runThreadRef.current = e.thread;
+          // The run showed the model the messages that waited: they join the conversation where they went in. Read
+          // at the request that follows, since a message is marked delivered after its reminder is logged.
+          if (e.kind === 'request' && steeredRef.current.length && runThreadRef.current) {
+            const waiting = new Set(store.read(runThreadRef.current).pending.map((m) => m.id));
+            const seen = steeredRef.current.filter((x) => !waiting.has(x.id));
+            if (seen.length) {
+              steeredRef.current = steeredRef.current.filter((x) => waiting.has(x.id));
+              setSteered(steeredRef.current.map((x) => x.text));
+              setMessages((prev) => [...prev, ...seen.map((x) => ({ role: 'user' as const, text: x.text }))]);
+            }
+          }
           if (e.kind === 'request') setActivity('waiting for model');
           else applyToolEvent(e);
         }
@@ -1426,6 +1460,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
     const takeShellNote = () => { const note = shellNote(shellRunsRef.current); shellRunsRef.current = []; return note; };
     let resultCost = 0;
     let turnThread = thread;
+    runThreadRef.current = thread;
     const turnStart = Date.now();
     turnStartRef.current = turnStart;
     try {
@@ -1461,6 +1496,22 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       setMessages((m) => [...m, { role: 'system', text: `✗ error: ${(e as Error).message}`, tone: 'red' }]);
       if (!stop.signal.aborted) attention(`Failed: ${(e as Error).message}`, Date.now() - turnStart);
     } finally {
+      // What the run ended without showing the model is taken back and waits like any queued prompt: back in the
+      // prompt after a stop, else the next prompt.
+      const unseen = steeredRef.current;
+      const from = runThreadRef.current;
+      runThreadRef.current = undefined;
+      steeredRef.current = [];
+      setSteered([]);
+      if (unseen.length && from) {
+        let back: typeof unseen = [];
+        try {
+          const waiting = new Set(store.read(from).pending.map((m) => m.id));
+          back = unseen.filter((x) => waiting.has(x.id));
+          if (back.length) store.unsend(from, back.map((x) => x.id));
+        } catch {}
+        queueRef.current = [...back.map((x) => ({ text: x.text, at: 0 })), ...queueRef.current];
+      }
       busyRef.current = false;
       setRunning(false);
       setActivity('');
@@ -2727,6 +2778,13 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
             {steps.length > 6 ? <Text color={T.textFaint}>… {steps.length - 6} more</Text> : null}
           </Box>
         ) : null}
+        {steered.map((q, i) => (
+          <Box key={`steered-${i}`} paddingX={2}>
+            <Text color={screenReader ? undefined : T.textMuted} wrap="truncate">
+              {screenReader ? 'goes in at the next step: ' : '⧗ '}{q.replace(/\s+/g, ' ')}{screenReader ? '' : '  (next step)'}
+            </Text>
+          </Box>
+        ))}
         {queued.map((q, i) => (
           <Box key={`queued-${i}`} paddingX={2}>
             <Text wrap="truncate" color={screenReader ? undefined : T.textMuted}>

@@ -6,7 +6,7 @@ import { loadHandoff } from '../src/core/config.ts';
 import { runPrompt } from '../src/core/loop/run.ts';
 import { HANDOFF_NO_TOOLS, HANDOFF_PROMPT, defaultHandoffAt, resumeChoice } from '../src/core/context/handoff.ts';
 import { deleteThread } from '../src/core/threads/delete.ts';
-import { foldThread, threadsDir, ThreadStore, titleOf, type TodoState } from '../src/core/threads/threads.ts';
+import { foldThread, inboxReminder, threadsDir, ThreadStore, titleOf, type TodoState } from '../src/core/threads/threads.ts';
 import { resolveModel } from '../src/core/providers/catalog.ts';
 import { fauxProvider, type FauxStep } from '../src/core/providers/faux.ts';
 import { lintSession } from '../src/core/session/lint.ts';
@@ -267,6 +267,28 @@ describe('handoff in the loop', () => {
     const reminders = log.events.filter((e): e is EventOf<'reminder'> => e.kind === 'reminder');
     expect(reminders.map((e) => e.text)).toEqual(['<message from="t-1">use port 8080</message>']);
     expect(delivered).toEqual([['m1']]);
+  });
+
+  test('a message that arrives while the model writes its last reply is shown before the run ends', async () => {
+    const delivered: string[][] = [];
+    let asks = 0;
+    // Nothing waits at the first turn boundary; the message comes in during the reply that would end the run.
+    const inbox = {
+      pending: () => (++asks >= 2 && !delivered.length ? { ids: ['m1'], text: '<message from="user">also do b</message>' } : undefined),
+      delivered: (ids: string[]) => void delivered.push(ids),
+    };
+    const { r, log } = await run([reply('a is done'), reply('b is done too')], { inbox });
+    expect(r).toMatchObject({ subtype: 'success', result: 'b is done too' });
+    expect(delivered).toEqual([['m1']]);
+    expect(log.events.filter((e) => e.kind === 'reminder').map((e) => (e as EventOf<'reminder'>).text)).toEqual(['<message from="user">also do b</message>']);
+    expect(lintSession(log.events)).toEqual([]);
+  });
+
+  test("the user's message to a running thread reads as their instruction, another thread's as information", () => {
+    const mine = inboxReminder([{ id: 'm1', from: 'user', at: 'x', text: 'use port 8080' }]);
+    expect(mine).toContain('from the user');
+    expect(mine).toContain('follow it from here');
+    expect(inboxReminder([{ id: 'm2', from: 't-1', at: 'x', text: 'fyi' }])).not.toContain('follow it from here');
   });
 
   const spawner = spawnTool(async () => ({ model: 'faux/scripted', subtype: 'success', result: 'found it', costUsd: 0, changed: [], unverified: [] }));

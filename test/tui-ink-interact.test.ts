@@ -503,6 +503,46 @@ describe('ink TUI interaction (fake terminal, faux model)', () => {
     }
   }, 30000);
 
+  test('words sent during a turn steer it: the run shows them to the model at its next step and goes on', async () => {
+    const h = start({
+      script: [
+        { blocks: [{ type: 'tool_use', id: 'c1', name: 'bash', input: { command: 'sleep 2; echo slept' } }] },
+        { blocks: [{ type: 'text', text: 'switched to b' }] },
+      ],
+      before: () => ({ permission: 'workspace' }),
+    });
+    try {
+      await Bun.sleep(500);
+      h.write('do a');
+      await Bun.sleep(200);
+      h.write('\r');
+      await Bun.sleep(900);
+      h.write('do b instead');
+      await Bun.sleep(200);
+      h.write('\r');
+      await Bun.sleep(300);
+      expect(h.frame()).toContain('⧗ do b instead  (next step)');
+      for (let i = 0; i < 40 && !h.frame().includes('switched to b'); i++) await Bun.sleep(200);
+      expect(h.frame()).toContain('switched to b');
+      expect(h.frame()).toMatch(/▌ do b instead[\s\S]*switched to b/);
+      // One run, one session: the message went in as a reminder after the command's result, and nothing waits.
+      const store = new ThreadStore(threadsDir(join(h.dir, 'home'), projectKey(h.dir)));
+      const t = store.list()[0]!;
+      const thread = store.read(t.id);
+      expect(thread.runs).toHaveLength(1);
+      expect(thread.pending).toEqual([]);
+      const log = readFileSync(thread.sessions[0]!.path!, 'utf8');
+      expect(log).toContain('do b instead');
+      expect(log.indexOf('do b instead')).toBeGreaterThan(log.indexOf('slept'));
+      h.drain();
+      h.write('x');
+      await Bun.sleep(300);
+      expect(h.frame()).not.toContain('(next step)');
+    } finally {
+      h.stop();
+    }
+  }, 30000);
+
   test('ctrl+c on an empty prompt asks for a second press before leaving', async () => {
     const h = start();
     try {
@@ -515,7 +555,7 @@ describe('ink TUI interaction (fake terminal, faux model)', () => {
       h.stop();
     }
   }, 30000);
-  test('a waiting prompt runs when the turn ends and leaves the draft being typed alone', async () => {
+  test('words sent during a turn join it at its next step and leave the draft being typed alone', async () => {
     const h = start({
       script: [
         { blocks: [{ type: 'tool_use', id: 's1', name: 'sleep', input: { duration_ms: 1500 } }] },
@@ -533,7 +573,7 @@ describe('ink TUI interaction (fake terminal, faux model)', () => {
       h.write('\r');
       await Bun.sleep(200);
       h.write('draft');
-      // Each turn reads the script afresh, so the second one sleeps and answers too.
+      // The run shows the model `second` after the sleep's result, and ends once it has answered.
       const secondDone = () => /▌ second[\s\S]*✓ Done/.test(h.frame());
       for (let i = 0; i < 40 && !secondDone(); i++) await Bun.sleep(250);
       expect(secondDone()).toBe(true);

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added steering to the TUI: words sent during a turn reach the model at its next step without stopping the run (commands and `!` lines still wait for the turn to end)
+- Fixed a message sent to a running thread during its last reply waiting for the next run instead of being answered in this one
+- Changed the user's message to a running thread to read as an instruction to follow, not as information
 - Added a question in the TUI before a prompt goes to a large thread whose cache has expired: go on in a new session from where it stopped, or with the whole context
 - Added `cedia threads resume-cost` and `--cold-resume <auto|keep|fresh>` for clients that ask the same question
 - Added pull request bodies written to the repository's `pull_request_template.md` by `cedia pr` and `/pr` (`--fill` keeps the commits' text)
