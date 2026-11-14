@@ -1,4 +1,4 @@
-import { checkMcpServer, settingsPath, userSettings, writeSettings, type Settings } from '../config.ts';
+import { checkMcpServer, settingsPath, updateSettings, userSettings, type Settings } from '../config.ts';
 import { McpClient, type McpToolRule } from './client.ts';
 
 // `cedia mcp`: the user's MCP servers (`mcpServers` in ~/.cedia/settings.json) for a client's settings page, which
@@ -34,7 +34,7 @@ export type McpAdd =
   | { url: string; headers?: Record<string, string>; readOnly?: boolean; tools?: Record<string, McpToolRule>; timeoutSec?: number };
 
 const readRaw = (): Record<string, unknown> => userSettings() as Record<string, unknown>;
-const writeRaw = (settings: Record<string, unknown>) => writeSettings(settings as Settings, settingsPath());
+const updateRaw = (change: (settings: Record<string, unknown>) => Record<string, unknown>) => updateSettings((s) => change(s as Record<string, unknown>) as Settings);
 
 const servers = (s: Record<string, unknown>) => (s.mcpServers ?? {}) as Record<string, unknown>;
 
@@ -98,13 +98,13 @@ export async function checkMcp(name: string): Promise<McpCheck> {
 // Adds the server, or replaces the one of that name. An entry cedia would refuse is refused here instead.
 export function addMcp(name: string, server: McpAdd): void {
   checkMcpServer(name, server);
-  const settings = readRaw();
-  writeRaw({ ...settings, mcpServers: { ...servers(settings), [name]: server } });
+  updateRaw((settings) => ({ ...settings, mcpServers: { ...servers(settings), [name]: server } }));
 }
 
 export function removeMcp(name: string): void {
-  const settings = readRaw();
-  const { [name]: gone, ...rest } = servers(settings);
-  if (gone === undefined) throw new Error(`no MCP server ${name} in ${settingsPath()}`);
-  writeRaw({ ...settings, mcpServers: rest });
+  updateRaw((settings) => {
+    const { [name]: gone, ...rest } = servers(settings);
+    if (gone === undefined) throw new Error(`no MCP server ${name} in ${settingsPath()}`);
+    return { ...settings, mcpServers: rest };
+  });
 }
