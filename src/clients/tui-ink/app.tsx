@@ -59,10 +59,11 @@ import { forkThread } from '../../core/threads/fork.ts';
 import { ThreadStore, threadsDir } from '../../core/threads/threads.ts';
 import { projectKey } from '../../core/session/log.ts';
 import { isAbsolute, join } from 'node:path';
-import { readFileSync as fsRead, writeFileSync as fsWrite, existsSync as fsExists, unlinkSync as fsUnlink } from 'node:fs';
+import { readFileSync as fsRead, writeFileSync as fsWrite, existsSync as fsExists, unlinkSync as fsUnlink, statSync as fsStat } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { loadProjectUsage } from './usage-summary.ts';
 import { awayText, ownerPresent, presentIn, recapWhen, type PendingRecap } from './away.ts';
+import { followLines, markOf } from './follow.ts';
 import { formatContext, writerSessionOf } from '../../core/context/breakdown.ts';
 import { threadContext } from '../../core/context/thread-context.ts';
 import { readEventsLenient } from '../../core/session/usage.ts';
@@ -456,6 +457,26 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
   const store = React.useMemo(() => new ThreadStore(threadsDir(cediaHome(), projectKey(args.cwd))), [args.cwd]);
 
   const push = (m: Msg) => setMessages((prev) => [...prev, m]);
+  // Another cedia running the open thread (the desktop, the daemon, `cedia -p --thread`): its file is read again
+  // when it changes, and what started and ended there is said (follow.ts). This process's own turns are left out.
+  useEffect(() => {
+    if (!thread || !store.has(thread)) return;
+    const file = join(store.dir, `${thread}.jsonl`);
+    let mark = markOf(store.read(thread));
+    let stamp = '';
+    const t = setInterval(() => {
+      try {
+        const st = fsStat(file, { throwIfNoEntry: false });
+        const next = st ? `${st.size}:${st.mtimeMs}` : '';
+        if (next === stamp) return;
+        stamp = next;
+        const out = followLines(store.read(thread), mark, process.pid);
+        mark = out.mark;
+        for (const text of out.lines) push({ role: 'system', text });
+      } catch {}
+    }, 1000);
+    return () => clearInterval(t);
+  }, [thread, store]);
   const thinkingStartRef = useRef<number | undefined>(undefined);
   // What the running turn did, for the line that ends it.
   const turnRef = useRef<{ tools: number; blocked: number; files: Set<string> }>({ tools: 0, blocked: 0, files: new Set() });
