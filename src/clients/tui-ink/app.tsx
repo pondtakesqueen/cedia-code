@@ -50,7 +50,8 @@ import { MemoryStore, memoryPath } from '../../core/memory/memory.ts';
 import { loadSkills } from '../../core/skills/skills.ts';
 import { listMcp } from '../../core/mcp/manage.ts';
 import { threadFiles, NOTHING_CHANGED, commitFiles, currentBranch, prPlan, pushAndOpenPr } from '../../core/git/commit.ts';
-import { draftCommitMessage } from '../../core/git/draft.ts';
+import { draftCommitMessage, draftPrText } from '../../core/git/draft.ts';
+import { resumeCost, resumeCostLine, type ColdResume } from '../../core/run/resume-cost.ts';
 import { workspaceSnapshots } from '../../core/safety/snapshot.ts';
 import { allowRuleFor, applyAllowRules } from '../../core/safety/suggest.ts';
 import { restoredText, restoreTurn } from '../../core/threads/undo.ts';
@@ -365,6 +366,8 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
   const turnStartRef = useRef(0);
   const stopRef = useRef<AbortController | null>(null);
   const busyRef = useRef(false);
+  // The owner's answer to the cold-resume question, for the prompt that asked it.
+  const coldAnswerRef = useRef<ColdResume | undefined>(undefined);
   const pendingRef = useRef<{ what: string; yes: (signal: AbortSignal) => Promise<void> | void } | undefined>(undefined);
   const [scrollOffset, setScrollOffsetRaw] = useState(0);
   // Rows of the lowest message on screen that the wheel moved below it (`at` is the offset they belong to), so a
@@ -779,13 +782,16 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         return;
       }
       case 'pr': {
-        const { blocked, branch, base } = prPlan(args.cwd);
+        const { blocked, branch, base, template } = prPlan(args.cwd);
         if (blocked) { say(blocked); return; }
-        say(`push ${branch} to origin and open a pull request${base ? ` into ${base}` : ''}? y to go on; n, or anything else you type, cancels`);
+        say(`push ${branch} to origin and open a pull request${base ? ` into ${base}` : ''}${template ? `, its body written to ${template}` : ''}? y to go on; n, or anything else you type, cancels`);
         pendingRef.current = { what: 'the push', yes: async (signal) => {
           busyRef.current = true;
           try {
-            const r = await pushAndOpenPr(args.cwd, undefined, signal);
+            // A repository with a template gets its body written to it; when that fails gh fills it from the commits.
+            const drafted = template ? await draftPrText({ cwd: args.cwd, model: sideModel('write', { picked: model, ...(thread ? { threadWriter: threadWriter(store, thread) } : {}) }).ref, signal }) : undefined;
+            if (drafted) setSpent((s) => s + drafted.costUsd);
+            const r = await pushAndOpenPr(args.cwd, undefined, signal, drafted?.text);
             say(r.out, r.ok ? undefined : 'red');
           } finally { busyRef.current = false; }
         } };
@@ -1335,6 +1341,33 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
       await runShell(text, command);
       return;
     }
+    // A large thread whose cache expired: going on with its whole context is the costly way, so the owner picks
+    // first (core/run/resume-cost.ts). The answer goes with this prompt only.
+    const coldResume = coldAnswerRef.current;
+    coldAnswerRef.current = undefined;
+    if (thread && !coldResume) {
+      let cost;
+      try { cost = resumeCost(store, thread, model && !isMode(model) ? { model } : {}); } catch {}
+      if (cost?.ask) {
+        clearDraft();
+        const again = (answer?: ColdResume) => setTimeout(() => {
+          if (!answer) { setInput(text); inputRef.current = text; return; }
+          coldAnswerRef.current = answer;
+          void submitRef.current(text, planWhen, true);
+        }, 0);
+        setPicker({
+          title: resumeCostLine(cost),
+          items: [
+            { value: 'fresh', label: 'go on from where it stopped, in a new session (recommended)' },
+            { value: 'keep', label: 'go on with the whole context' },
+            { value: 'cancel', label: 'cancel: put the prompt back' },
+          ],
+          onPick: (v) => { again(v === 'fresh' || v === 'keep' ? v : undefined); },
+        });
+        openDialog('picker');
+        return;
+      }
+    }
     busyRef.current = true;
     setMessages((m) => [...m, { role: 'user', text }]);
     clearDraft();
@@ -1397,7 +1430,7 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
     turnStartRef.current = turnStart;
     try {
       const result = await runThread(
-        { ...args, model: model ?? args.model, permission: permission ?? args.permission, ...(effort ? { effort } : {}), cacheTtl: args.cacheTtl ?? '1h', streamingTools: true, promptSuggestions: 'off', prompt: takeShellNote() + expandPastes(text, pastesRef.current), live: true, note: (t: string) => { if (t.trim()) push({ role: 'system', text: `▲ ${t.trim().replace(/^cedia: /, '')}`, tone: 'accent' }); }, onPermission: (took: string) => setRunPermission({ setting: permission ?? args.permission ?? 'auto', took }), ...(thread ? { thread } : {}), ...(goal ? { goal } : {}), ...(planWhen ? { planWhen } : {}), present: () => ownerPresent(seenRef.current, Date.now()), signal: stop.signal },
+        { ...args, model: model ?? args.model, permission: permission ?? args.permission, ...(effort ? { effort } : {}), cacheTtl: args.cacheTtl ?? '1h', ...(coldResume ? { coldResume } : {}), streamingTools: true, promptSuggestions: 'off', prompt: takeShellNote() + expandPastes(text, pastesRef.current), live: true, note: (t: string) => { if (t.trim()) push({ role: 'system', text: `▲ ${t.trim().replace(/^cedia: /, '')}`, tone: 'accent' }); }, onPermission: (took: string) => setRunPermission({ setting: permission ?? args.permission ?? 'auto', took }), ...(thread ? { thread } : {}), ...(goal ? { goal } : {}), ...(planWhen ? { planWhen } : {}), present: () => ownerPresent(seenRef.current, Date.now()), signal: stop.signal },
         handleMessage,
       );
       setThread(result.thread ?? thread);

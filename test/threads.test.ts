@@ -426,6 +426,20 @@ describe('cedia threads (offline, faux)', () => {
     // Warm: the same session goes on.
     const warm = cedia(dir, [call('c3', 'grep -q good f.txt'), reply('second done')], ['-p', 'check it', ...base, '--thread', first.thread]);
     expect(JSON.parse(warm.out).sessionId).toBe(first.sessionId);
+    // A client asks first: `threads resume-cost` says what each way costs, and --cold-resume is the answer.
+    writeFileSync(join(dir, 'none.json'), '[]');
+    const asked = () => JSON.parse(Bun.spawnSync([BIN, 'threads', 'resume-cost', first.thread, '--json', '--cwd', dir], { env: { ...process.env, CEDIA_HOME: join(dir, 'home'), CEDIA_FAUX_SCRIPT: join(dir, 'none.json') } }).stdout.toString());
+    expect(asked()).toMatchObject({ thread: first.thread, ask: false, cold: false });
+    age(2);
+    const cost = asked();
+    expect(cost).toMatchObject({ ask: true, cold: true, model: 'faux/scripted' });
+    expect(cost.resumeUsd).toBeGreaterThan(2 * cost.freshUsd);
+    expect(cost.contextTokens).toBeGreaterThan(30_000);
+    const kept = cedia(dir, [call('c5', 'grep -q good f.txt'), reply('kept done')], ['-p', 'and again', ...base, '--thread', first.thread, '--cold-resume', 'keep']);
+    expect(JSON.parse(kept.out).sessionId).toBe(first.sessionId);
+    expect(kept.err).not.toContain('goes on in a new session');
+    expect(cedia(dir, [], ['-p', 'x', ...base, '--thread', first.thread, '--cold-resume', 'maybe']).err).toContain('--cold-resume must be auto, keep or fresh');
+
     age(2);
     const cold = cedia(dir, [call('c4', 'grep -q good f.txt'), reply('third done')], ['-p', 'check it again', ...base, '--thread', first.thread]);
     const r = JSON.parse(cold.out);
@@ -434,6 +448,9 @@ describe('cedia threads (offline, faux)', () => {
     const fresh = sessionsOf(dir).find((l) => l.id === r.sessionId)!;
     expect(userText(fresh.events)).toContain(`This is thread ${first.thread}`);
     expect(head(fresh.events).tools.map((t) => t.name)).toContain('recall');
+    // `fresh` opens a new session even while the last one is warm.
+    const forced = cedia(dir, [call('c6', 'grep -q good f.txt'), reply('fifth done')], ['-p', 'once more', ...base, '--thread', first.thread, '--cold-resume', 'fresh']);
+    expect(JSON.parse(forced.out).sessionId).not.toBe(r.sessionId);
   });
 
   test('the run\'s result is logged after the writer\'s last turn_end, never streamed twice or shown to a model', () => {

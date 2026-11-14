@@ -463,6 +463,46 @@ describe('ink TUI interaction (fake terminal, faux model)', () => {
     }
   }, 30000);
 
+  test('a prompt to a large thread whose cache expired asks first, and the answer goes with the run', async () => {
+    let id = '';
+    const h = start({
+      script: [{ blocks: [{ type: 'text', text: 'picked up' }] }],
+      before: (dir, home) => {
+        const store = new ThreadStore(threadsDir(home, projectKey(dir)));
+        id = store.open('a long job');
+        const log = join(dir, 'old.jsonl');
+        const at = (ms: number) => new Date(Date.now() - ms).toISOString();
+        writeFileSync(log, [
+          { id: 'q', parentId: null, at: at(2 * 3_600_000), kind: 'request', model: 'faux/scripted', toolsHash: 't', systemHash: 's', bodyHash: 'b', headers: {} },
+          { id: 'a', parentId: 'q', at: at(2 * 3_600_000 - 1000), kind: 'assistant', wire: 'anthropic', model: 'faux/scripted', blocks: [{ type: 'text', text: 'x' }], stop: 'end_turn', usage: { uncached: 0, cacheRead: 150_000, cacheWrite: 0, output: 10 } },
+        ].map((e) => JSON.stringify(e)).join('\n') + '\n');
+        store.append(id, { kind: 'session', sessionId: 's-old', model: 'faux/scripted', role: 'code', why: 'start', path: log });
+        store.append(id, { kind: 'state', state: 'done', result: 'half way' });
+        return { thread: id };
+      },
+    });
+    try {
+      await Bun.sleep(500);
+      h.write('go on');
+      await Bun.sleep(200);
+      h.write('\r');
+      await Bun.sleep(500);
+      const asked = h.frame();
+      expect(asked).toContain('idle 120 min and its cache has expired');
+      expect(asked).toContain('in a new session (recommended)');
+      expect(asked).toContain('go on with the whole context');
+      // Nothing ran yet; Enter takes the recommended answer.
+      expect(asked).not.toContain('picked up');
+      h.write('\r');
+      for (let i = 0; i < 30 && !h.frame().includes('picked up'); i++) await Bun.sleep(200);
+      expect(h.frame()).toContain('picked up');
+      const store = new ThreadStore(threadsDir(join(h.dir, 'home'), projectKey(h.dir)));
+      expect(store.read(id).sessions.at(-1)?.sessionId).not.toBe('s-old');
+    } finally {
+      h.stop();
+    }
+  }, 30000);
+
   test('ctrl+c on an empty prompt asks for a second press before leaving', async () => {
     const h = start();
     try {

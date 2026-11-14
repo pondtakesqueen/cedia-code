@@ -148,6 +148,9 @@ export type ThreadArgs = {
   // How long the writer's cached prefix lasts on the Anthropic wire: 5m (the API's default) or 1h, for a client
   // where the owner may think for longer between prompts (the TUI). Plan, review and sub-threads stay at 5m.
   cacheTtl?: string;
+  // A thread resumed after its last session's cache expired (core/run/resume-cost.ts): auto (default) takes the
+  // cheaper of the whole context and a new session from where it stopped; keep and fresh are the owner's answer.
+  coldResume?: string;
   // auto (default): the writer's model first says whether the message is work a plan helps (a greeting or a
   // question is not); always: every prompt is planned; never: none is.
   planWhen?: string;
@@ -330,6 +333,8 @@ export async function runThread(given: ThreadArgs, emit: (m: CoreMessage) => voi
   const cacheTtl = args.cacheTtl ?? '5m';
   warnDaySpend(args.cwd, cediaHome(), say);
   if (cacheTtl !== '5m' && cacheTtl !== '1h') throw new Error(`--cache-ttl must be 5m or 1h, not ${cacheTtl}`);
+  const coldResume = args.coldResume ?? 'auto';
+  if (coldResume !== 'auto' && coldResume !== 'keep' && coldResume !== 'fresh') throw new Error(`--cold-resume must be auto, keep or fresh, not ${coldResume}`);
   // Images or video with the prompt, on a code model that reads text only: the run goes to the media model, in a
   // session of its own (a session never switches model).
   const media = args.images?.length ? loadMedia(roles.code, args.media) : undefined;
@@ -1201,11 +1206,13 @@ export async function runThread(given: ThreadArgs, emit: (m: CoreMessage) => voi
     // the thread stopped is cheaper, so the run says both prices and takes the cheaper.
     const freshTokens = resumed ? Math.ceil((profileSystem(undefined, model, { writing: true, fromPlan, ...(thorough !== undefined ? { thorough } : {}) }).length + JSON.stringify(toolDefs(CORE_TOOLS)).length + basePreamble().length + resumeNote(resumed).length + task.length) / 4) : 0;
     const choice = lastLog ? resumeChoice(lastLog.events, model, freshTokens) : undefined;
-    if (choice?.fresh)
+    // The owner's answer, when a client asked first, stands over the price.
+    const goFresh = coldResume === 'fresh' ? !!lastLog : coldResume === 'keep' ? false : !!choice?.fresh;
+    if (choice?.fresh && coldResume === 'auto')
       say(
         `cedia: thread ${threadId}'s last session has been idle ${Math.round(choice.idleMs / 60_000)} min, ${choice.cold ? 'past its cache' : 'nearing its cache expiry'}; resuming it re-reads ${Math.round(choice.contextTokens / 1000)}k tokens (about $${choice.resumeUsd.toFixed(3)}), a new session from where it stopped starts at about ${Math.round(freshTokens / 1000)}k ($${choice.freshUsd.toFixed(3)}), so it goes on in a new session\n`,
       );
-    if (lastLog && !historyRejected(lastLog.events) && !choice?.fresh) {
+    if (lastLog && !historyRejected(lastLog.events) && !goFresh) {
       const log = lastLog;
       if (args.live) log.listeners.push((event) => emit({ type: 'event', event }));
       record(log, model, 'resume');

@@ -10,7 +10,7 @@ const out = join(root, 'src', 'protocol', 'protocol.schema.json');
 
 // Core -> client messages, the lines of the session, thread and schedule files, and what
 // `cedia --version --json` and `cedia schedules --json` print.
-const ROOTS = ['CoreMessage', 'SessionEvent', 'ThreadEvent', 'ScheduleEvent', 'Schedule', 'ModelList', 'PermissionList', 'CommandList', 'UsageReport', 'ContextBreakdown', 'AwayRecap', 'ThreadSearch', 'Restored', 'RewindResult', 'DeleteResult', 'ForkResult', 'McpList', 'McpCheck', 'EditableSettings', 'CommitDraft', 'Committed', 'PrPlan', 'PrOpened', 'InlineEdit', 'Completion', 'CodeReview', 'ChangeGuide', 'DesktopLock', 'VersionInfo'] as const;
+const ROOTS = ['CoreMessage', 'SessionEvent', 'ThreadEvent', 'ScheduleEvent', 'Schedule', 'ModelList', 'PermissionList', 'CommandList', 'UsageReport', 'ContextBreakdown', 'AwayRecap', 'ThreadSearch', 'Restored', 'RewindResult', 'DeleteResult', 'ForkResult', 'McpList', 'McpCheck', 'EditableSettings', 'CommitDraft', 'Committed', 'PrPlan', 'PrOpened', 'ResumeCost', 'InlineEdit', 'Completion', 'CodeReview', 'ChangeGuide', 'DesktopLock', 'VersionInfo'] as const;
 
 export function protocolSchema(): string {
   const generator = createGenerator({ path: join(root, 'src', 'protocol', 'index.ts'), tsconfig: join(root, 'tsconfig.json'), skipTypeCheck: true, sortProps: true });
