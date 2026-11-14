@@ -1,5 +1,6 @@
 import { relative } from 'node:path';
 import { SECRET_GLOBS } from '../fs-safety.ts';
+import { ownEnv } from '../own-env.ts';
 import { clip, MAX_SHELL_OUTPUT_CHARS, toolPath, type ToolSpec } from './registry.ts';
 
 // Search file contents with ripgrep, which skips what .gitignore and .ignore list (build output, dependencies,
@@ -49,11 +50,11 @@ export const grepTool: ToolSpec = {
       // The later --glob wins in ripgrep, so cedia's exclusions come after the model's glob.
       argv = [rg, '--no-config', '--color', 'never', '--no-heading', '--line-number', '--max-columns', String(MAX_COLUMNS), '--max-columns-preview', '--hidden', ...(icase ? ['-i'] : []), ...(files ? ['-l'] : []), ...(glob ? ['--glob', glob] : []), '--glob', '!.git', ...SECRET_GLOBS.flatMap((g) => ['--iglob', `!${g}`]), '-e', pattern, ...(target === '.' ? [] : ['--', target])];
     } else {
-      const inRepo = Bun.spawnSync(['git', 'rev-parse', '--is-inside-work-tree'], { cwd: ctx.cwd, stdout: 'pipe', stderr: 'ignore' }).stdout.toString().trim() === 'true';
+      const inRepo = Bun.spawnSync(['git', 'rev-parse', '--is-inside-work-tree'], { cwd: ctx.cwd, env: ownEnv(), stdout: 'pipe', stderr: 'ignore' }).stdout.toString().trim() === 'true';
       if (!inRepo) return { text: 'ripgrep (rg) is not installed and this is not a git repository: search with grep in bash', isError: true };
       argv = ['git', '--no-pager', 'grep', '-n', '-I', '--untracked', '-E', ...(icase ? ['-i'] : []), ...(files ? ['-l'] : []), '-e', pattern, '--', glob ? `${target === '.' ? '' : `${target}/`}${glob}` : target, ...SECRET_GLOBS.map((g) => `:(exclude,glob,icase)**/${g}`)];
     }
-    const p = Bun.spawn(argv, { cwd: ctx.cwd, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', signal: ctx.signal });
+    const p = Bun.spawn(argv, { cwd: ctx.cwd, env: ownEnv(), stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', signal: ctx.signal });
     const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
     // rg searches the working directory when given no path, and then prints paths without a leading ./.
     // Both exit 1 when nothing matched.
