@@ -59,14 +59,17 @@ describe('bin/cedia follows the open thread', () => {
       terminal: { cols: 120, rows: 40, data: (_t: unknown, d: Uint8Array) => { out += new TextDecoder().decode(d); } },
     } as Parameters<typeof Bun.spawn>[1]);
     try {
-      for (let i = 0; i < 150 && !/Faux \(scripted\)/.test(plain(out)); i++) await Bun.sleep(100);
+      // A loaded CI runner can take 15s to draw the first screen; the other run must start after it, or the TUI's
+      // first look at the thread already has it.
+      for (let i = 0; i < 400 && !/Faux \(scripted\)/.test(plain(out)); i++) await Bun.sleep(100);
+      expect(plain(out)).toContain('Faux (scripted)');
       expect(headless('second from the desktop', ['--thread', thread]).exitCode).toBe(0);
-      for (let i = 0; i < 50 && !/that run is done/.test(plain(out)); i++) await Bun.sleep(100);
+      for (let i = 0; i < 150 && !/that run is done/.test(plain(out)); i++) await Bun.sleep(100);
       expect(plain(out)).toContain('ran this thread: second from the desktop');
       expect(plain(out)).toContain('that run is done: one');
     } finally {
       p.kill();
       await p.exited;
     }
-  }, 30_000);
+  }, 75_000);
 });
