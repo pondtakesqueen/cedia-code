@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added pull request bodies written to the repository's `pull_request_template.md` by `cedia pr` and `/pr` (`--fill` keeps the commits' text)
 - Added live updates to the TUI when another cedia (the desktop, the daemon or `cedia -p --thread`) runs the thread it has open
 - Fixed two cedia clients both starting a run of one thread when they sent at the same moment
 - Fixed a settings change being lost when two cedia processes changed settings at once

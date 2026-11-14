@@ -37,7 +37,7 @@ import type { McpToolRule } from './core/mcp/client.ts';
 import { codeReview, type CodeReview } from './core/review/code-review.ts';
 import { changeGuide, DIFF_BASES, guideText, threadDiff, type ChangeGuide, type DiffBase } from './core/git/change-guide.ts';
 import { commitFiles, commitPatch, currentBranch, headCommit, NOTHING_CHANGED, prPlan, pushAndOpenPr, threadFiles, type CommitDraft, type Committed, type PrOpened } from './core/git/commit.ts';
-import { draftCommitMessage } from './core/git/draft.ts';
+import { draftCommitMessage, draftPrText } from './core/git/draft.ts';
 import { reviewSubject, ultraReview } from './core/review/ultrareview.ts';
 import { sideModel, threadWriter } from './core/side-model.ts';
 import { deleteThread } from './core/threads/delete.ts';
@@ -271,7 +271,7 @@ const USAGE = `usage: cedia [options]                 the TUI, at a terminal: ea
        cedia explain-change --thread <id> [--base turn|head|upstream] [--cwd <dir>] [--model <ref>] [--json]
                                             a guide to what the thread changed, in the order that explains it,
                                             each step at a file and line; read-only, judges nothing
-       cedia pr [--check] [--cwd <dir>] [--json]
+       cedia pr [--check] [--thread <id>] [--model <ref>] [--fill] [--cwd <dir>] [--json]
                                             push the branch and open its pull request through gh (never the
                                             default branch); --check only says where it would go
        cedia commands [--json] [--cwd <dir>]
@@ -1164,7 +1164,7 @@ async function completeCmd(argv: string[]): Promise<number> {
 async function pr(argv: string[]): Promise<number> {
   let parsed;
   try {
-    parsed = parseArgs({ args: argv, options: { cwd: { type: 'string' }, check: { type: 'boolean' }, json: { type: 'boolean' } } });
+    parsed = parseArgs({ args: argv, options: { cwd: { type: 'string' }, check: { type: 'boolean' }, json: { type: 'boolean' }, thread: { type: 'string' }, model: { type: 'string' }, fill: { type: 'boolean' } } });
   } catch (e) {
     console.error(`cedia: ${(e as Error).message}`);
     return 2;
@@ -1173,10 +1173,19 @@ async function pr(argv: string[]): Promise<number> {
   const cwd = resolve(values.cwd ?? process.cwd());
   const plan = prPlan(cwd);
   if (values.check) {
-    console.log(values.json ? JSON.stringify(plan) : plan.blocked ?? `would push ${plan.branch} and open a pull request${plan.base ? ` into ${plan.base}` : ''}`);
+    console.log(values.json ? JSON.stringify(plan) : plan.blocked ?? `would push ${plan.branch} and open a pull request${plan.base ? ` into ${plan.base}` : ''}${plan.template ? `, its body written to ${plan.template}` : ''}`);
     return plan.blocked ? 1 : 0;
   }
-  const r = await pushAndOpenPr(cwd);
+  // A repository with a template gets its body written to it (the thread's writer, else --model, else the code
+  // role's); --fill keeps gh's own, from the commits.
+  let text;
+  if (!plan.blocked && plan.template && !values.fill) {
+    const store = values.thread ? new ThreadStore(threadsDir(cediaHome(), projectKey(cwd))) : undefined;
+    const writer = store && store.has(values.thread!) ? threadWriter(store, values.thread!) : undefined;
+    text = (await draftPrText({ cwd, model: sideModel('write', { explicit: values.model, threadWriter: writer }).ref }))?.text;
+    if (!text && !values.json) console.error(`cedia: the body for ${plan.template} could not be written; gh fills the pull request from the commits`);
+  }
+  const r = await pushAndOpenPr(cwd, undefined, undefined, text);
   const url = r.out.match(/https?:\/\/\S+/g)?.at(-1);
   const opened: PrOpened = r.ok ? { branch: plan.branch!, ...(plan.base ? { base: plan.base } : {}), ...(url ? { url } : {}), out: r.out } : { error: r.out };
   if (values.json) console.log(JSON.stringify(opened));

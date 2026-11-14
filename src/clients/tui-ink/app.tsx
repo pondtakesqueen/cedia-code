@@ -50,7 +50,7 @@ import { MemoryStore, memoryPath } from '../../core/memory/memory.ts';
 import { loadSkills } from '../../core/skills/skills.ts';
 import { listMcp } from '../../core/mcp/manage.ts';
 import { threadFiles, NOTHING_CHANGED, commitFiles, currentBranch, prPlan, pushAndOpenPr } from '../../core/git/commit.ts';
-import { draftCommitMessage } from '../../core/git/draft.ts';
+import { draftCommitMessage, draftPrText } from '../../core/git/draft.ts';
 import { workspaceSnapshots } from '../../core/safety/snapshot.ts';
 import { allowRuleFor, applyAllowRules } from '../../core/safety/suggest.ts';
 import { restoredText, restoreTurn } from '../../core/threads/undo.ts';
@@ -779,13 +779,16 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         return;
       }
       case 'pr': {
-        const { blocked, branch, base } = prPlan(args.cwd);
+        const { blocked, branch, base, template } = prPlan(args.cwd);
         if (blocked) { say(blocked); return; }
-        say(`push ${branch} to origin and open a pull request${base ? ` into ${base}` : ''}? y to go on; n, or anything else you type, cancels`);
+        say(`push ${branch} to origin and open a pull request${base ? ` into ${base}` : ''}${template ? `, its body written to ${template}` : ''}? y to go on; n, or anything else you type, cancels`);
         pendingRef.current = { what: 'the push', yes: async (signal) => {
           busyRef.current = true;
           try {
-            const r = await pushAndOpenPr(args.cwd, undefined, signal);
+            // A repository with a template gets its body written to it; when that fails gh fills it from the commits.
+            const drafted = template ? await draftPrText({ cwd: args.cwd, model: sideModel('write', { picked: model, ...(thread ? { threadWriter: threadWriter(store, thread) } : {}) }).ref, signal }) : undefined;
+            if (drafted) setSpent((s) => s + drafted.costUsd);
+            const r = await pushAndOpenPr(args.cwd, undefined, signal, drafted?.text);
             say(r.out, r.ok ? undefined : 'red');
           } finally { busyRef.current = false; }
         } };
