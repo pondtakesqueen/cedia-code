@@ -1,4 +1,5 @@
 import { gitSync } from './run.ts';
+import { ownEnv } from '../own-env.ts';
 import { workspaceSnapshots, type Snapshots } from '../safety/snapshot.ts';
 import { inert } from '../trust/frame.ts';
 import type { ThreadStore } from '../threads/threads.ts';
@@ -132,7 +133,7 @@ export function prBlocked(cwd: string): string | undefined {
 
 async function run(cmd: string[], cwd: string, signal?: AbortSignal): Promise<{ ok: boolean; out: string }> {
   try {
-    const p = Bun.spawn(cmd, { cwd, stdout: 'pipe', stderr: 'pipe', stdin: 'ignore', ...(signal ? { signal } : {}) });
+    const p = Bun.spawn(cmd, { cwd, env: ownEnv(), stdout: 'pipe', stderr: 'pipe', stdin: 'ignore', ...(signal ? { signal } : {}) });
     const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
     return { ok: code === 0, out: (out + err).trim() };
   } catch (e) {
@@ -166,7 +167,7 @@ export async function pullRequest(cwd: string, n: string, gh = process.env.CEDIA
   if (!/^\d+$/.test(n)) return { error: `not a pull request number: ${n}` };
   const out = async (args: string[]) => {
     try {
-      const p = Bun.spawn([gh, ...args], { cwd, stdout: 'pipe', stderr: 'pipe', stdin: 'ignore', ...(signal ? { signal } : {}) });
+      const p = Bun.spawn([gh, ...args], { cwd, env: ownEnv(), stdout: 'pipe', stderr: 'pipe', stdin: 'ignore', ...(signal ? { signal } : {}) });
       const [o, e, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
       return code === 0 ? { ok: true as const, out: o } : { ok: false as const, out: (e || o).trim() };
     } catch (e) {

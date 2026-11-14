@@ -3,6 +3,7 @@ import { basename, join, resolve } from 'node:path';
 import { cediaHome } from '../config.ts';
 import { addMcp, removeMcp, type McpAdd } from '../mcp/manage.ts';
 import { inside, realExisting } from '../fs-safety.ts';
+import { ownEnv } from '../own-env.ts';
 
 // Plugins in the Claude Code layout, so the plugins people already publish work as they are: a folder with
 // `.claude-plugin/plugin.json` (or `plugin.json`), `skills/<name>/SKILL.md`, `commands/<name>.md`, `agents/`,
@@ -149,7 +150,7 @@ function clone(url: string, home: string): string {
   const base = join(pluginsDir(home), '.tmp');
   mkdirSync(base, { recursive: true });
   const dir = mkdtempSync(join(base, 'src-'));
-  const r = Bun.spawnSync(['git', 'clone', '--quiet', '--depth', '1', '--', url, dir], { stdout: 'ignore', stderr: 'pipe' });
+  const r = Bun.spawnSync(['git', 'clone', '--quiet', '--depth', '1', '--', url, dir], { env: ownEnv(), stdout: 'ignore', stderr: 'pipe' });
   if (r.exitCode !== 0) {
     rmSync(dir, { recursive: true, force: true });
     throw new Error(`git clone ${url} failed: ${r.stderr.toString().trim().slice(0, 300)}`);

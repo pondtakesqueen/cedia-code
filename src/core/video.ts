@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { cediaHome } from './config.ts';
 import { MAX_IMAGES_PER_SESSION, sniffImage, storeImage, type ImageRef } from './images.ts';
+import { ownEnv } from './own-env.ts';
 
 // A video a model is shown: frames taken with ffmpeg, each an image in the blob store like any other, named with
 // the file and the time it shows. The video itself stays where it is; the text that goes with the frames names it.
@@ -56,7 +57,7 @@ export function videoFrames(path: string, name = path, opts: { max?: number; hom
   if (!mime) return { error: 'not an MP4, MOV, WebM, MKV or AVI video' };
   let probe;
   try {
-    probe = Bun.spawnSync([ffprobeBin(), '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path], { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
+    probe = Bun.spawnSync([ffprobeBin(), '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path], { env: ownEnv(), stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
   } catch {
     return { error: 'reading a video needs ffmpeg (ffprobe was not found)' };
   }
@@ -72,14 +73,14 @@ export function videoFrames(path: string, name = path, opts: { max?: number; hom
     // is not cut off at its start.
     const rate = Math.min(CANDIDATE_FPS, durationSec > 0 ? MAX_CANDIDATES / durationSec : CANDIDATE_FPS);
     const select = `fps=${rate.toFixed(4)},mpdecimate,showinfo,${scale}`;
-    const scenes = Bun.spawnSync([ffmpegBin(), '-hide_banner', '-nostdin', '-i', path, '-vf', select, '-fps_mode', 'vfr', '-frames:v', String(MAX_CANDIDATES), '-q:v', '3', join(dir, 's%04d.jpg')], { stdin: 'ignore', stdout: 'ignore', stderr: 'pipe', timeout: 120_000 });
+    const scenes = Bun.spawnSync([ffmpegBin(), '-hide_banner', '-nostdin', '-i', path, '-vf', select, '-fps_mode', 'vfr', '-frames:v', String(MAX_CANDIDATES), '-q:v', '3', join(dir, 's%04d.jpg')], { env: ownEnv(), stdin: 'ignore', stdout: 'ignore', stderr: 'pipe', timeout: 120_000 });
     if (scenes.exitCode !== 0) return { error: `ffmpeg could not take its frames: ${scenes.stderr.toString().trim().split('\n').at(-1) ?? ''}` };
     const times = [...scenes.stderr.toString().matchAll(/showinfo.*?pts_time:\s*([\d.]+)/g)].map((m) => Number(m[1]));
     const files = readdirSync(dir).filter((f) => f.startsWith('s')).sort();
     const found = files.map((f, i) => ({ file: f, time: times[i] ?? 0 }));
     // The last frame, where a recording of a bug usually ends up, unless a change was kept just before it.
     if (durationSec > 0 && (found.at(-1)?.time ?? 0) < durationSec - 0.5) {
-      const last = Bun.spawnSync([ffmpegBin(), '-hide_banner', '-nostdin', '-sseof', '-0.25', '-i', path, '-vf', scale, '-update', '1', '-q:v', '3', join(dir, 'last.jpg')], { stdin: 'ignore', stdout: 'ignore', stderr: 'pipe', timeout: 60_000 });
+      const last = Bun.spawnSync([ffmpegBin(), '-hide_banner', '-nostdin', '-sseof', '-0.25', '-i', path, '-vf', scale, '-update', '1', '-q:v', '3', join(dir, 'last.jpg')], { env: ownEnv(), stdin: 'ignore', stdout: 'ignore', stderr: 'pipe', timeout: 60_000 });
       if (last.exitCode === 0 && readdirSync(dir).includes('last.jpg')) found.push({ file: 'last.jpg', time: durationSec });
     }
     if (!found.length) return { error: 'ffmpeg found no frames in it' };
