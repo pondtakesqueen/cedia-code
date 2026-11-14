@@ -24,6 +24,7 @@ export type { ForkResult } from '../core/threads/fork.ts';
 export type { McpCheck, McpList } from '../core/mcp/manage.ts';
 export type { EditableSettings } from '../core/settings-edit.ts';
 export type { CommitDraft, Committed, PrOpened, PrPlan } from '../core/git/commit.ts';
+export type { ColdResume, ResumeCost } from '../core/run/resume-cost.ts';
 export type { CodeFinding, CodeReview } from '../core/review/code-review.ts';
 export type { Completion } from '../core/editor/complete.ts';
 export type { InlineEdit, InlineEditPosition, InlineEditRange } from '../core/editor/inline-edit.ts';

@@ -38,6 +38,7 @@ import { codeReview, type CodeReview } from './core/review/code-review.ts';
 import { changeGuide, DIFF_BASES, guideText, threadDiff, type ChangeGuide, type DiffBase } from './core/git/change-guide.ts';
 import { commitFiles, commitPatch, currentBranch, headCommit, NOTHING_CHANGED, prPlan, pushAndOpenPr, threadFiles, type CommitDraft, type Committed, type PrOpened } from './core/git/commit.ts';
 import { draftCommitMessage, draftPrText } from './core/git/draft.ts';
+import { resumeCost, resumeCostLine } from './core/run/resume-cost.ts';
 import { reviewSubject, ultraReview } from './core/review/ultrareview.ts';
 import { sideModel, threadWriter } from './core/side-model.ts';
 import { deleteThread } from './core/threads/delete.ts';
@@ -140,6 +141,10 @@ const USAGE = `usage: cedia [options]                 the TUI, at a terminal: ea
       --output-style <name>    report style by name (default, explanatory, learning, terse; settings, cedia output-style)
       --cache-ttl <5m|1h>      how long the writer's cached prompt lasts on Claude API models between requests.
                                Default 5m for -p, 1h in the TUI (writes cost 2x input instead of 1.25x)
+      --cold-resume <auto|keep|fresh>
+                               --thread on a large session whose cache expired: auto (default) takes the cheaper
+                               of its whole context and a new session from where it stopped, and says so; keep
+                               and fresh pick one (cedia threads resume-cost <id> says what each costs)
       --lsp <on|off>           after each edit, add the file's errors from a language server when one is installed
                                (typescript-language-server, pyright-langserver, gopls; more in settings "lsp"). Default on
       --ask <on|off|auto>      give the writer ask_user, to end the run with one question for you when only you can
@@ -197,6 +202,9 @@ const USAGE = `usage: cedia [options]                 the TUI, at a terminal: ea
                                             they ended, files changed, checks, cost, and what waits for you
        cedia threads send <id> <text> [--image <file>]...
                                             leave a message the thread sees at its next turn; prints the message id
+       cedia threads resume-cost <id> [--model <ref>] [--json]
+                                            what its next prompt costs with its whole context and from a new
+                                            session, and whether that is worth asking about (--cold-resume)
        cedia threads unsend <id> [<msg>...] take back your messages it has not seen yet (all of them by default)
        cedia threads rate <id> <up|down> [--session <sid>] [--note <text>]
                                             rate an answer (default: the thread's latest) for picking eval cases;
@@ -393,6 +401,7 @@ export async function main(given: string[]): Promise<number> {
       spawn: { type: 'string' },
       lsp: { type: 'string' },
       'cache-ttl': { type: 'string' },
+      'cold-resume': { type: 'string' },
       'plan-when': { type: 'string' },
       'plan-overlap': { type: 'string' },
       thorough: { type: 'string' },
@@ -466,6 +475,7 @@ export async function main(given: string[]): Promise<number> {
     ...(values.spawn ? { spawn: values.spawn } : {}),
     ...(values.lsp ? { lsp: values.lsp } : {}),
     ...(values['cache-ttl'] ? { cacheTtl: values['cache-ttl'] } : {}),
+    ...(values['cold-resume'] ? { coldResume: values['cold-resume'] } : {}),
     ...(values['plan-when'] ? { planWhen: values['plan-when'] } : {}),
     ...(values['plan-overlap'] ? { planOverlap: values['plan-overlap'] } : {}),
     ...(values.thorough ? { thorough: values.thorough } : {}),
@@ -663,7 +673,7 @@ function threads(argv: string[]): number {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: { cwd: { type: 'string' }, all: { type: 'boolean' }, session: { type: 'string' }, note: { type: 'string' }, force: { type: 'boolean' }, side: { type: 'boolean' }, json: { type: 'boolean' }, image: { type: 'string', multiple: true }, since: { type: 'string' }, 'edited-path': { type: 'string' }, limit: { type: 'string' }, base: { type: 'string' } },
+    options: { cwd: { type: 'string' }, all: { type: 'boolean' }, session: { type: 'string' }, note: { type: 'string' }, force: { type: 'boolean' }, side: { type: 'boolean' }, json: { type: 'boolean' }, image: { type: 'string', multiple: true }, since: { type: 'string' }, 'edited-path': { type: 'string' }, limit: { type: 'string' }, base: { type: 'string' }, model: { type: 'string' } },
   });
   const cwd = resolve(values.cwd ?? process.cwd());
   const home = cediaHome();
@@ -715,6 +725,14 @@ function threads(argv: string[]): number {
     if (cmd === 'rename' && id && rest.length) {
       const title = store.rename(id, rest.join(' '));
       console.log(`renamed ${id}: ${title}`);
+      return 0;
+    }
+    if (cmd === 'resume-cost' && id && !rest.length) {
+      if (!store.has(id)) throw new Error(`no thread ${id} in this project`);
+      const c = resumeCost(store, id, values.model ? { model: values.model } : {});
+      // null: the next prompt opens a new session whatever the answer, so there is nothing to ask.
+      if (values.json) console.log(JSON.stringify(c ?? null));
+      else console.log(!c ? `${id}: its next prompt starts a new session` : c.ask ? `${id}: ${resumeCostLine(c)}. --cold-resume keep or fresh picks one; a run takes the cheaper on its own` : `${id}: its cache is ${c.cold ? 'cold, but its context is small' : 'warm'}: the next prompt goes on in its session (${Math.round(c.contextTokens / 1000)}k tokens)`);
       return 0;
     }
     if (cmd === 'keep-rate' && id && !rest.length) {
