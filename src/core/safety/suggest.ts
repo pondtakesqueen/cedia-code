@@ -5,7 +5,7 @@
 // deny rule (or a built-in guard) stopped is skipped, since deny always wins. Suggestions go to the USER
 // settings: a repository's settings can only tighten, never grant.
 import { isAbsolute, relative, resolve } from 'node:path';
-import { settingsPath, userSettings, writeSettings } from '../config.ts';
+import { updateSettings } from '../config.ts';
 import type { SessionInput } from '../session/usage.ts';
 import { rulePatternMatches } from '../safety/policy.ts';
 import { checkReadOnly } from './shell.ts';
@@ -82,12 +82,13 @@ function mcpRule(name: string): { rule: string; text: string } | undefined {
 // Append missing rules to the USER settings' allow list (whole-file rewrite through a temp file).
 // Throws when the file on disk fails validation, rather than writing past it.
 export function applyAllowRules(home: string, rules: string[]): { added: string[] } {
-  const settings = userSettings(home);
-  const allow = settings.permissions?.allow ?? [];
-  const have = new Set(allow.map(String));
-  const added = rules.filter((r) => !have.has(r));
-  if (!added.length) return { added: [] };
-  writeSettings({ ...settings, permissions: { ...settings.permissions, allow: [...allow, ...added] } }, settingsPath(home));
+  let added: string[] = [];
+  updateSettings((settings) => {
+    const allow = settings.permissions?.allow ?? [];
+    const have = new Set(allow.map(String));
+    added = rules.filter((r) => !have.has(r));
+    return added.length ? { ...settings, permissions: { ...settings.permissions, allow: [...allow, ...added] } } : settings;
+  }, home);
   return { added };
 }
 

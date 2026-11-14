@@ -13,7 +13,7 @@ import { cediaHome, sharedSkillDirs, detectChecks, loadChecks, loadOwnerChecks, 
 import { startDream } from '../memory/consolidate.ts';
 import { attachedNote, blobDir, STORED_IMAGE, storedImage, type ImageRef } from '../images.ts';
 import { storeAttachment } from '../video.ts';
-import { claimThread } from '../background/busy.ts';
+import { claimThread, releaseClaim } from '../background/busy.ts';
 import { learnSecrets, secretsToKnow } from '../safety/secrets.ts';
 import { defaultHandoffAt, handoffNote, MAX_HANDOFFS, resumeChoice } from '../context/handoff.ts';
 import { compactedNote, compactPlan, seedCompacted } from '../context/compact.ts';
@@ -1093,6 +1093,8 @@ export async function runThread(given: ThreadArgs, emit: (m: CoreMessage) => voi
     const tree = snapshots?.take();
     const from = last?.path && sessionExists(last.path) ? { sessionId: last.sessionId, path: last.path, events: SessionLog.load(last.path).events.length, model: last.model } : undefined;
     store.append(threadId, { kind: 'run', id: runId, prompt: args.prompt.slice(0, 500), cwd: args.cwd, ...(tree ? { tree } : {}), ...(from ? { from } : {}), permission, ...(images.length ? { images } : {}), pid: process.pid });
+    // The run event names this process as the holder from here on (core/background/busy.ts).
+    if (args.thread) releaseClaim(store, threadId);
   }
   try {
     if (roles.plan && planWhen !== 'never') warm('plan', roles.plan);

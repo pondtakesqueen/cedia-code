@@ -1,4 +1,4 @@
-import { checkSandboxMode, loadHandoff, loadMaxEffort, loadPlanOverlap, loadPlanWhen, loadQuotaWait, loadRoles, loadSpawn, MEDIA_MODEL, parseHandoffAt, settingsPath, userSettings, writeSettings, type Settings } from './config.ts';
+import { checkSandboxMode, loadHandoff, loadMaxEffort, loadPlanOverlap, loadPlanWhen, loadQuotaWait, loadRoles, loadSpawn, MEDIA_MODEL, parseHandoffAt, settingsPath, updateSettings, userSettings, type Settings } from './config.ts';
 import { loadOutputStyles } from './output-styles/styles.ts';
 import { FALLBACKS, resolveModel } from './providers/catalog.ts';
 import { GUARDS, type Guard } from './safety/policy.ts';
@@ -229,17 +229,19 @@ export function setEditable(keyName: string, value: string | undefined): Editabl
   }
   const [top, inner, stored] =
     key.kind === 'role' ? ['roles', key.role, value] : key.kind === 'fallback' ? ['fallback', key.model, value] : [key.field.path[0], key.field.path[1], value === undefined ? undefined : key.field.store(value)];
-  const s = userSettings() as Record<string, unknown>;
-  if (inner === undefined) {
-    if (stored === undefined) delete s[top];
-    else s[top] = stored;
-  } else {
-    const obj = { ...((s[top] ?? {}) as Record<string, unknown>) };
-    if (stored === undefined) delete obj[inner];
-    else obj[inner] = stored;
-    if (Object.keys(obj).length) s[top] = obj;
-    else delete s[top];
-  }
-  writeSettings(s as Settings, path());
+  updateSettings((settings) => {
+    const s = settings as Record<string, unknown>;
+    if (inner === undefined) {
+      if (stored === undefined) delete s[top];
+      else s[top] = stored;
+    } else {
+      const obj = { ...((s[top] ?? {}) as Record<string, unknown>) };
+      if (stored === undefined) delete obj[inner];
+      else obj[inner] = stored;
+      if (Object.keys(obj).length) s[top] = obj;
+      else delete s[top];
+    }
+    return s as Settings;
+  });
   return getEditable();
 }

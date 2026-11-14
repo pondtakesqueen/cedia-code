@@ -15,6 +15,10 @@ function setup(script: unknown[]) {
   writeFileSync(join(dir, 'faux.json'), JSON.stringify(script));
   const env: Record<string, string> = { ...(process.env as Record<string, string>), CEDIA_HOME: home, CEDIA_FAUX_SCRIPT: join(dir, 'faux.json') };
   delete env.NODE_ENV;
+  // Ink draws only the last frame when it thinks it runs in CI (is-in-ci), so a test that reads the screen while
+  // the TUI runs needs it drawing as at a person's terminal.
+  delete env.CI;
+  delete env.CONTINUOUS_INTEGRATION;
   return { dir, env };
 }
 
@@ -43,4 +47,32 @@ describe('bin/cedia launch', () => {
     await p.exited;
     expect(readFileSync(join(dir, 'node-env.txt'), 'utf8').trim()).toBe('unset');
   }, 20_000);
+});
+
+describe('bin/cedia follows the open thread', () => {
+  test('the TUI says when another cedia runs the thread it has open, and what came of it', async () => {
+    const { dir, env } = setup([{ blocks: [{ type: 'text', text: 'one' }] }]);
+    const headless = (prompt: string, extra: string[] = []) => Bun.spawnSync([BIN, '-m', 'faux', '-p', prompt, ...extra, '--output-format', 'json', '--cwd', dir], { env, stdin: 'ignore' });
+    const first = headless('first');
+    expect(first.exitCode).toBe(0);
+    const thread = JSON.parse(first.stdout.toString()).thread as string;
+    let out = '';
+    const p = Bun.spawn([BIN, '-m', 'faux', '--thread', thread], {
+      cwd: dir,
+      env,
+      terminal: { cols: 120, rows: 40, data: (_t: unknown, d: Uint8Array) => { out += new TextDecoder().decode(d); } },
+    } as Parameters<typeof Bun.spawn>[1]);
+    try {
+      // The other run must start after the first screen, or the TUI's first look at the thread already has it.
+      for (let i = 0; i < 150 && !/Faux \(scripted\)/.test(plain(out)); i++) await Bun.sleep(100);
+      if (!/Faux \(scripted\)/.test(plain(out))) throw new Error(`the TUI drew no first screen (exit ${p.exitCode}); its output: ${JSON.stringify(out.slice(-3000))}`);
+      expect(headless('second from the desktop', ['--thread', thread]).exitCode).toBe(0);
+      for (let i = 0; i < 150 && !/that run is done/.test(plain(out)); i++) await Bun.sleep(100);
+      expect(plain(out)).toContain('ran this thread: second from the desktop');
+      expect(plain(out)).toContain('that run is done: one');
+    } finally {
+      p.kill();
+      await p.exited;
+    }
+  }, 40_000);
 });

@@ -43,3 +43,16 @@ describe('settings writers', () => {
     expect(JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8'))).toEqual({ theme: 'light' });
   });
 });
+
+describe('settings writers in several processes at once', () => {
+  test('no change is lost when cedia processes add rules at the same time', async () => {
+    const dir = home('{}');
+    const script = join(import.meta.dir, '..', 'src', 'core', 'safety', 'suggest.ts');
+    const procs = Array.from({ length: 6 }, (_, p) =>
+      Bun.spawn(['bun', '-e', `const { applyAllowRules } = await import(${JSON.stringify(script)}); for (let i = 0; i < 15; i++) applyAllowRules(${JSON.stringify(dir)}, ['Bash(echo p${p}-' + i + ')']);`], { stdout: 'pipe', stderr: 'pipe' }),
+    );
+    for (const p of procs) expect(await p.exited).toBe(0);
+    const allow = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).permissions.allow as string[];
+    expect(allow.length).toBe(90);
+  }, 30_000);
+});

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { claimThread, holderOf, isCediaProcess } from '../src/core/background/busy.ts';
+import { claimThread, holderOf, isCediaProcess, releaseClaim } from '../src/core/background/busy.ts';
 import { ThreadStore, threadsDir } from '../src/core/threads/threads.ts';
 import { projectKey } from '../src/core/session/log.ts';
 
@@ -102,4 +102,34 @@ describe('one run of a thread at a time', () => {
     expect(states).toEqual(['done', 'stopped', 'done']);
     expect(t.result).toBe('three');
   }, 60_000);
+});
+
+describe('claiming a thread is atomic across processes', () => {
+  test('a second process that claims the thread before the first wrote its run event is refused', async () => {
+    const { s, id } = store();
+    const alive = (pid: number) => pid === 1 || pid === 2;
+    expect(await claimThread(s, id, { self: 1, alive })).toEqual({ ok: true });
+    const second = await claimThread(s, id, { self: 2, alive });
+    expect(second).toMatchObject({ ok: false });
+    expect(!second.ok && second.error).toContain('pid 1');
+  });
+
+  test('the claim ends once the run event is written, when its process is gone, or when it is stale', async () => {
+    const { s, id } = store();
+    let live = new Set([1, 2]);
+    const alive = (pid: number) => live.has(pid);
+    expect(await claimThread(s, id, { self: 1, alive })).toEqual({ ok: true });
+    releaseClaim(s, id, 1);
+    expect(await claimThread(s, id, { self: 2, alive })).toEqual({ ok: true });
+    live = new Set([1]);
+    expect(await claimThread(s, id, { self: 1, alive })).toEqual({ ok: true });
+    live = new Set([1, 2]);
+    expect(await claimThread(s, id, { self: 2, alive, now: Date.now() + 10 * 60_000 })).toEqual({ ok: true });
+  });
+
+  test('the same process claims again without refusing itself', async () => {
+    const { s, id } = store();
+    expect(await claimThread(s, id, { self: 1, alive: () => true })).toEqual({ ok: true });
+    expect(await claimThread(s, id, { self: 1, alive: () => true })).toEqual({ ok: true });
+  });
 });

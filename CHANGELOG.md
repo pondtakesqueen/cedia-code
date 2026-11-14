@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added live updates to the TUI when another cedia (the desktop, the daemon or `cedia -p --thread`) runs the thread it has open
+- Fixed two cedia clients both starting a run of one thread when they sent at the same moment
+- Fixed a settings change being lost when two cedia processes changed settings at once
 - Added a new terminal UI with a framed prompt, one row per tool call, side-by-side edit diffs with code colors, and dark and light themes picked from the terminal's background
 - Added a searchable command palette to the TUI, with Tab completion for commands and skills ranked by what you pick most
 - Added vim mode to the prompt, with motions, counts, operators, text objects and visual mode

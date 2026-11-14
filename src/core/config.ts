@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { MCP_TOOL_RULES, type McpServerConfig, type McpToolRule } from './mcp/client.ts';
@@ -203,11 +203,65 @@ export function writeSettings(settings: Settings, path: string): void {
 }
 
 // Change the user's settings: read through the same check as every reader (a file that fails it is refused, never
-// replaced) and written through writeSettings (a change that fails it is never written).
+// replaced) and written through writeSettings (a change that fails it is never written). The read and the write
+// hold settings.json.lock, so two cedia processes (the TUI and the desktop) changing settings at once both land
+// instead of the later write dropping the earlier change.
 export function updateSettings(change: (settings: Settings) => Settings, home = cediaHome()): Settings {
-  const next = change(userSettings(home));
-  writeSettings(next, settingsPath(home));
-  return next;
+  return withSettingsLock(home, () => {
+    const next = change(userSettings(home));
+    writeSettings(next, settingsPath(home));
+    return next;
+  });
+}
+
+// A lock file created exclusively, naming its process. One whose process is gone or older than LOCK_STALE_MS (a
+// process killed mid-write) is taken over; past LOCK_WAIT_MS of waiting, the change fails rather than write past it.
+const LOCK_STALE_MS = 10_000;
+const LOCK_WAIT_MS = 5_000;
+function withSettingsLock<T>(home: string, fn: () => T): T {
+  const lock = `${settingsPath(home)}.lock`;
+  mkdirSync(dirname(lock), { recursive: true });
+  const until = Date.now() + LOCK_WAIT_MS;
+  for (;;) {
+    try {
+      writeFileSync(lock, String(process.pid), { flag: 'wx' });
+      break;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+    }
+    // The holder may release it between our create and these reads: then try again at once.
+    const st = statSync(lock, { throwIfNoEntry: false });
+    let text: string;
+    try {
+      text = readFileSync(lock, 'utf8');
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw e;
+    }
+    if (!st) continue;
+    const pid = Number(text.trim() || NaN);
+    const gone = Number.isInteger(pid) && pid > 0 && !processAlive(pid);
+    if (gone || Date.now() - st.mtimeMs > LOCK_STALE_MS) {
+      rmSync(lock, { force: true });
+      continue;
+    }
+    if (Date.now() > until) throw new Error(`${settingsPath(home)} is being changed by another cedia (pid ${pid}); try again`);
+    Bun.sleepSync(5);
+  }
+  try {
+    return fn();
+  } finally {
+    rmSync(lock, { force: true });
+  }
+}
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM';
+  }
 }
 
 const union = <T>(...lists: (T[] | undefined)[]) => [...new Set(lists.flatMap((l) => l ?? []))];
