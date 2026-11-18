@@ -524,6 +524,9 @@
         "line": {
           "type": "number"
         },
+        "severity": {
+          "$ref": "#/definitions/Severity"
+        },
         "text": {
           "type": "string"
         }
@@ -3840,6 +3843,14 @@
         "rejected",
         "rewind",
         "fork"
+      ]
+    },
+    "Severity": {
+      "type": "string",
+      "enum": [
+        "important",
+        "nit",
+        "pre-existing"
       ]
     },
     "Spawned": {
