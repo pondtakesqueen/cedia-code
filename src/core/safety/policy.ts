@@ -1,5 +1,5 @@
 import { homedir } from 'node:os';
-import { relative } from 'node:path';
+import { relative, resolve as resolvePath } from 'node:path';
 import { effectOf, type ToolSpec } from '../tools/registry.ts';
 import { inside, realPrefix, toolPath } from '../fs-safety.ts';
 import type { JsonObject } from '../types.ts';
@@ -386,6 +386,64 @@ function gitHit(args: string[], cwd: string, depth = 0): Hit | undefined {
   if (subcommand === 'config') return configHit(rest, cwd);
   if (dropsRefs(subcommand, rest))
     return { name: 'drop-refs', reason: `git ${subcommand} ${rest.join(' ')} deletes commits or the record of them, which cedia's snapshots cannot bring back; ask the user` };
+  // -C <dir> moves where git runs (already held inside the working directory above).
+  let where = cwd;
+  for (let j = 0; j < i; j++) if (args[j] === '-C') where = resolvePath(where, args[++j]!);
+  const moved = movesBranch(subcommand, rest, {
+    exists: (ref) => refGit(where, ['rev-parse', '--verify', '-q', ref]) !== undefined,
+    current: () => refGit(where, ['symbolic-ref', '--quiet', '--short', 'HEAD'])?.trim(),
+  });
+  if (moved)
+    return { name: 'drop-refs', reason: `git ${subcommand} ${rest.join(' ')} moves ${moved}, which already exists, so the commits only it held are lost to cedia's snapshots (a work sub-thread's worktree shares these refs with your checkout); create a new branch, or ask the user` };
+  return undefined;
+}
+
+// A read of the repository's refs for movesBranch: stdout, or undefined when git says no. Bun.spawnSync with
+// fsmonitor off, as sandbox.ts reads hooksDir (gitSync would import the provider catalog into the policy).
+function refGit(cwd: string, args: string[]): string | undefined {
+  try {
+    const r = Bun.spawnSync(['git', '-c', 'core.fsmonitor=false', ...args], { cwd, stdout: 'pipe', stderr: 'ignore', stdin: 'ignore' });
+    return r.exitCode === 0 ? r.stdout.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// A command that points an existing branch (or tag) somewhere else: `branch -f <b> [<start>]`, `branch -M/-C
+// [<old>] <b>`, `checkout -B <b>`, `switch -C <b>`, `update-ref refs/heads/<b> <rev>`. Creating a new one is fine,
+// so the repository decides: `exists` says whether a ref resolves, `current` names the checked-out branch.
+// Returns what it would move.
+export type RefLookup = { exists: (ref: string) => boolean; current: () => string | undefined };
+export function movesBranch(subcommand: string | undefined, rest: string[], repo: RefLookup): string | undefined {
+  const exists = repo.exists;
+  const words = rest.filter((a) => !a.startsWith('-'));
+  const head = (b: string | undefined) => (b && exists(`refs/heads/${b}`) ? `branch ${b}` : undefined);
+  if (subcommand === 'branch') {
+    if (rest.includes('--delete') || shortFlag(rest, 'd') || shortFlag(rest, 'D')) return undefined;
+    if (shortFlag(rest, 'M') || shortFlag(rest, 'C') || ((rest.includes('--move') || rest.includes('--copy') || shortFlag(rest, 'm') || shortFlag(rest, 'c')) && (rest.includes('--force') || shortFlag(rest, 'f'))))
+      return words.length >= 1 ? head(words.at(-1)) : undefined;
+    if (rest.includes('--force') || shortFlag(rest, 'f')) return head(words[0]);
+    return undefined;
+  }
+  if (subcommand === 'checkout' || subcommand === 'switch') {
+    const flag = subcommand === 'checkout' ? ['-B'] : ['-C', '--force-create'];
+    for (let j = 0; j < rest.length; j++) {
+      const a = rest[j]!;
+      const eq = /^--force-create=(.+)$/.exec(a);
+      const name = eq ? eq[1] : flag.includes(a) ? rest[j + 1] : undefined;
+      if (name === undefined) continue;
+      // Re-creating the branch you are on at HEAD changes nothing.
+      const start = rest.slice(j + (eq ? 1 : 2)).find((x) => !x.startsWith('-'));
+      if (!start && repo.current() === name) return undefined;
+      return head(name);
+    }
+    return undefined;
+  }
+  if (subcommand === 'update-ref') {
+    if (rest.includes('--delete') || shortFlag(rest, 'd') || rest.includes('--stdin')) return rest.includes('--stdin') ? 'refs from stdin' : undefined;
+    const ref = words[0];
+    return ref && /^refs\/(heads|tags)\//.test(ref) && exists(ref) ? ref : undefined;
+  }
   return undefined;
 }
 

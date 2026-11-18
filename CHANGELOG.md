@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added to `cedia doctor` the skill folders that do not load (and why), skills hidden by a same-named one, and hooks whose `match` names no tool so they never run
+- Changed git commands that move an existing branch or tag (`branch -f`, `branch -M`, `checkout -B`, `switch -C`, `update-ref`) to be refused like `branch -D`; creating a new branch is unaffected
+- Fixed read, edit, write and NotebookEdit hanging or filling memory on a FIFO or device file such as `/dev/zero`; read also refuses files over 50 MB and points to grep
+- Added severity to review findings (Important, Nit, Pre-existing) in `/review`, `cedia review --json` and `cedia ultrareview --json`
+- Added `REVIEW.md` (or `.github/REVIEW.md`) as the repository's guide for reviews; `/review`, `/ultrareview` and `cedia review` read it as HEAD has it
+- Changed the review and goal judge after a run to read AGENTS.md and REVIEW.md as they were before the writer started, so a change cannot rewrite its own judge's instructions
+- Added a `Verified-by:` stamp to commit messages drafted by `cedia commit` and `/commit`, from the checks the thread's runs passed, and a warning before committing files no check covered or opening a pull request with such commits
 - Added a question in the TUI before a prompt goes to a large thread whose cache has expired: go on in a new session from where it stopped, or with the whole context
 - Added `cedia threads resume-cost` and `--cold-resume <auto|keep|fresh>` for clients that ask the same question
 - Added pull request bodies written to the repository's `pull_request_template.md` by `cedia pr` and `/pr` (`--fill` keeps the commits' text)

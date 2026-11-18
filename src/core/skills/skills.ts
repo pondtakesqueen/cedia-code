@@ -99,24 +99,33 @@ export function frontMatter(text: string): { fields: Record<string, string>; bod
 }
 
 function readSkill(dir: string, source: Skill['source'], plugin?: { name: string; command?: string }): Skill | undefined {
+  const r = inspectSkill(dir, source, plugin);
+  return 'error' in r ? undefined : r;
+}
+
+// A skill folder read, or why it does not load (which `cedia doctor` lists, since loading skips it in silence).
+export function inspectSkill(dir: string, source: Skill['source'], plugin?: { name: string; command?: string }): Skill | { error: string } {
   try {
     // SKILL.md (or the command's file) must be in the folder too: a link to a file elsewhere would put that file's
     // text in the turn.
     const file = plugin?.command ? `${plugin.command}.md` : 'SKILL.md';
     const path = realExisting(join(dir, file));
     const folder = realExisting(dir);
-    if (!path || !folder || !inside(folder, path)) return undefined;
+    if (!path || !folder) return { error: `no ${file}` };
+    if (!inside(folder, path)) return { error: `${file} links outside the folder` };
     const st = statSync(path);
-    if (!st.isFile() || st.size > MAX_FILE_BYTES) return undefined;
+    if (!st.isFile()) return { error: `${file} is not a file` };
+    if (st.size > MAX_FILE_BYTES) return { error: `${file} is ${st.size} bytes; skills load up to ${MAX_FILE_BYTES}` };
     const text = readFileSync(path, 'utf8');
     // A command may have no front matter; then its first line describes it, as in Claude Code.
     const fm = frontMatter(text) ?? (plugin?.command ? { fields: {}, body: text } : undefined);
-    if (!fm) return undefined;
+    if (!fm) return { error: `${file} has no front matter (a block between --- lines at its top)` };
     const own = plugin?.command ?? fm.fields.name ?? basename(dir);
     const first = plugin?.command ? (fm.body.split('\n').find((l) => l.trim()) ?? '').replace(/^#+\s*/, '') : '';
     // Redacted before it is cut, so a cut cannot split a secret past the redaction.
     const description = redactSecrets((fm.fields.description ?? first).replace(/\s+/g, ' ').trim()).text;
-    if (!(plugin?.command ? COMMAND_NAME : NAME).test(own) || !description) return undefined;
+    if (!(plugin?.command ? COMMAND_NAME : NAME).test(own)) return { error: `the name "${own.slice(0, 80)}" is not a skill name (letters, digits and dashes)` };
+    if (!description) return { error: `${file} has no description, so the model cannot tell when to load it` };
     const hint = redactSecrets((fm.fields['argument-hint'] ?? '').replace(/\s+/g, ' ').trim()).text.slice(0, 200);
     return {
       name: plugin ? `${plugin.name}:${own}` : own,
@@ -128,8 +137,8 @@ function readSkill(dir: string, source: Skill['source'], plugin?: { name: string
       ...(plugin?.command ? { file } : {}),
       ...(/^true$/i.test(fm.fields['disable-model-invocation'] ?? '') ? { manual: true as const } : {}),
     };
-  } catch {
-    return undefined;
+  } catch (e) {
+    return { error: (e as Error).message };
   }
 }
 
@@ -219,6 +228,34 @@ export function loadSkills(cwd: string, home: string, shared: string[] = []): Sk
   let listed = 0;
   let manual = 0;
   return found.filter((s) => !seen.has(s.name) && seen.add(s.name) && (s.source === 'builtin' || (s.manual ? ++manual <= MAX_MANUAL : ++listed <= MAX_SKILLS)));
+}
+
+// What loadSkills leaves out without a word: user and repository skill folders that do not load, and skills a
+// skill of the same name loaded earlier hides (the user's win over the repository's, as loadSkills orders them).
+export type SkillProblem = { path: string; error: string };
+export function skillProblems(cwd: string, home: string, shared: string[] = []): { broken: SkillProblem[]; shadowed: { name: string; path: string; by: string }[] } {
+  const dirs: { dir: string; source: Skill['source'] }[] = [...subdirs(join(home, 'skills')), ...shared.flatMap((d) => subdirs(d))].map((dir) => ({ dir, source: 'user' as const }));
+  const root = realExisting(repoRoot(resolve(cwd)));
+  const here = realExisting(resolve(cwd));
+  if (root && here && inside(root, here))
+    for (let d = here; ; d = dirname(d)) {
+      for (const sub of SKILL_DIRS) for (const s of subdirs(join(d, sub))) dirs.push({ dir: s, source: 'repository' });
+      if (d === root) break;
+    }
+  const broken: SkillProblem[] = [];
+  const shadowed: { name: string; path: string; by: string }[] = [];
+  const first = new Map<string, string>();
+  for (const { dir, source } of dirs) {
+    const r = inspectSkill(dir, source);
+    if ('error' in r) {
+      broken.push({ path: dir, error: r.error });
+      continue;
+    }
+    const by = first.get(r.name);
+    if (by) shadowed.push({ name: r.name, path: dir, by });
+    else first.set(r.name, dir);
+  }
+  return { broken, shadowed };
 }
 
 // How the list reaches the model: one frame, a line a skill, cut at the cap.

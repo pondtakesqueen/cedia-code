@@ -1,9 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { closeSync, ftruncateSync, mkdtempSync, openSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MAX_OUTPUT_CHARS } from '../src/core/tools/registry.ts';
-import { readTool } from '../src/core/tools/read.ts';
+import { MAX_READ_BYTES, readTool } from '../src/core/tools/read.ts';
 
 describe('read', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'cedia-read-'));
@@ -41,5 +42,32 @@ describe('read', () => {
     const r = await read({ path: 'min.js' });
     expect(r.text).toContain('characters cut');
     expect(r.text).toEndWith('[1 more lines; read on with offset 2]');
+  });
+});
+
+describe('files that are not regular files, and files too large to read whole', () => {
+  const run = (path: string, cwd = '/') => readTool.run({ path }, { cwd } as never);
+  test('a device file is refused at once, not read until memory runs out', async () => {
+    const t0 = Date.now();
+    const r = await run('/dev/zero');
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain('not a regular file');
+    expect(Date.now() - t0).toBeLessThan(1000);
+  });
+  test('a FIFO is refused instead of blocking the session forever', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cedia-read-fifo-'));
+    spawnSync('mkfifo', [join(dir, 'pipe')]);
+    const r = await Promise.race([run('pipe', dir), new Promise<{ text: string; isError: boolean }>((ok) => setTimeout(() => ok({ text: 'hung', isError: false }), 2000))]);
+    expect(r.text).toContain('not a regular file');
+  });
+  test('a file past the size cap is refused with its size and what to use instead', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cedia-read-big-'));
+    const fd = openSync(join(dir, 'big.log'), 'w');
+    ftruncateSync(fd, MAX_READ_BYTES + 1);
+    closeSync(fd);
+    const r = await run('big.log', dir);
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/big\.log is \d+ MB/);
+    expect(r.text).toContain('grep');
   });
 });

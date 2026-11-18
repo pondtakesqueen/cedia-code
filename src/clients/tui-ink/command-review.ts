@@ -1,4 +1,5 @@
 import { runSide } from '../../core/loop/side.ts';
+import { loadReviewGuide } from '../../core/project/instructions.ts';
 import type { ThreadStore } from '../../core/threads/threads.ts';
 import { reviewSubject, subjectTitle } from '../../core/review/ultrareview.ts';
 import { sideModel, threadWriter } from '../../core/side-model.ts';
@@ -43,7 +44,8 @@ export async function reviewCommand(ctx: CommandCtx, pr?: string): Promise<void>
     ...(ctx.privacy ? { privacy: ctx.privacy } : {}),
     ...(ctx.signal ? { signal: ctx.signal } : {}),
     maxTurns: 40,
-    prompt: askedReviewPrompt(subject, patch),
+    // The repository's REVIEW.md as HEAD has it: the changes under review cannot rewrite their own guide.
+    prompt: askedReviewPrompt(subject, patch, loadReviewGuide(ctx.cwd, 'HEAD')),
     onEvent: (e) => {
       if (e.kind === 'assistant') for (const b of e.blocks) if (b.type === 'text' && b.text.trim()) ctx.reply(b.text);
       if (e.kind === 'tool_intent' || e.kind === 'tool_result' || e.kind === 'permission') ctx.toolEvent(e);

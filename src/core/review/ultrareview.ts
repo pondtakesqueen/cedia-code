@@ -1,3 +1,4 @@
+import { loadReviewGuide } from '../project/instructions.ts';
 import { runSide } from '../loop/side.ts';
 import { askedReviewPrompt, parseVerdict, verifyFindings, type ReviewSubject } from '../trust/review.ts';
 import type { ModelSpec, SessionEvent } from '../types.ts';
@@ -55,6 +56,7 @@ export async function ultraReview(opts: {
 }): Promise<UltraReview> {
   const signal = opts.signal ?? new AbortController().signal;
   const focuses = opts.focuses ?? FOCUSES;
+  const guide = loadReviewGuide(opts.cwd, 'HEAD');
   // A log per pass: runPrompt builds each request from its log, so passes sharing one would read each other's turns.
   const runs = await Promise.allSettled(
     focuses.map((f) =>
@@ -67,7 +69,7 @@ export async function ultraReview(opts: {
         maxTurns: FOCUS_MAX_TURNS,
         signal,
         ...(opts.onEvent ? { onEvent: (e: SessionEvent) => opts.onEvent!(f.name, e) } : {}),
-        prompt: `${askedReviewPrompt(opts.subject, opts.patch)}\n\nSPECIAL FOCUS: ${f.prompt}\nReturn findings relevant to this focus only. Use FINDING: ... and end with VERDICT: ...`,
+        prompt: `${askedReviewPrompt(opts.subject, opts.patch, guide)}\n\nSPECIAL FOCUS: ${f.prompt}\nReturn findings relevant to this focus only. Use FINDING: ... and end with VERDICT: ...`,
       }),
     ),
   );

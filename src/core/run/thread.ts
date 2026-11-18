@@ -17,7 +17,7 @@ import { claimThread, releaseClaim } from '../background/busy.ts';
 import { learnSecrets, secretsToKnow } from '../safety/secrets.ts';
 import { defaultHandoffAt, handoffNote, MAX_HANDOFFS, resumeChoice } from '../context/handoff.ts';
 import { compactedNote, compactPlan, seedCompacted } from '../context/compact.ts';
-import { instructionsBlock, loadInstructions, nestedInstructions, nestedNote } from '../project/instructions.ts';
+import { instructionsBlock, loadInstructions, loadReviewGuide, nestedInstructions, nestedNote } from '../project/instructions.ts';
 import { memoryBlock, memoryPath, MemoryStore, rememberTool } from '../memory/memory.ts';
 import { carriedSkills, carriedSkillsNote, loadSkills, skillCommand, skillsBlock, skillTool } from '../skills/skills.ts';
 import { getStyle, loadOutputStyleSetting } from '../output-styles/styles.ts';
@@ -505,17 +505,21 @@ export async function runThread(given: ThreadArgs, emit: (m: CoreMessage) => voi
   // Started inside the run's try below, so they are closed however it ends.
   let mcp: McpServers | undefined;
   const readInstructions = () => instructionsBlock(loadInstructions(args.cwd));
+  // What the repository says before the writer touches it. The sessions that judge the run (plan, review, goal and
+  // the other read-only steps) read these, never the files as the writer left them: a change must not rewrite the
+  // instructions or the review guide its own judge reads.
+  const startInstructions = readInstructions();
+  const startGuide = loadReviewGuide(args.cwd);
   // The workspace's other roots, for the writer to read (core/prompts.ts).
   const otherRoots = () => {
     const here = projectRoot(args.cwd);
     const roots = workspaceRoots().filter((r) => r !== here);
     return roots.length ? { roots } : {};
   };
-  // Fresh per session: instructions and memory are re-read where the preamble is built, so a post-handoff
-  // session sees what changed mid-run.
+  // Memory is re-read per session; the instructions are the ones from before the writer started (startInstructions).
   const reviewPreamble = () => {
     const mem = readRemembered();
-    const ins = readInstructions();
+    const ins = startInstructions;
     return preamble(args.cwd, { mode: 'read-only', sandbox, ...(context ? { context } : {}), ...(ins ? { instructions: ins } : {}), ...(mem ? { memory: mem } : {}), ...(skillList ? { skills: skillList } : {}), ...(styleModifier ? { outputStyle: styleModifier } : {}), ...otherRoots() });
   };
   // Where each writer session of this run started in its log, for the change the run made.
@@ -1269,7 +1273,7 @@ export async function runThread(given: ThreadArgs, emit: (m: CoreMessage) => voi
     if (small) say(`cedia: a small change to a message the triage sent straight to the writer; no review\n`);
     if (!(roles.review && result.subtype === 'success' && result.evidence?.changed.length && !small)) unwarm('review');
     if (roles.review && result.subtype === 'success' && result.evidence?.changed.length && !small) {
-      const r = await side('review', roles.review, reviewPrompt(args.prompt, result.evidence, patch, { probe: reviewProbe }));
+      const r = await side('review', roles.review, reviewPrompt(args.prompt, result.evidence, patch, { probe: reviewProbe, ...(startGuide ? { guide: startGuide } : {}) }));
       // A review cut off by a stop said nothing about the change: it was interrupted, not without a verdict.
       const { verdict, findings, overruled } = r.ok ? parseVerdict(r.text) : { verdict: ac.signal.aborted ? ('interrupted' as const) : ('unclear' as const), findings: '', overruled: undefined };
       // Findings outside the diff were not reviewed: drop them with names, so the fix chases only placed ones.

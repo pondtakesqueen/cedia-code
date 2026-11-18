@@ -1,0 +1,27 @@
+{
+  "note": "Bug cases undo a real fix from cedia's history (src only, tests left out), so the change under review brings the bug back. key is the one-sentence answer: a finding earns credit only when it names that defect. Controls replay a commit that stayed clean; every finding on one is a false alarm.",
+  "bugs": [
+    { "id": "readonly-backslash", "fix": "096cc38", "key": "The read-only check no longer applies bash's backslash rule, so escaped flags like `sed \\-i` or `sort -\\o` pass as read-only while bash runs them as writes." },
+    { "id": "browser-private-dns", "fix": "315acab", "key": "The browser checks for private addresses only when the host is a literal IP, so a name that resolves to a private or metadata address (169.254.169.254.nip.io) is opened." },
+    { "id": "grep-secret-tree", "fix": "193f093", "key": "grep over a directory above a credential store (e.g. $HOME) is no longer denied, so it reads ~/.kube/config, ~/.docker/config.json and similar secrets." },
+    { "id": "tilde-path", "fix": "3c26a2b", "key": "The policy expands ~ to home while the file tools read ~ as a folder under the working directory, so a path like ~/../../.ssh/config is judged one way and opened another." },
+    { "id": "decide-after-write", "fix": "b29d165", "key": "All calls of a reply are decided before any runs, so a later call is judged against a tree an earlier call (e.g. a symlink) has since changed, escaping the workspace." },
+    { "id": "repo-checks-grant", "fix": "c53c36c", "key": "Repository and detected checks become bash allow rules for read-only sessions, so a repo check of \"*\" grants bash(*) to plan, review and explore sessions." },
+    { "id": "tool-error-exit", "fix": "96a2777", "key": "Every nonzero bash exit (a grep with no match, a failing test) and any 5xx number in output is counted as a tool error." },
+    { "id": "readonly-bundled-flags", "fix": "9d86871", "key": "The read-only check misses bundled short flags and script files (sed -ni, sort -uo, sed -f, tree -fo), so commands that write pass as read-only." },
+    { "id": "plugin-team-paths", "fix": "7bd0706", "key": "A plugin name or team id is joined into a path unchecked, so '../keep' or '../settings' reaches outside the plugins or teams directory." },
+    { "id": "serve-open", "fix": "999ac89", "key": "cedia serve listens on all interfaces with no authentication and runs any POST /run prompt with workspace access and no sandbox." },
+    { "id": "sleep-monitor", "fix": "3e86ee0", "key": "sleep ignores the abort signal and Monitor keeps every line unbounded in memory and in its result." },
+    { "id": "settings-clobber", "fix": "47ff2b1", "key": "Settings writers fall back to {} when settings.json fails to parse and write that back, losing every other setting, and skip validation." },
+    { "id": "ultrareview-unplaced", "fix": "6bc29b9", "key": "ultrareview keeps findings on files the change never touched, because its passes skip verifyFindings." },
+    { "id": "own-env", "fix": "ff7a962", "key": "git, gh, rg and ffmpeg that cedia runs itself inherit process.env whole, so a repository hook or credential helper can read the provider API keys." }
+  ],
+  "controls": [
+    { "id": "sandbox-close-path", "commit": "dc8c9dc" },
+    { "id": "retire-consolidate", "commit": "ec238e5" },
+    { "id": "thorough-flag", "commit": "7f13860" },
+    { "id": "faux-script-one-place", "commit": "ebd04c1" },
+    { "id": "subthread-effort", "commit": "8ecf43d" },
+    { "id": "handoff-pure", "commit": "9244643" }
+  ]
+}

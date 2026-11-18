@@ -143,7 +143,10 @@ export const editTool: ToolSpec = {
     const full = fullPath(input, ctx.cwd);
     let raw: string;
     try {
-      if (statSync(full).isDirectory()) return { text: `${path} is a directory`, isError: true };
+      const st = statSync(full);
+      if (st.isDirectory()) return { text: `${path} is a directory`, isError: true };
+      // A FIFO or device would block the session or never end (see read.ts).
+      if (!st.isFile()) return { text: `${path} is not a regular file (a device, FIFO or socket), so edit cannot change it`, isError: true };
       raw = readFileSync(full, 'utf8');
     } catch (e) {
       return { text: `cannot read ${path}: ${(e as Error).message}`, isError: true };
@@ -186,7 +189,9 @@ export const writeTool: ToolSpec = {
     const full = fullPath(input, ctx.cwd);
     const existed = existsSync(full);
     try {
-      if (existed && statSync(full).isDirectory()) return { text: `${path} is a directory`, isError: true };
+      const st = existed ? statSync(full) : undefined;
+      if (st?.isDirectory()) return { text: `${path} is a directory`, isError: true };
+      if (st && !st.isFile()) return { text: `${path} is not a regular file (a device, FIFO or socket), so write cannot replace it`, isError: true };
       mkdirSync(dirname(full), { recursive: true });
       writeFileSync(full, input.content);
     } catch (e) {

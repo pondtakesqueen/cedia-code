@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -113,4 +114,13 @@ test('repair keeps replace_all and reads the broken string shape', () => {
   });
   expect(editRepair({ path: 'f', edits: [{ old_text: 'a', new_text: 'b' }] })).toBeUndefined();
   expect(editRepair({ path: 'f', edits: 'nonsense' })).toBeUndefined();
+});
+
+test('edit and write refuse a FIFO instead of blocking on it', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cedia-edit-fifo-'));
+  spawnSync('mkfifo', [join(dir, 'pipe')]);
+  const ctx = { cwd: dir, signal: new AbortController().signal } as never;
+  const within = <T,>(p: Promise<T>) => Promise.race([p, new Promise<{ text: string }>((ok) => setTimeout(() => ok({ text: 'hung' }), 2000))]);
+  expect((await within(editTool.run({ path: 'pipe', edits: [{ old_text: 'a', new_text: 'b' }] }, ctx))).text).toContain('not a regular file');
+  expect((await within(writeTool.run({ path: 'pipe', content: 'x' }, ctx))).text).toContain('not a regular file');
 });

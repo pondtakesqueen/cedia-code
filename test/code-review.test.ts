@@ -56,3 +56,22 @@ test("cedia review reviews the thread's files read-only and names each finding's
   expect(r.findings).toEqual([{ id: expect.any(String), path: 'base.txt', line: 2, text: 'base.txt:2 adds a line nobody asked for' }]);
   expect(Bun.file(join(dir, 'new.txt')).size).toBe(4);
 });
+
+test('a finding\'s severity tag is read and taken off its text, in the forms reviewers write it', () => {
+  const got = parseFindings([
+    'FINDING: [Important] `src/a.ts:12` drops the last item',
+    'FINDING: Nit: src/b.ts:3 a dead comment',
+    'FINDING: (pre-existing) src/c.ts:9 was already off by one',
+    'FINDING: [Preexisting] src/d.ts:1 old',
+    'FINDING: src/e.ts:2 no tag',
+  ].join('\n'));
+  expect(got.map((f) => [f.severity, f.path, f.text.slice(0, 6)])).toEqual([
+    ['important', 'src/a.ts', '`src/a'],
+    ['nit', 'src/b.ts', 'src/b.'],
+    ['pre-existing', 'src/c.ts', 'src/c.'],
+    ['pre-existing', 'src/d.ts', 'src/d.'],
+    [undefined, 'src/e.ts', 'src/e.'],
+  ]);
+  // The id ignores the tag, so a dismissal holds when a re-review tags the same finding.
+  expect(got[0]!.id).toBe(parseFindings('FINDING: `src/a.ts:12` drops the last item')[0]!.id);
+});

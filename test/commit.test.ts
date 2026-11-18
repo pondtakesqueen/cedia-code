@@ -76,7 +76,8 @@ test('cedia commit drafts a message for the thread\'s files and commits only the
 
   const draft = run([reply('```\nAdd made.txt and extend base.txt\n\nOne line each.\n```')], ['commit', '--thread', thread, '--json']);
   expect(draft.code).toBe(0);
-  expect(JSON.parse(draft.out)).toEqual({ files: ['base.txt', 'made.txt'], message: 'Add made.txt and extend base.txt\n\nOne line each.', branch: 'main' });
+  // The run declared no check, so the stamp says none verified the files and the draft names them.
+  expect(JSON.parse(draft.out)).toEqual({ files: ['base.txt', 'made.txt'], message: 'Add made.txt and extend base.txt\n\nOne line each.\n\nVerified-by: none', branch: 'main', unverified: ['base.txt', 'made.txt'] });
   // Drafting commits nothing.
   expect(git(dir, 'log', '--format=%s').stdout.trim()).toBe('Start');
 
@@ -176,4 +177,21 @@ test('cedia pr writes the body to the template; --fill and a repository without 
 
   r = pr('--fill');
   expect(readFileSync(args, 'utf8')).toContain('--fill');
+});
+
+test("cedia commit stamps the check the thread's run passed after its last write", () => {
+  const dir = repo();
+  git(dir, 'commit', '-q', '--allow-empty', '-m', 'Start');
+  const home = join(dir, '.git', 'cedia-home');
+  const run = (script: unknown[], args: string[]) => {
+    const scriptPath = join(home, `..`, `script-${Math.random()}.json`);
+    writeFileSync(scriptPath, JSON.stringify(script));
+    const p = Bun.spawnSync([BIN, ...args, '--cwd', dir], { env: { ...process.env, CEDIA_FAUX_SCRIPT: scriptPath, CEDIA_HOME: home }, stdin: 'ignore' });
+    return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString() };
+  };
+  const made = run([call('c1', 'echo made > made.txt'), call('c2', 'test -f made.txt'), reply('done')], ['-m', 'faux', '-p', 'make made.txt', '--permission', 'workspace', '--sandbox', 'off', '--check', 'test -f made.txt', '--output-format', 'json']);
+  expect(made.code).toBe(0);
+  const thread = JSON.parse(made.out).thread as string;
+  const draft = JSON.parse(run([reply('Add made.txt')], ['commit', '--thread', thread, '--json']).out);
+  expect(draft).toEqual({ files: ['made.txt'], message: 'Add made.txt\n\nVerified-by: test -f made.txt (exit 0)', branch: 'work' });
 });

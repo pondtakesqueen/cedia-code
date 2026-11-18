@@ -524,6 +524,9 @@
         "line": {
           "type": "number"
         },
+        "severity": {
+          "$ref": "#/definitions/Severity"
+        },
         "text": {
           "type": "string"
         }
@@ -673,6 +676,12 @@
             },
             "branch": {
               "type": "string"
+            },
+            "unverified": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           },
           "required": [
@@ -2410,6 +2419,12 @@
         },
         "template": {
           "type": "string"
+        },
+        "unverified": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "additionalProperties": false
@@ -3828,6 +3843,14 @@
         "rejected",
         "rewind",
         "fork"
+      ]
+    },
+    "Severity": {
+      "type": "string",
+      "enum": [
+        "important",
+        "nit",
+        "pre-existing"
       ]
     },
     "Spawned": {

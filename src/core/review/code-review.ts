@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { runSide } from '../loop/side.ts';
+import { loadReviewGuide } from '../project/instructions.ts';
 import { resolveModel } from '../providers/catalog.ts';
 import { askedReviewPrompt, findingRef, parseVerdict, verifyFindings, type Verdict } from '../trust/review.ts';
 
@@ -8,8 +9,11 @@ import { askedReviewPrompt, findingRef, parseVerdict, verifyFindings, type Verdi
 // with the file and line it names, so a client can group them by file and step through them in a diff.
 
 // One finding. `id` is the same for the same finding text on the same line, so a client can keep a dismissal
-// across a re-render; `line` is absent when the finding names no line.
-export type CodeFinding = { id: string; path?: string; line?: number; text: string };
+// across a re-render; `line` is absent when the finding names no line. `severity` is the reviewer's tag:
+// important (wrong behaviour, a hole, a broken check: it blocks), nit (never blocks), or pre-existing (the bug was
+// there before this change, so its author is not asked to fix it); absent when the reviewer gave none.
+export type Severity = 'important' | 'nit' | 'pre-existing';
+export type CodeFinding = { id: string; path?: string; line?: number; severity?: Severity; text: string };
 // What `cedia review --json` prints: the verdict, the findings in the order the reviewer gave them (most severe
 // first), the review's text before its findings, the files it reviewed, and the findings dropped because they
 // named a file outside the change; or why there is no review.
@@ -18,17 +22,22 @@ export type CodeReview =
   | { error: string };
 
 const FINDING = /^\W*FINDING:\s*/i;
+// The tag a finding starts with: `[Important]`, `Nit:`, `(pre-existing)`.
+const SEVERITY = /^[[(]?\s*(important|nit|pre-?existing)\s*[\])]?\s*[:\-–—]?\s*/i;
 
 // The FINDING lines of a review, as findings. Lines that are not FINDING lines are not findings.
 export function parseFindings(findings: string): CodeFinding[] {
   const out: CodeFinding[] = [];
   for (const raw of findings.split('\n')) {
     if (!FINDING.test(raw)) continue;
-    const text = raw.replace(FINDING, '').trim();
+    let text = raw.replace(FINDING, '').trim();
+    const tag = SEVERITY.exec(text);
+    const severity = tag ? (tag[1]!.toLowerCase().replace('preexisting', 'pre-existing') as Severity) : undefined;
+    if (tag) text = text.slice(tag[0].length).trim();
     if (!text) continue;
     const ref = findingRef(text);
     const id = createHash('sha256').update(`${ref?.path ?? ''}:${ref?.line ?? ''}:${text}`).digest('hex').slice(0, 12);
-    out.push({ id, ...(ref ? { path: ref.path, line: ref.line } : {}), text });
+    out.push({ id, ...(ref ? { path: ref.path, line: ref.line } : {}), ...(severity ? { severity } : {}), text });
   }
   return out;
 }
@@ -57,7 +66,7 @@ export async function codeReview(opts: { cwd: string; files: string[]; patch: st
     maxTurns: REVIEW_MAX_TURNS,
     ...(opts.signal ? { signal: opts.signal } : {}),
     // The patch holds the thread's new files whole, so none is left to name as untracked.
-    prompt: askedReviewPrompt({ kind: 'changes', untracked: [] }, opts.patch),
+    prompt: askedReviewPrompt({ kind: 'changes', untracked: [] }, opts.patch, loadReviewGuide(opts.cwd, 'HEAD')),
   });
   if (r.subtype !== 'success') return { error: `the review did not finish (${r.subtype})` };
   const { verdict, findings } = parseVerdict(r.result);
