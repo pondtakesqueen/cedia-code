@@ -1,6 +1,5 @@
 import { homedir } from 'node:os';
 import { relative, resolve as resolvePath } from 'node:path';
-import { gitSync } from '../git/run.ts';
 import { effectOf, type ToolSpec } from '../tools/registry.ts';
 import { inside, realPrefix, toolPath } from '../fs-safety.ts';
 import type { JsonObject } from '../types.ts';
@@ -391,15 +390,23 @@ function gitHit(args: string[], cwd: string, depth = 0): Hit | undefined {
   let where = cwd;
   for (let j = 0; j < i; j++) if (args[j] === '-C') where = resolvePath(where, args[++j]!);
   const moved = movesBranch(subcommand, rest, {
-    exists: (ref) => gitSync(where, ['rev-parse', '--verify', '-q', ref]).status === 0,
-    current: () => {
-      const r = gitSync(where, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
-      return r.status === 0 ? r.stdout.trim() : undefined;
-    },
+    exists: (ref) => refGit(where, ['rev-parse', '--verify', '-q', ref]) !== undefined,
+    current: () => refGit(where, ['symbolic-ref', '--quiet', '--short', 'HEAD'])?.trim(),
   });
   if (moved)
     return { name: 'drop-refs', reason: `git ${subcommand} ${rest.join(' ')} moves ${moved}, which already exists, so the commits only it held are lost to cedia's snapshots (a work sub-thread's worktree shares these refs with your checkout); create a new branch, or ask the user` };
   return undefined;
+}
+
+// A read of the repository's refs for movesBranch: stdout, or undefined when git says no. Bun.spawnSync with
+// fsmonitor off, as sandbox.ts reads hooksDir (gitSync would import the provider catalog into the policy).
+function refGit(cwd: string, args: string[]): string | undefined {
+  try {
+    const r = Bun.spawnSync(['git', '-c', 'core.fsmonitor=false', ...args], { cwd, stdout: 'pipe', stderr: 'ignore', stdin: 'ignore' });
+    return r.exitCode === 0 ? r.stdout.toString() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 // A command that points an existing branch (or tag) somewhere else: `branch -f <b> [<start>]`, `branch -M/-C
