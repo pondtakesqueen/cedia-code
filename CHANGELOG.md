@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Changed git commands that move an existing branch or tag (`branch -f`, `branch -M`, `checkout -B`, `switch -C`, `update-ref`) to be refused like `branch -D`; creating a new branch is unaffected
 - Fixed read, edit, write and NotebookEdit hanging or filling memory on a FIFO or device file such as `/dev/zero`; read also refuses files over 50 MB and points to grep
 - Added severity to review findings (Important, Nit, Pre-existing) in `/review`, `cedia review --json` and `cedia ultrareview --json`
 - Added `REVIEW.md` (or `.github/REVIEW.md`) as the repository's guide for reviews; `/review`, `/ultrareview` and `cedia review` read it as HEAD has it
