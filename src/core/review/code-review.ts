@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { runSide } from '../loop/side.ts';
+import { loadReviewGuide } from '../project/instructions.ts';
 import { resolveModel } from '../providers/catalog.ts';
 import { askedReviewPrompt, findingRef, parseVerdict, verifyFindings, type Verdict } from '../trust/review.ts';
 
@@ -57,7 +58,7 @@ export async function codeReview(opts: { cwd: string; files: string[]; patch: st
     maxTurns: REVIEW_MAX_TURNS,
     ...(opts.signal ? { signal: opts.signal } : {}),
     // The patch holds the thread's new files whole, so none is left to name as untracked.
-    prompt: askedReviewPrompt({ kind: 'changes', untracked: [] }, opts.patch),
+    prompt: askedReviewPrompt({ kind: 'changes', untracked: [] }, opts.patch, loadReviewGuide(opts.cwd, 'HEAD')),
   });
   if (r.subtype !== 'success') return { error: `the review did not finish (${r.subtype})` };
   const { verdict, findings } = parseVerdict(r.result);

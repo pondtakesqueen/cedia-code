@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added `REVIEW.md` (or `.github/REVIEW.md`) as the repository's guide for reviews; `/review`, `/ultrareview` and `cedia review` read it as HEAD has it
+- Changed the review and goal judge after a run to read AGENTS.md and REVIEW.md as they were before the writer started, so a change cannot rewrite its own judge's instructions
 - Added a `Verified-by:` stamp to commit messages drafted by `cedia commit` and `/commit`, from the checks the thread's runs passed, and a warning before committing files no check covered or opening a pull request with such commits
 - Added a question in the TUI before a prompt goes to a large thread whose cache has expired: go on in a new session from where it stopped, or with the whole context
 - Added `cedia threads resume-cost` and `--cold-resume <auto|keep|fresh>` for clients that ask the same question
