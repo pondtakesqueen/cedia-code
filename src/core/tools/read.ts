@@ -4,6 +4,9 @@ import { fileHead, sniffVideo, videoFrames, videoNote } from '../video.ts';
 import { clip, MAX_OUTPUT_CHARS, toolPath, type ToolSpec } from './registry.ts';
 
 const MAX_LINES = 2000;
+// Read loads a file whole before it picks lines, so a larger one is refused: a multi-GB log would fill memory to
+// show 2,000 lines. grep or a ranged shell read gets at it.
+export const MAX_READ_BYTES = 50 * 1024 * 1024;
 
 export const readTool: ToolSpec = {
   name: 'read',
@@ -29,12 +32,19 @@ export const readTool: ToolSpec = {
     const full = toolPath(path, ctx.cwd);
     let bytes: Buffer;
     try {
-      if (statSync(full).isDirectory()) return { text: `${path} is a directory`, isError: true };
+      const st = statSync(full);
+      if (st.isDirectory()) return { text: `${path} is a directory`, isError: true };
+      // A device, FIFO or socket never ends (/dev/zero fills memory) or blocks until a writer comes (a FIFO, /dev/stdin),
+      // and the session waits with it. Checked before the video sniff, which opens the file too.
+      if (!st.isFile()) return { text: `${path} is not a regular file (a device, FIFO or socket), so read cannot open it`, isError: true };
       if (sniffVideo(fileHead(full))) {
         const v = videoFrames(full, path);
         if ('error' in v) return { text: `cannot show ${path}: ${v.error}`, isError: true };
         return { text: videoNote(path, v), isError: false, images: v.frames };
       }
+      // A video is read by ffmpeg from the path; anything else is loaded whole.
+      if (st.size > MAX_READ_BYTES)
+        return { text: `${path} is ${Math.round(st.size / 1024 / 1024)} MB, more than read loads (${MAX_READ_BYTES / 1024 / 1024} MB). Search it with grep, or read a range with a shell command such as sed -n '1,200p'`, isError: true };
       bytes = readFileSync(full);
     } catch (e) {
       return { text: `cannot read ${path}: ${(e as Error).message}`, isError: true };

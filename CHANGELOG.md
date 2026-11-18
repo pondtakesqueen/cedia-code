@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed read, edit, write and NotebookEdit hanging or filling memory on a FIFO or device file such as `/dev/zero`; read also refuses files over 50 MB and points to grep
 - Added severity to review findings (Important, Nit, Pre-existing) in `/review`, `cedia review --json` and `cedia ultrareview --json`
 - Added `REVIEW.md` (or `.github/REVIEW.md`) as the repository's guide for reviews; `/review`, `/ultrareview` and `cedia review` read it as HEAD has it
 - Changed the review and goal judge after a run to read AGENTS.md and REVIEW.md as they were before the writer started, so a change cannot rewrite its own judge's instructions

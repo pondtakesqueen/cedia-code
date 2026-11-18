@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, renameSync } from 'node:fs';
+import { readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { toolPath, type ToolSpec } from './registry.ts';
@@ -6,6 +6,8 @@ import { toolPath, type ToolSpec } from './registry.ts';
 type Cell = { cell_type: string; source: string | string[]; metadata?: Record<string, unknown>; outputs?: unknown[]; execution_count?: number | null; id?: string };
 
 function loadNotebook(path: string): { nb: any; cells: Cell[] } {
+  // A FIFO or device would block the session or never end (see read.ts).
+  if (!statSync(path).isFile()) throw new Error('not a regular file (a device, FIFO or socket)');
   const raw = readFileSync(path, 'utf8');
   const nb = JSON.parse(raw);
   if (!nb || typeof nb !== 'object' || !Array.isArray(nb.cells)) throw new Error('invalid notebook: missing cells array');
