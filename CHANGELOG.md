@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added to `cedia doctor` the skill folders that do not load (and why), skills hidden by a same-named one, and hooks whose `match` names no tool so they never run
 - Changed git commands that move an existing branch or tag (`branch -f`, `branch -M`, `checkout -B`, `switch -C`, `update-ref`) to be refused like `branch -D`; creating a new branch is unaffected
 - Fixed read, edit, write and NotebookEdit hanging or filling memory on a FIFO or device file such as `/dev/zero`; read also refuses files over 50 MB and points to grep
 - Added severity to review findings (Important, Nit, Pre-existing) in `/review`, `cedia review --json` and `cedia ultrareview --json`

@@ -1431,6 +1431,9 @@ function doctor(argv: string[]): number {
     console.log(`settings: ${tier(r.settings.user)}`);
     console.log(`keybindings: ${keybindings.count ?? keybindings.error ?? 0}`);
     console.log(`mcp servers: ${r.mcp.servers.length ? r.mcp.servers.map((s) => s.name).join(', ') : 'none'}${bad.length ? ` (invalid: ${bad.map((s) => `${s.name}: ${s.error}`).join('; ')})` : ''}`);
+    for (const b of r.skills.broken) console.log(`skill not loaded: ${b.path}: ${b.error}`);
+    for (const d of r.skills.shadowed) console.log(`skill hidden: ${d.path} is named ${d.name}, and ${d.by} loads first`);
+    for (const h of r.hooks.unmatched) console.log(`hook never runs: ${h.event} match "${h.match}": ${h.reason}`);
   }
   return 0;
 }
