@@ -6,6 +6,7 @@ import { ownEnv } from '../own-env.ts';
 import { workspaceSnapshots, type Snapshots } from '../safety/snapshot.ts';
 import { inert } from '../trust/frame.ts';
 import type { ThreadStore } from '../threads/threads.ts';
+import { unverifiedCommits } from './verified.ts';
 
 // `/commit` and `/pr`. cedia is not a git client (SPEC "Git"): these cover the two steps a session ends with. A
 // commit takes only the files the thread changed that still differ from HEAD, so the user's own work in progress
@@ -15,12 +16,15 @@ import type { ThreadStore } from '../threads/threads.ts';
 
 // What `cedia commit` and `cedia pr` print with --json, for a client that shows the step and asks before it.
 // The files the thread changed and the message drafted for them; nothing is committed yet.
-export type CommitDraft = { files: string[]; message: string; branch?: string } | { error: string };
+// `unverified`: the files no passing check covered after their last change (core/git/verified.ts); the message
+// already carries the stamp, and a client warns before it commits.
+export type CommitDraft = { files: string[]; message: string; branch?: string; unverified?: string[] } | { error: string };
 // The commit made, or why there is none.
 export type Committed = { commit: string; subject: string; files: string[] } | { error: string };
 // Where a PR would go from here, or why it cannot.
 // `template` is the repository's pull request template, when it has one: the PR's body is then written to it.
-export type PrPlan = { branch?: string; base?: string; blocked?: string; template?: string };
+// `unverified`: the branch's commits whose stamp says they hold unverified work, as `<hash> <subject>`.
+export type PrPlan = { branch?: string; base?: string; blocked?: string; template?: string; unverified?: string[] };
 // The pull request opened, with what gh said, or why there is none.
 export type PrOpened = { branch: string; base?: string; url?: string; out: string } | { error: string };
 
@@ -150,7 +154,9 @@ export function prPlan(cwd: string): PrPlan {
   const base = defaultBranch(cwd);
   const blocked = prBlocked(cwd);
   const template = prTemplate(cwd)?.path;
-  return { ...(branch ? { branch } : {}), ...(base ? { base } : {}), ...(blocked ? { blocked } : {}), ...(template ? { template } : {}) };
+  const from = base ? [`origin/${base}`, base].find((r) => git(cwd, ['rev-parse', '--verify', '-q', r]).status === 0) : undefined;
+  const unverified = from && !blocked ? unverifiedCommits(cwd, `${from}..HEAD`) : [];
+  return { ...(branch ? { branch } : {}), ...(base ? { base } : {}), ...(blocked ? { blocked } : {}), ...(template ? { template } : {}), ...(unverified.length ? { unverified } : {}) };
 }
 
 // The repository's pull request template, from the places GitHub reads one (any letter case): `.github/`, the

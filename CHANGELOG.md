@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added a `Verified-by:` stamp to commit messages drafted by `cedia commit` and `/commit`, from the checks the thread's runs passed, and a warning before committing files no check covered or opening a pull request with such commits
 - Added a question in the TUI before a prompt goes to a large thread whose cache has expired: go on in a new session from where it stopped, or with the whole context
 - Added `cedia threads resume-cost` and `--cold-resume <auto|keep|fresh>` for clients that ask the same question
 - Added pull request bodies written to the repository's `pull_request_template.md` by `cedia pr` and `/pr` (`--fill` keeps the commits' text)

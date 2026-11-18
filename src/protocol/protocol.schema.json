@@ -673,6 +673,12 @@
             },
             "branch": {
               "type": "string"
+            },
+            "unverified": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           },
           "required": [
@@ -2410,6 +2416,12 @@
         },
         "template": {
           "type": "string"
+        },
+        "unverified": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "additionalProperties": false

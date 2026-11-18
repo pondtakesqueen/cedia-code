@@ -51,6 +51,7 @@ import { loadSkills } from '../../core/skills/skills.ts';
 import { listMcp } from '../../core/mcp/manage.ts';
 import { threadFiles, NOTHING_CHANGED, commitFiles, currentBranch, prPlan, pushAndOpenPr } from '../../core/git/commit.ts';
 import { draftCommitMessage, draftPrText } from '../../core/git/draft.ts';
+import { stampMessage, threadReceipts, unverifiedWarning, verification } from '../../core/git/verified.ts';
 import { resumeCost, resumeCostLine, type ColdResume } from '../../core/run/resume-cost.ts';
 import { workspaceSnapshots } from '../../core/safety/snapshot.ts';
 import { allowRuleFor, applyAllowRules } from '../../core/safety/suggest.ts';
@@ -772,6 +773,11 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
             } catch (e) { say(`could not draft the commit message: ${(e as Error).message}`, 'red'); return; }
           }
           if (!message) { say('the message came back empty: write one with /commit <message>'); return; }
+          // The stamp from the thread's receipts: which checks verified these files, or that none did.
+          const v = verification(threadReceipts(store, thread), files, args.cwd);
+          message = stampMessage(message, v);
+          const warn = unverifiedWarning(v);
+          if (warn) say(`warning: ${warn}`, 'red');
           say([`commit ${files.length} file${files.length === 1 ? '' : 's'}: ${files.join(', ')}`, '', message, '', 'commit this? y to commit; n, or anything else you type, cancels'].join('\n'));
           pendingRef.current = { what: 'the commit', yes: () => {
             const r = commitFiles(args.cwd, files, message);
@@ -782,8 +788,9 @@ export function App({ args }: { args: TuiArgs }): React.ReactElement {
         return;
       }
       case 'pr': {
-        const { blocked, branch, base, template } = prPlan(args.cwd);
+        const { blocked, branch, base, template, unverified } = prPlan(args.cwd);
         if (blocked) { say(blocked); return; }
+        if (unverified?.length) say(`warning: ${unverified.length} commit${unverified.length === 1 ? '' : 's'} on ${branch} say${unverified.length === 1 ? 's' : ''} no check verified ${unverified.length === 1 ? 'it' : 'them'}: ${unverified.slice(0, 5).join('; ')}${unverified.length > 5 ? '; …' : ''}`, 'red');
         say(`push ${branch} to origin and open a pull request${base ? ` into ${base}` : ''}${template ? `, its body written to ${template}` : ''}? y to go on; n, or anything else you type, cancels`);
         pendingRef.current = { what: 'the push', yes: async (signal) => {
           busyRef.current = true;

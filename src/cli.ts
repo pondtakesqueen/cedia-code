@@ -36,6 +36,7 @@ import { getEditable, setEditable } from './core/settings-edit.ts';
 import type { McpToolRule } from './core/mcp/client.ts';
 import { codeReview, type CodeReview } from './core/review/code-review.ts';
 import { changeGuide, DIFF_BASES, guideText, threadDiff, type ChangeGuide, type DiffBase } from './core/git/change-guide.ts';
+import { stampMessage, threadReceipts, unverifiedWarning, verification } from './core/git/verified.ts';
 import { commitFiles, commitPatch, currentBranch, headCommit, NOTHING_CHANGED, prPlan, pushAndOpenPr, threadFiles, type CommitDraft, type Committed, type PrOpened } from './core/git/commit.ts';
 import { draftCommitMessage, draftPrText } from './core/git/draft.ts';
 import { resumeCost, resumeCostLine } from './core/run/resume-cost.ts';
@@ -1006,11 +1007,15 @@ async function commit(argv: string[]): Promise<number> {
   try {
     if (values.message === undefined) {
       const model = sideModel('write', { explicit: values.model, threadWriter: threadWriter(store, values.thread) });
-      const { message } = await draftCommitMessage({ cwd, model: model.ref, files });
-      if (!message) return fail('the message came back empty: write one with --message');
+      const drafted = await draftCommitMessage({ cwd, model: model.ref, files });
+      if (!drafted.message) return fail('the message came back empty: write one with --message');
+      // The stamp says how the thread's receipts verified these files; a client warns before committing unverified work.
+      const v = verification(threadReceipts(store, values.thread), files, cwd);
+      const message = stampMessage(drafted.message, v);
       const branch = currentBranch(cwd);
-      const draft: CommitDraft = { files, message, ...(branch ? { branch } : {}) };
-      console.log(values.json ? JSON.stringify(draft) : [`would commit ${files.join(', ')}${branch ? ` on ${branch}` : ''}:`, '', message].join('\n'));
+      const draft: CommitDraft = { files, message, ...(branch ? { branch } : {}), ...(v.unverified.length ? { unverified: v.unverified } : {}) };
+      const warn = unverifiedWarning(v);
+      console.log(values.json ? JSON.stringify(draft) : [...(warn ? [`warning: ${warn}`, ''] : []), `would commit ${files.join(', ')}${branch ? ` on ${branch}` : ''}:`, '', message].join('\n'));
       return 0;
     }
     const message = values.message.trim();
