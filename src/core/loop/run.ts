@@ -23,7 +23,6 @@ import { changesFromCalls, changesFromPatch, findSlop, formatFinding, type SlopF
 import { effectOf, resolveCall, toolDefs, type ToolCtx, type ToolSpec } from '../tools/registry.ts';
 import { isSpawnNudge, spawnNudge } from '../tools/spawn.ts';
 import { shownInstructions } from '../project/instructions.ts';
-import { ASK_TOOL, questionOf } from '../tools/ask.ts';
 import {
   addUsage,
   EFFORTS,
@@ -401,7 +400,7 @@ export async function runPrompt(opts: RunOptions, prompt: string): Promise<Headl
   // Calls that only read may run before the plan is in; ask_user waits for it too, since the plan may answer it.
   const readsOnly = (c: Extract<AssistantBlock, { type: 'tool_use' }>) => {
     const spec = byName.get(c.name);
-    return !!spec && !c.inputError && c.name !== ASK_TOOL && effectOf(spec, c.input) === 'read';
+    return !!spec && !c.inputError && !spec.asks && effectOf(spec, c.input) === 'read';
   };
   // Soft checks were found, not declared: they never refuse a claim, so they never escalate either.
   // A ceiling on effort from settings or the environment: the writer, spawn children, plan/review steps
@@ -691,7 +690,7 @@ export async function runPrompt(opts: RunOptions, prompt: string): Promise<Headl
       await warm.stop();
       timing.toolMs += performance.now() - toolStart;
       // A question for the owner ends the run once the turn's other calls are done; the answer is the next prompt.
-      const asked = askedIn(log.events.slice(before), run);
+      const asked = askedIn(log.events.slice(before), run, byName);
       if (asked) return { ...finish('asked', 'asked', asked.question), question: asked };
       // Stuck guard: the same call and result over and over. One reminder; repeating on after it ends the run.
       const stuck = handoff === 0 ? findStuck(log.events.slice(stuckFrom)) : undefined;
@@ -796,13 +795,15 @@ export async function runPrompt(opts: RunOptions, prompt: string): Promise<Headl
   }
 }
 
-// The question of an ask_user call that ran and succeeded in this turn's results, if any (the first one).
-function askedIn(results: SessionEvent[], calls: Extract<AssistantBlock, { type: 'tool_use' }>[]): Question | undefined {
+// The question of a call that asks the owner (ask_user, add_project) and that ran and succeeded in this turn's
+// results, if any (the first one).
+function askedIn(results: SessionEvent[], calls: Extract<AssistantBlock, { type: 'tool_use' }>[], byName: Map<string, ToolSpec>): Question | undefined {
   for (const c of calls) {
-    if (c.name !== ASK_TOOL) continue;
+    const spec = byName.get(c.name);
+    if (!spec?.asks) continue;
     const r = results.find((e): e is EventOf<'tool_result'> => e.kind === 'tool_result' && e.callId === callIdOf(c));
-    const q = r?.status === 'completed' && !r.output.isError ? questionOf(c.input) : undefined;
-    if (q && typeof q !== 'string') return q;
+    const q = r?.status === 'completed' && !r.output.isError ? spec.asks(c.input) : undefined;
+    if (q) return q;
   }
   return undefined;
 }

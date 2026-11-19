@@ -3,6 +3,7 @@ import { basename, join } from 'node:path';
 import { inert } from '../trust/frame.ts';
 import type { ImageRef } from '../images.ts';
 import type { RunPermission } from '../safety/policy.ts';
+import type { ProjectRequest } from '../types.ts';
 
 // A project is a working directory; a thread is one line of work in it, made of one or more sessions. A session
 // hands off to the next when its context grows long, and threads leave each other messages. Each thread is an
@@ -38,7 +39,7 @@ type ThreadBody =
   // The writer's list of steps, whole each time (core/tools/todo.ts): what a client draws as the thread's progress.
   | { kind: 'todo'; items: TodoItem[] }
   // The question a session asked the owner, written just before the 'asking' state.
-  | { kind: 'question'; sessionId: string; question: string; options?: string[] }
+  | { kind: 'question'; sessionId: string; question: string; options?: string[]; request?: ProjectRequest }
   | { kind: 'state'; state: ThreadState; result?: string }
   // A run of the thread that changed files: the shadow-git trees before its first write and after its last, across
   // every session it took (handoff, fallback, a review's fix), and the working directory they are of. What /undo
@@ -104,7 +105,7 @@ export type Thread = {
   // The latest todo list, if the writer kept one.
   todo?: TodoItem[];
   // The open question while the thread is asking.
-  question?: { sessionId: string; question: string; options?: string[]; at: string };
+  question?: { sessionId: string; question: string; options?: string[]; request?: ProjectRequest; at: string };
   // When it was opened (its first event) and when anything last happened to it.
   openedAt: string;
   updatedAt: string;
@@ -274,7 +275,7 @@ export function foldThread(id: string, events: ThreadEvent[]): Thread {
     else if (e.kind === 'delivered') for (const m of e.ids) delivered.add(m);
     else if (e.kind === 'unsend') for (const m of e.ids) unsent.add(m);
     else if (e.kind === 'todo') t.todo = e.items;
-    else if (e.kind === 'question') t.question = { sessionId: e.sessionId, question: e.question, ...(e.options ? { options: e.options } : {}), at: e.at };
+    else if (e.kind === 'question') t.question = { sessionId: e.sessionId, question: e.question, ...(e.options ? { options: e.options } : {}), ...(e.request ? { request: e.request } : {}), at: e.at };
     else if (e.kind === 'rate') t.ratings.push({ rating: e.rating, ...(e.sessionId ? { sessionId: e.sessionId } : {}), ...(e.note ? { note: e.note } : {}), at: e.at });
     else if (e.kind === 'archived') t.archived = e.archived;
     else if (e.kind === 'title') t.title = e.title;

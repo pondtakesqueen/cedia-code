@@ -314,7 +314,14 @@ export type MissCause = 'cold' | 'system_changed' | 'tools_changed' | 'model_cha
 // One such request: its session, its number there, and the tokens the cache could have served and did not.
 export type CacheMiss = { session: string; request: number; cause: Exclude<MissCause, 'cold'>; tokens: number };
 // A question the writer asked the owner: open, or with 2 to 4 answers to pick from, recommended one first.
-export type Question = { question: string; options?: string[] };
+// `request`: what the desktop carries out if the owner allows it (core/tools/project.ts); the options are then
+// Allow and Deny.
+export type Question = { question: string; options?: string[]; request?: ProjectRequest };
+
+// add_project's request: add `path` as one of the owner's projects in the desktop, made first (with git init) when
+// `create`, and with this chat carried over to it (`cedia threads carry`) when `carry`. `why` is the writer's
+// one-sentence reason, shown with it. The path is absolute and real, checked when the call ran.
+export type ProjectRequest = { kind: 'project'; path: string; create: boolean; carry: boolean; why: string };
 
 // Sub-threads by kind, the handoffs their sessions made, and the largest context one of their replies saw.
 export type Spawned = { explore: number; work: number; handoffs: number; peakContext: number };

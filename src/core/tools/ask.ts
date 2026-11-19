@@ -54,6 +54,10 @@ export const askTool: ToolSpec = {
   schema: SCHEMA,
   effect: 'read',
   replay: 'safe',
+  asks(input) {
+    const q = questionOf(input);
+    return typeof q === 'string' ? undefined : q;
+  },
   async run(input) {
     const q = questionOf(input);
     if (typeof q === 'string') return { text: q, isError: true };

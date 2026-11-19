@@ -29,6 +29,7 @@ import { inboxReminder, MAX_RESULT, threadsDir, ThreadStore, type SessionWhy, ty
 import { spawnNudgeAt, spawnPool, spawnReport, spawnTool, subtaskPrompt, type SpawnKind, type SpawnOutcome, type Spawner } from '../tools/spawn.ts';
 import { recallTool, threadTools, type EarlierSession } from '../tools/threads.ts';
 import { answerPrompt, askTool, askToolFor } from '../tools/ask.ts';
+import { projectTool } from '../tools/project.ts';
 import { todoTool } from '../tools/todo.ts';
 import { jobsDir, jobTool } from '../tools/jobs.ts';
 import { pluginTool } from '../tools/plugin.ts';
@@ -110,6 +111,9 @@ export type ThreadArgs = {
   // "on" gives the writer ask_user, to end the run with a question for the owner (core/tools/ask.ts); "auto" asks
   // only while `present` says the owner is there, and otherwise has the writer decide and go on.
   ask?: string;
+  // "on": the client is a desktop that carries out add_project requests, so the writer gets that tool
+  // (core/tools/project.ts). Off unless the client says so: no other client would act on the answer.
+  desktop?: string;
   // Whether the owner is at the client now, read when ask_user runs under `ask: auto`. Absent: away.
   present?: () => boolean;
   // "on" gives the writer the todo tool, whose list a client draws as the thread's progress (core/tools/todo.ts).
@@ -323,6 +327,8 @@ export async function runThread(given: ThreadArgs, emit: (m: CoreMessage) => voi
   // auto with no client to say otherwise (a plain `cedia -p`): nobody is at the keyboard.
   const asker = askMode === 'auto' ? askToolFor(args.present ?? (() => false)) : askTool;
   const todoOn = loadTodo(args.todo);
+  if (args.desktop !== undefined && args.desktop !== 'on' && args.desktop !== 'off') throw new Error(`--desktop is on or off: ${args.desktop}`);
+  const desktopOn = args.desktop === 'on';
   const jobsOn = loadJobs(args.jobs);
   const creatorOn = loadCreator(args.creator);
   const promptSuggestionsOn = loadPromptSuggestions(args.promptSuggestions);
@@ -631,7 +637,7 @@ export async function runThread(given: ThreadArgs, emit: (m: CoreMessage) => voi
     const mcpRead = [...mcpTools.filter((t) => t.effect === 'read'), ...callOf(deferred.filter((t) => t.effect === 'read'))];
     // A resumed session that had the browser keeps the tool when this run has none, and a call says so.
     const browserTools = browser ? [browser.tool] : header?.tools.some((d) => d.name === BROWSER_TOOL) ? [browserStub] : [];
-    const extra = [...(spawnOn ? [spawnHere] : []), ...((askMode !== 'off' || policy.plan) && store && threadId ? [policy.plan ? askTool : asker] : []), ...(todoOn && store && threadId ? [todoTool(store, threadId, runId)] : []), ...(jobsOn && !reviewer ? [jobTool(jobsDir(cediaHome(), projectKey(args.cwd)), threadId)] : []), ...(store && threadId ? [teamTool(new TeamStore(), threadId)] : []), ...(profile?.openThread && store && threadId ? [openThreadTool(store, threadId, opened, projectRoot(args.cwd), workspaceRoots())] : []), ...(profile?.schedule && store && threadId ? [scheduleTool(new ScheduleStore(schedulesPath(cediaHome(), projectKey(args.cwd))), threadId)] : []), ...(earlier.some((s) => s.id !== log.id) ? [recall] : []), ...(store && threadId && others ? threadTools(store, threadId) : []), ...(remember ? [remember] : []), ...(withSkill ? [skill] : []), ...(pluginT ? [pluginT] : []), webFetch, ...browserTools, ...mcpTools];
+    const extra = [...(spawnOn ? [spawnHere] : []), ...((askMode !== 'off' || policy.plan) && store && threadId ? [policy.plan ? askTool : asker] : []), ...(todoOn && store && threadId ? [todoTool(store, threadId, runId)] : []), ...(desktopOn && store && threadId ? [projectTool({ cediaHome: cediaHome(), cwd: args.cwd })] : []), ...(jobsOn && !reviewer ? [jobTool(jobsDir(cediaHome(), projectKey(args.cwd)), threadId)] : []), ...(store && threadId ? [teamTool(new TeamStore(), threadId)] : []), ...(profile?.openThread && store && threadId ? [openThreadTool(store, threadId, opened, projectRoot(args.cwd), workspaceRoots())] : []), ...(profile?.schedule && store && threadId ? [scheduleTool(new ScheduleStore(schedulesPath(cediaHome(), projectKey(args.cwd))), threadId)] : []), ...(earlier.some((s) => s.id !== log.id) ? [recall] : []), ...(store && threadId && others ? threadTools(store, threadId) : []), ...(remember ? [remember] : []), ...(withSkill ? [skill] : []), ...(pluginT ? [pluginT] : []), webFetch, ...browserTools, ...mcpTools];
     // The advisor and the classifier answer in one reply, with no tools, in a session of their own.
     const helper = kind === 'helper';
     let tools = profileTools(kind, {
