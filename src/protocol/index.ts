@@ -21,6 +21,7 @@ export type { Restored } from '../core/threads/undo.ts';
 export type { RewindResult } from '../core/threads/rewind.ts';
 export type { DeleteResult } from '../core/threads/delete.ts';
 export type { ForkResult } from '../core/threads/fork.ts';
+export type { CarryResult } from '../core/threads/carry.ts';
 export type { McpCheck, McpList } from '../core/mcp/manage.ts';
 export type { EditableSettings } from '../core/settings-edit.ts';
 export type { CommitDraft, Committed, PrOpened, PrPlan } from '../core/git/commit.ts';

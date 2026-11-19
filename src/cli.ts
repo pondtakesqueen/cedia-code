@@ -42,10 +42,11 @@ import { resumeCost, resumeCostLine } from './core/run/resume-cost.ts';
 import { reviewSubject, ultraReview } from './core/review/ultrareview.ts';
 import { sideModel, threadWriter } from './core/side-model.ts';
 import { deleteThread } from './core/threads/delete.ts';
+import { type CarryResult, carryThread } from './core/threads/carry.ts';
 import { type ForkResult, forkThread } from './core/threads/fork.ts';
 import { workspaceSnapshots } from './core/safety/snapshot.ts';
 import { lintSession } from './core/session/lint.ts';
-import { projectKey, sessionPath, SessionLog } from './core/session/log.ts';
+import { projectKey, projectRoot, sessionPath, SessionLog } from './core/session/log.ts';
 import { formatUsage, isUsageEvent, readEventsLenient, sinceOf, usageReport, type SessionInput } from './core/session/usage.ts';
 import { selectSessions, sessionFiles } from './core/session/select.ts';
 import { printable } from './core/printable.ts';
@@ -151,6 +152,9 @@ const USAGE = `usage: cedia [options]                 the TUI, at a terminal: ea
                                decide; the thread waits as 'asking' and your answer is its next prompt. auto asks
                                only while you are at the TUI, and otherwise has the writer decide, go on and list
                                the choice in the recap; a -p run counts as away (default: settings ask, off)
+      --desktop <on|off>       the client is a desktop that carries out add_project: give the writer that tool, to
+                               ask you to add (or create) a folder as a project and carry the chat over to it; it
+                               ends the run like ask_user and nothing changes until you allow it (default off)
       --todo <on|off>          give the writer a todo list, kept in the thread as its progress (default: settings
                                todo, off)
       --jobs <on|off>          give the writer Job, to run a long command in the background that keeps going after
@@ -209,6 +213,9 @@ const USAGE = `usage: cedia [options]                 the TUI, at a terminal: ea
        cedia threads rate <id> <up|down> [--session <sid>] [--note <text>]
                                             rate an answer (default: the thread's latest) for picking eval cases;
                                             no model ever sees it
+       cedia threads carry <id> --to <dir> [--json]
+                                            go on with the chat in the project of <dir>: a new thread there
+                                            with a recap of this one, which is archived (the desktop's add_project)
        cedia threads archive|unarchive <id> hide a thread from the list, or bring it back
        cedia threads rename <id> <title>    give a thread a title of your own
        cedia threads delete <id> [--force] [--json]
@@ -408,6 +415,7 @@ export async function main(given: string[]): Promise<number> {
       'output-style': { type: 'string' },
       triage: { type: 'string' },
       ask: { type: 'string' },
+      desktop: { type: 'string' },
       todo: { type: 'string' },
       jobs: { type: 'string' },
       creator: { type: 'string' },
@@ -482,6 +490,7 @@ export async function main(given: string[]): Promise<number> {
     ...(values['output-style'] ? { outputStyle: values['output-style'] } : {}),
     ...(values.triage ? { triage: values.triage } : {}),
     ...(values.ask ? { ask: values.ask } : {}),
+    ...(values.desktop ? { desktop: values.desktop } : {}),
     ...(values.todo ? { todo: values.todo } : {}),
     ...(values.jobs ? { jobs: values.jobs } : {}),
     ...(values.creator ? { creator: values.creator } : {}),
@@ -673,7 +682,7 @@ function threads(argv: string[]): number {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: { cwd: { type: 'string' }, all: { type: 'boolean' }, session: { type: 'string' }, note: { type: 'string' }, force: { type: 'boolean' }, side: { type: 'boolean' }, json: { type: 'boolean' }, image: { type: 'string', multiple: true }, since: { type: 'string' }, 'edited-path': { type: 'string' }, limit: { type: 'string' }, base: { type: 'string' }, model: { type: 'string' } },
+    options: { cwd: { type: 'string' }, all: { type: 'boolean' }, session: { type: 'string' }, note: { type: 'string' }, force: { type: 'boolean' }, side: { type: 'boolean' }, json: { type: 'boolean' }, image: { type: 'string', multiple: true }, since: { type: 'string' }, 'edited-path': { type: 'string' }, limit: { type: 'string' }, base: { type: 'string' }, model: { type: 'string' }, to: { type: 'string' } },
   });
   const cwd = resolve(values.cwd ?? process.cwd());
   const home = cediaHome();
@@ -820,6 +829,16 @@ function threads(argv: string[]): number {
       const out: ForkResult = { thread: r.thread, ...(r.run ? { run: r.run.id } : {}), ...(r.sessionId ? { sessionId: r.sessionId } : {}), ...(r.run?.images?.length ? { images: r.run.images } : {}) };
       const at = r.run ? `at run ${JSON.stringify(r.run.prompt.split('\n')[0])}` : 'at its end';
       console.log(values.json ? JSON.stringify(out) : `forked ${id} ${at} into ${r.thread}; send ${r.run ? 'the edited message' : 'a question'} with cedia -p <text> --thread ${r.thread}`);
+      return 0;
+    }
+    if (cmd === 'carry' && id && !rest.length) {
+      if (!values.to) throw new Error('carry needs --to <dir>, the folder of the project the chat goes on in');
+      const toDir = resolve(values.to);
+      if (projectKey(toDir) === projectKey(cwd)) throw new Error(`${toDir} is this thread's own project`);
+      const r = carryThread(store, id, projectRoot(cwd), new ThreadStore(threadsDir(home, projectKey(toDir))), toDir);
+      if ('error' in r) throw new Error(r.error);
+      const out: CarryResult = r;
+      console.log(values.json ? JSON.stringify(out) : `carried ${id} over to ${r.thread} in ${r.cwd}; go on there with: cd ${r.cwd} && cedia -p <text> --thread ${r.thread}`);
       return 0;
     }
     if (cmd === 'diff' && id) {

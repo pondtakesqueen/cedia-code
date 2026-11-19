@@ -54,6 +54,8 @@ export type Capability =
   | 'complete' // cedia complete --file --at <line:col> [--stdin] --json (Completion): the text tab completion offers at the cursor
   | 'context' // cedia context [--thread <id>] --json (ContextBreakdown): what fills a session's context now, by part
   | 'threads.recap' // cedia threads recap <id> [--since <time|span>] --json (AwayRecap): what a thread did since then
+  | 'desktop.projects' // -p --desktop on: the writer's add_project, a question whose request (ProjectRequest) the desktop carries out on Allow
+  | 'threads.carry' // cedia threads carry <id> --to <dir> --json (CarryResult): the chat goes on in a new thread of that folder's project
   | 'inline-edit'; // cedia inline-edit --file --range --instruction [--stdin] --json (InlineEdit): a selection's new text and patch
 
 export type VersionInfo = { name: 'cedia'; version: string; protocol: string; capabilities: Capability[] };
@@ -62,7 +64,7 @@ export type VersionInfo = { name: 'cedia'; version: string; protocol: string; ca
 export const PROTOCOL = hash(schemaText as unknown as string);
 
 export function versionInfo(): VersionInfo {
-  const capabilities: Capability[] = ['stream-json', 'threads', 'threads.send', 'threads.unsend', 'threads.rate', 'evidence.check-thread', 'spawn', 'handoff', 'plan', 'review', 'ask', 'todo', 'creator', 'profiles', 'open_thread', 'schedules', 'worktree.newest-wins', 'spawn.best-of-n', 'models', 'permissions', 'commands', 'threads.fork', 'usage', 'threads.restore-json', 'images', 'browser', 'browser.sites', 'cache-ttl', 'threads.rename', 'threads.delete', 'mcp.manage', 'settings.edit', 'commit', 'pr', 'threads.side', 'daemon', 'daemon.desktop-lock', 'threads.send-images', 'inline-edit', 'video', 'media-route', 'code-review', 'complete', 'context', 'threads.recap', 'threads.resume-cost'];
+  const capabilities: Capability[] = ['stream-json', 'threads', 'threads.send', 'threads.unsend', 'threads.rate', 'evidence.check-thread', 'spawn', 'handoff', 'plan', 'review', 'ask', 'todo', 'creator', 'profiles', 'open_thread', 'schedules', 'worktree.newest-wins', 'spawn.best-of-n', 'models', 'permissions', 'commands', 'threads.fork', 'usage', 'threads.restore-json', 'images', 'browser', 'browser.sites', 'cache-ttl', 'threads.rename', 'threads.delete', 'mcp.manage', 'settings.edit', 'commit', 'pr', 'threads.side', 'daemon', 'daemon.desktop-lock', 'threads.send-images', 'inline-edit', 'video', 'media-route', 'code-review', 'complete', 'context', 'threads.recap', 'threads.resume-cost', 'desktop.projects', 'threads.carry'];
   if (processKeychain()) capabilities.push('keychain');
   return { name: 'cedia', version: VERSION, protocol: PROTOCOL, capabilities };
 }

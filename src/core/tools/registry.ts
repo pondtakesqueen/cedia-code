@@ -1,4 +1,4 @@
-import type { JsonObject, ToolDef, ToolEffect, ToolOutput } from '../types.ts';
+import type { JsonObject, Question, ToolDef, ToolEffect, ToolOutput } from '../types.ts';
 
 // The policy judges paths with toolPath and the file tools open them with it, so the two can never mean different
 // files. It lives with the other path facts (core/fs-safety.ts); the tools take it from here.
@@ -45,6 +45,9 @@ export type ToolSpec = ToolDef & {
   // A call that hands words to another agent that acts on them (a message to another thread): an injected writer
   // could pass its instructions on, so the classifier reads it as it reads a command.
   relays?: boolean;
+  // A call that ends the run with a question for the owner (ask_user, add_project): the question its input asks,
+  // once the call has succeeded. The thread waits as `asking` and the answer is its next prompt.
+  asks?(input: JsonObject): Question | undefined;
   run(input: JsonObject, ctx: ToolCtx): Promise<ToolOutput>;
 };
 
