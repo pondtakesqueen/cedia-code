@@ -25,7 +25,20 @@ describe('MCP', () => {
       const run = (name: string, input = {}, c = ctx()) => m.tools.find((t) => t.name === `mcp__fake__${name}`)!.run(input, c);
       expect(await run('echo', { text: 'hi' })).toEqual({ text: 'echo: hi', isError: false });
       expect(await run('fail')).toEqual({ text: 'it broke', isError: true });
-      expect((await run('picture')).text).toBe('[image image/png, 3 bytes, not shown]\na picture');
+      // An image the model can read reaches it, its bytes in the blob store; one that is not an image says why.
+      const home = process.env.CEDIA_HOME;
+      process.env.CEDIA_HOME = mkdtempSync(join(tmpdir(), 'cedia-mcp-img-'));
+      try {
+        expect(await run('picture')).toEqual({ text: '[image image/png, 3 bytes, not shown: not a PNG, JPEG, GIF or WebP image]\na picture', isError: false });
+        const shown = await run('picture', { real: true });
+        expect(shown.text).toBe('[image image/png, 1x1 px]\na picture');
+        expect(shown.images).toHaveLength(1);
+        expect(shown.images![0]).toMatchObject({ mime: 'image/png', width: 1, height: 1, name: 'mcp__fake__picture.png' });
+        expect(readdirSync(join(process.env.CEDIA_HOME, 'blobs'))).toEqual([shown.images![0]!.sha256]);
+      } finally {
+        if (home === undefined) delete process.env.CEDIA_HOME;
+        else process.env.CEDIA_HOME = home;
+      }
       // cedia's own keys stay out of the server's environment; what the config names goes in.
       process.env.ANTHROPIC_API_KEY ??= 'sk-ant-test';
       expect((await run('env')).text).toBe('FAKE_TOKEN=given ANTHROPIC_API_KEY=');

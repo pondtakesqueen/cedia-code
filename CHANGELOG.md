@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added images from MCP tools: a screenshot or computer-use server's pictures now reach the model instead of a "not shown" note
 - Added `add_project` for desktop clients (`--desktop on`): the agent can ask you to add or create a project and carry the chat over to it, and nothing changes until you allow it
 - Added `cedia threads carry <id> --to <dir>` to continue a chat in another project from a recap
 - Added a question in the TUI before a prompt goes to a large thread whose cache has expired: go on in a new session from where it stopped, or with the whole context

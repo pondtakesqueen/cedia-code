@@ -36,7 +36,9 @@ async function handle(m: { id?: number; method?: string; params?: Record<string,
     const args = (m.params?.arguments ?? {}) as Record<string, unknown>;
     if (name === 'echo') return send({ jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: `echo: ${args.text}` }] } });
     if (name === 'fail') return send({ jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: 'it broke' }], isError: true } });
-    if (name === 'picture') return send({ jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'image', mimeType: 'image/png', data: 'AAAA' }, { type: 'text', text: 'a picture' }] } });
+    // A 1x1 PNG when asked for a real one, else three bytes that are no image.
+    const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    if (name === 'picture') return send({ jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'image', mimeType: 'image/png', data: args.real ? PNG : 'AAAA' }, { type: 'text', text: 'a picture' }] } });
     if (name === 'slow') return setTimeout(() => send({ jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: 'late' }] } }), Number(args.ms ?? 5000));
     if (name === 'env') return send({ jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: `FAKE_TOKEN=${process.env.FAKE_TOKEN ?? ''} ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY ?? ''}` }] } });
     if (name === 'crash') {
