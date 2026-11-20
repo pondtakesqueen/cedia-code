@@ -393,6 +393,10 @@ export function localModels(): ModelSpec[] {
     const wire = (o.wire === 'anthropic-messages' || o.wire === 'openai-responses') ? o.wire : 'chat-completions';
     const ctx = typeof o.contextWindow === 'number' ? o.contextWindow : 128_000;
     const reasoning = o.reasoning === true;
+    // Each wire reads its own kind of reasoning, and wants it back as a catalog model on that wire does: the chat
+    // wire within a tool loop (DeepSeek-style), the others always. `replayReasoning` in the entry overrides it.
+    const kind = !reasoning ? 'none' : wire === 'anthropic-messages' ? 'anthropic-thinking' : wire === 'openai-responses' ? 'responses-item' : 'reasoning_content';
+    const replay = o.replayReasoning === 'required' || o.replayReasoning === 'forbidden' || o.replayReasoning === 'same-turn' ? o.replayReasoning : wire === 'chat-completions' ? 'same-turn' : 'required';
     const maxOut = typeof o.maxOutput === 'number' ? o.maxOutput : 8_192;
     out.push({
       ref,
@@ -406,8 +410,8 @@ export function localModels(): ModelSpec[] {
       price: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       dataPolicy: 'retained',
       caps: {
-        reasoning: reasoning ? 'reasoning_content' : 'none',
-        replayReasoning: 'forbidden',
+        reasoning: kind,
+        replayReasoning: replay,
         parallelToolCalls: true,
         input: ['text'],
         effortLevels: [],

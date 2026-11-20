@@ -84,7 +84,8 @@ export type Settings = {
   outputStyle?: string;
   // Prompt suggestions: predict next user prompt after each turn (default off).
   promptSuggestions?: boolean;
-  // Local (self-hosted) OpenAI-compatible models: [{ref, id, wire, url, contextWindow, maxOutput, authEnv}].
+  // Local (self-hosted) OpenAI-compatible models: [{ref, id, wire, url, contextWindow, maxOutput, authEnv, reasoning,
+  // replayReasoning}] (catalog.ts localModels).
   localModels?: unknown[];
   // A ceiling on effort everywhere the run sets one (writer, spawn children, plan/review steps, escalation):
   // levels above it resolve down to it. Flags choose under it, never over. User settings only
