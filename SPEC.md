@@ -104,7 +104,7 @@ Research findings and source paths are in `research/NOTES.md`.
   The bytes go once into `~/.cedia/blobs/<sha256>` (0600 in a 0700 directory) and the log holds `ImageRef{sha256, mime, width, height, bytes, name}`, so a request rebuilt from the log sends the same bytes and the cache holds; a blob that no longer matches its hash stops the request.
   A session shows at most 20 images (past 20 the API wants every image at most 2000 px); later ones are dropped with a note in the result.
   Anthropic Messages sends image blocks (in a tool_result's content for a tool's); Chat Completions and Responses, whose models here read text only, get a note in each image's place.
-  MCP images are still left out
+  An MCP tool's images are shown the same way (`resultOutput` in `core/mcp/tools.ts`), so a screenshot or computer-use server's pictures reach the model; one it would refuse stays out with the reason, and audio is never shown
 - **Projects and threads**: A project is a working directory, and every git worktree of a repository is the main worktree's project (`projectRoot` via `git rev-parse --git-common-dir`), so threads in different worktrees list, message and recall one another; the session event's `cwd` names the worktree, and snapshots stay per worktree.
   Every headless run is a thread of it (`~/.cedia/projects/<slug>/threads/<id>.jsonl`, append-only, so two cedia processes can write one without locks).
   `--thread <id>` goes on with a thread: in its last session when the model is the same, otherwise in a new session that starts from its latest handoff note or result.

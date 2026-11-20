@@ -1,3 +1,4 @@
+import { storeImage, type ImageRef } from '../images.ts';
 import { clip, type ToolSpec } from '../tools/registry.ts';
 import type { ToolDef } from '../types.ts';
 import type { JsonObject } from '../types.ts';
@@ -23,17 +24,28 @@ export type McpServers = { clients: McpClient[]; tools: ToolSpec[]; deferred: To
 
 const part = (s: string) => s.replace(/[^A-Za-z0-9_-]/g, '_');
 
-// The text a call's result reaches the model as.
-export function resultText(r: McpCallResult): string {
+// What a call's result reaches the model as: its text, and the images in it that a model reads. Each image's bytes
+// go into the blob store (core/images.ts) and the log holds the reference, as for `read` and the browser's
+// screenshot, so a computer-use or screenshot server's pictures reach the model; the text marks where each one was.
+// One the API would refuse, or that is no image at all, stays out with the reason. Audio is never shown.
+export function resultOutput(r: McpCallResult, name = 'mcp'): { text: string; images: ImageRef[] } {
+  const images: ImageRef[] = [];
   const parts = (r.content ?? []).map((c) => {
     if (c.type === 'text') return c.text ?? '';
-    if (c.type === 'image' || c.type === 'audio') return `[${c.type} ${c.mimeType ?? ''}, ${Math.round(((c.data?.length ?? 0) * 3) / 4)} bytes, not shown]`;
+    const size = `${Math.round(((c.data?.length ?? 0) * 3) / 4)} bytes`;
+    if (c.type === 'image') {
+      const ref = storeImage(Buffer.from(c.data ?? '', 'base64'), `${name}.${(c.mimeType ?? 'image/png').split('/')[1] ?? 'png'}`);
+      if ('error' in ref) return `[image ${c.mimeType ?? ''}, ${size}, not shown: ${ref.error}]`;
+      images.push(ref);
+      return `[image ${ref.mime}, ${ref.width}x${ref.height} px]`;
+    }
+    if (c.type === 'audio') return `[audio ${c.mimeType ?? ''}, ${size}, not shown]`;
     if (c.type === 'resource') return c.resource?.text ?? `[resource ${c.resource?.uri ?? ''}]`;
     if (c.type === 'resource_link') return `[resource ${(c as { uri?: string }).uri ?? ''}]`;
     return `[${c.type} content, not shown]`;
   });
   if (!parts.length && r.structuredContent !== undefined) parts.push(JSON.stringify(r.structuredContent));
-  return parts.join('\n') || '(no output)';
+  return { text: parts.join('\n') || '(no output)', images };
 }
 
 // A schema the providers take: an object at the top, without the keys some of them refuse. A schema they would
@@ -63,7 +75,8 @@ export function mcpToolSpec(client: McpClient, t: McpTool, name: string): ToolSp
     async run(input, ctx) {
       try {
         const r = await client.call(t.name, input, ctx.signal);
-        return { text: clip(resultText(r)), isError: r.isError === true };
+        const { text, images } = resultOutput(r, name);
+        return { text: clip(text), isError: r.isError === true, ...(images.length ? { images } : {}) };
       } catch (e) {
         return { text: `MCP server ${client.name}: ${(e as Error).message}`, isError: true };
       }

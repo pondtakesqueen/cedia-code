@@ -49,6 +49,17 @@ jobs:
           sudo apt-get install -y -q --no-install-recommends bubblewrap socat ripgrep ffmpeg
           # Ubuntu 24.04 strips capabilities from unprivileged user namespaces, which bubblewrap needs.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          # Since mid-November 2026 that is not enough on the runner image: bwrap makes its own user namespace, but
+          # the seccomp helper's nested one inside it comes out without capabilities ("apply-seccomp: write
+          # /proc/self/setgroups (nested userns is capability-restricted ...)"), so every sandboxed command fails.
+          # A profile that restricts bwrap's children (Ubuntu's bwrap-userns-restrict) is taken off, and bwrap gets
+          # one that grants user namespaces, which what it starts inherits.
+          sysctl -a 2>/dev/null | grep apparmor_restrict || true
+          sudo aa-status 2>/dev/null | grep -i bwrap || true
+          if [ -e /etc/apparmor.d/bwrap-userns-restrict ]; then sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict || true; fi
+          printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' 'profile cedia-ci-bwrap /usr/bin/bwrap flags=(unconfined) {' '  userns,' '}' | sudo tee /etc/apparmor.d/cedia-ci-bwrap >/dev/null
+          sudo apparmor_parser -r /etc/apparmor.d/cedia-ci-bwrap
+          bwrap --unshare-user --bind / / -- unshare -Ur true && echo 'nested user namespace: ok' || echo 'nested user namespace: refused'
       - name: Sandbox dependencies (macOS)
         if: runner.os == 'macOS'
         run: brew install ripgrep
