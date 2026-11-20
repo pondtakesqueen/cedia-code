@@ -10,14 +10,14 @@
     "build:release": "bun scripts/build-release.ts"
   },
   "devDependencies": {
-    "@types/bun": "1.4.3",
+    "@types/bun": "1.4.4",
     "@types/react": "^19.3.0",
-    "@xterm/headless": "5.5.0",
-    "ts-json-schema-generator": "2.4.0",
+    "@xterm/headless": "6.0.0",
+    "ts-json-schema-generator": "2.9.0",
     "typescript": "7.0.2"
   },
   "dependencies": {
-    "@anthropic-ai/sandbox-runtime": "0.0.81",
+    "@anthropic-ai/sandbox-runtime": "0.0.83",
     "@mariozechner/pi-tui": "0.73.1",
     "ink": "^8.0.0",
     "react": "^19.3.1",
